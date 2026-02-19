@@ -122,6 +122,16 @@
 	}
 }
 
+/* AI trigger — orbiting arc animation */
+@keyframes ai-orbit {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 /* Kanban board scrollbar -- always visible, thin, unobtrusive */
 .kanban-scrollbar {
 	scrollbar-width: thin;
