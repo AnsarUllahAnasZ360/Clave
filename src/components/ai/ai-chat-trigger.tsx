@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAIChatPanel } from "@/components/ai/ai-chat-context";
-import { PixelCIcon } from "@/components/ui/pixel-c-icon";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "clave:ai-trigger-y";
-const TRIGGER_SIZE = 40;
+const TRIGGER_SIZE = 44;
 
 function getStoredY(): number | null {
 	if (typeof window === "undefined") return null;
@@ -26,6 +25,88 @@ function persistY(y: number) {
 	}
 }
 
+/**
+ * Animated pixel "C" inside a circular button with an orbiting arc.
+ * The arc rotates continuously, and the C pixels pulse subtly on hover.
+ */
+function AnimatedPixelC({ size = 44 }: { size?: number }) {
+	const iconSize = size * 0.45;
+	const grid = [
+		[0, 1, 1, 1, 0],
+		[1, 0, 0, 0, 1],
+		[1, 0, 0, 0, 0],
+		[1, 0, 0, 0, 0],
+		[1, 0, 0, 0, 0],
+		[1, 0, 0, 0, 1],
+		[0, 1, 1, 1, 0],
+	];
+	const cols = 5;
+	const rows = 7;
+	const gap = iconSize * 0.06;
+	const cellW = (iconSize - gap * (cols - 1)) / cols;
+	const cellH = (iconSize - gap * (rows - 1)) / rows;
+
+	const ringR = size / 2 - 2;
+	const center = size / 2;
+
+	return (
+		<svg
+			width={size}
+			height={size}
+			viewBox={`0 0 ${size} ${size}`}
+			className="block"
+		>
+			{/* Outer ring — static subtle border */}
+			<circle
+				cx={center}
+				cy={center}
+				r={ringR}
+				fill="none"
+				stroke="white"
+				strokeOpacity={0.15}
+				strokeWidth={1.5}
+			/>
+
+			{/* Orbiting arc */}
+			<circle
+				cx={center}
+				cy={center}
+				r={ringR}
+				fill="none"
+				stroke="white"
+				strokeOpacity={0.8}
+				strokeWidth={2}
+				strokeLinecap="round"
+				strokeDasharray={`${ringR * 1.2} ${ringR * 5}`}
+				className="animate-[ai-orbit_3s_linear_infinite] origin-center"
+			/>
+
+			{/* Pixel C grid — centered */}
+			<g
+				transform={`translate(${center - iconSize / 2}, ${center - iconSize / 2})`}
+			>
+				{grid.flatMap((row, ry) =>
+					row.map((on, cx) => {
+						if (!on) return null;
+						return (
+							<rect
+								// biome-ignore lint/suspicious/noArrayIndexKey: static pixel grid
+								key={`${ry}-${cx}`}
+								x={cx * (cellW + gap)}
+								y={ry * (cellH + gap)}
+								width={cellW}
+								height={cellH}
+								rx={cellW * 0.15}
+								fill="white"
+							/>
+						);
+					}),
+				)}
+			</g>
+		</svg>
+	);
+}
+
 export function AIChatTrigger() {
 	const { isOpen, toggle } = useAIChatPanel();
 	const [yPos, setYPos] = useState<number | null>(null);
@@ -39,11 +120,9 @@ export function AIChatTrigger() {
 	useEffect(() => {
 		const stored = getStoredY();
 		if (stored !== null) {
-			// Clamp to viewport
 			const maxY = window.innerHeight - TRIGGER_SIZE - 16;
 			setYPos(Math.min(Math.max(16, stored), maxY));
 		} else {
-			// Default to vertically centered
 			setYPos(window.innerHeight / 2 - TRIGGER_SIZE / 2);
 		}
 	}, []);
@@ -74,7 +153,6 @@ export function AIChatTrigger() {
 		if (!isDragging.current) return;
 		isDragging.current = false;
 		if (yPos !== null) persistY(yPos);
-		// Only toggle if this was a click (not a drag)
 		if (!hasMoved.current) {
 			toggle();
 		}
@@ -91,15 +169,20 @@ export function AIChatTrigger() {
 			onPointerUp={handlePointerUp}
 			className={cn(
 				"fixed right-0 z-30 flex items-center justify-center",
-				"h-10 w-10 rounded-l-full",
-				"bg-sienna-600 text-white shadow-lg transition-colors hover:bg-sienna-500",
+				"rounded-l-2xl",
+				"bg-sienna-600 shadow-lg transition-all hover:bg-sienna-500",
+				"hover:shadow-[0_0_16px_2px_rgba(194,106,58,0.35)]",
 				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sienna-500 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
 				"touch-none select-none",
 			)}
-			style={{ top: yPos }}
+			style={{
+				top: yPos,
+				width: TRIGGER_SIZE,
+				height: TRIGGER_SIZE,
+			}}
 			aria-label="Open AI assistant"
 		>
-			<PixelCIcon size={18} color="white" />
+			<AnimatedPixelC size={TRIGGER_SIZE - 4} />
 		</button>
 	);
 }
