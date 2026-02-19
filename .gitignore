@@ -47,6 +47,16 @@ yarn-error.log*
 # GitHub
 .github/
 
+# Internal docs & planning (not code)
+.scratchpad/
+.agents/
+.source/
+docs/
+content/
+
+# Lock file (project uses bun)
+package-lock.json
+
 # Misc
 *.tsbuildinfo
 .vercel/

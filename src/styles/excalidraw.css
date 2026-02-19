@@ -1,0 +1,21 @@
+/* Clave sienna accent color overrides for Excalidraw */
+.excalidraw-clave .excalidraw {
+	--color-primary: #c26a3a;
+	--color-primary-darker: #a85830;
+	--color-primary-darkest: #8e4a28;
+	--color-primary-light: #d4845a;
+}
+
+/* Hide the Library sidebar trigger button in the toolbar (@excalidraw/excalidraw 0.18)
+   The correct class is "default-sidebar-trigger" -- this is the button that opens the Library panel */
+.excalidraw-clave .excalidraw .default-sidebar-trigger {
+	display: none !important;
+}
+
+/* Belt-and-suspenders: hide library panel content and any tab triggers */
+.excalidraw-clave .excalidraw .layer-ui__library,
+.excalidraw-clave .excalidraw .library-menu-container,
+.excalidraw-clave .excalidraw [aria-label="Library"],
+.excalidraw-clave .excalidraw button[title="Library"] {
+	display: none !important;
+}

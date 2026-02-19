@@ -33,6 +33,8 @@ npx convex dev       # Convex server (separate terminal)
 - **tailwind-shadcn** - Styling, UI components
 - **test-driven-development** - Tests before code
 - **git-workflow** - Commits, branches, PRs
+- **sprint-protocol** - Sprint planning, execution, review
+- **agent-browser** - Browser verification (always verify UI changes)
 
 ## CLIs
 - `bunx shadcn@latest add [name]` - Add component
@@ -44,10 +46,23 @@ npx convex dev       # Convex server (separate terminal)
 1. Biome formats the file
 2. TypeScript reports errors
 
+## Slash Commands
+- `/refine` - Refinement session: investigate, fix, verify with browser. Task list first, always.
+
+## Agent Teams (Mandatory for Sprint Execution)
+When delegating work to other agents during sprints:
+1. Call `TeamCreate` before spawning any workers.
+2. Every `Task` call MUST include `team_name` and `name` parameters.
+3. Shut down workers via `SendMessage` with `type: "shutdown_request"`.
+4. Call `TeamDelete` when done.
+5. NEVER use Task without `team_name`, `run_in_background`, or local sub-agents.
+
 ## IMPORTANT
 - Server Components by default, "use client" only when needed
 - Check auth in mutations: `await getAuthUserId(ctx)`
 - NEVER modify: `convex/_generated/`, `node_modules/`, `.next/`
+- Always create a task list (TaskCreate) before starting work
+- Always verify UI changes using Agent Browser CLI
 
 ## Commits
 ```

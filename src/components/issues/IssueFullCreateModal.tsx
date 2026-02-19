@@ -1,0 +1,676 @@
+"use client";
+
+import { useMutation, useQuery } from "convex/react";
+import {
+	Calendar,
+	CircleDashed,
+	CircleDot,
+	Clock,
+	Flag,
+	FolderOpen,
+	Minimize2,
+	SignalHigh,
+	Tag,
+	User,
+	X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
+import { useWorkspace } from "@/components/providers/workspace-context";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DatePicker, GenericPicker } from "@/components/ui/pickers";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import {
+	type IssueTypeKey,
+	PRIORITY_ITEMS,
+	type PriorityKey,
+	STATUS_ITEMS,
+	type StatusKey,
+	TYPE_ITEMS,
+} from "@/lib/issue-config";
+import { cn } from "@/lib/utils";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { useIssueCreate } from "./IssueCreateContext";
+
+// ── Issue config (from centralized module) ────────────────────────────────
+
+const STATUS_OPTIONS = STATUS_ITEMS;
+const PRIORITY_OPTIONS = PRIORITY_ITEMS;
+const TYPE_OPTIONS = TYPE_ITEMS;
+
+const ESTIMATE_OPTIONS = [
+	{ id: "0", label: "No estimate" },
+	{ id: "1", label: "1 point" },
+	{ id: "2", label: "2 points" },
+	{ id: "3", label: "3 points" },
+	{ id: "5", label: "5 points" },
+	{ id: "8", label: "8 points" },
+	{ id: "13", label: "13 points" },
+];
+
+// ── Component ──────────────────────────────────────────────────────────────
+
+interface IssueFullCreateModalProps {
+	open: boolean;
+	onClose: () => void;
+	onIssueCreated?: (result: { issueId: string; identifier: string }) => void;
+}
+
+export function IssueFullCreateModal({
+	open,
+	onClose,
+	onIssueCreated,
+}: IssueFullCreateModalProps) {
+	const { workspaceId } = useWorkspace();
+	const { formState, updateForm, switchMode, resetFormKeepProperties } =
+		useIssueCreate();
+	const createIssue = useMutation(api.issues.create);
+	const rawProjects = useQuery(api.projects.list, { workspaceId });
+	const workspaceMembers = useQuery(api.workspaceMembers.list, { workspaceId });
+	const allLabels = useQuery(api.labels.list, { workspaceId });
+	const settings = useQuery(api.workspaceSettings.get, { workspaceId });
+
+	// Milestone query based on selected project
+	const activeMilestones = useQuery(
+		api.milestones.listByProject,
+		formState.projectId
+			? { projectId: formState.projectId as Id<"projects"> }
+			: "skip",
+	);
+
+	const titleRef = useRef<HTMLInputElement>(null);
+	const submittingRef = useRef(false);
+
+	// Compute next identifier preview
+	const identifierPreview = useMemo(() => {
+		if (!settings) return null;
+		const prefix = settings.issuePrefix ?? settings.storyPrefix;
+		const num = settings.nextIssueNumber ?? 1;
+		return `${prefix}-${String(num).padStart(3, "0")}`;
+	}, [settings]);
+
+	// Build picker options
+	const projectOptions = useMemo(() => {
+		if (!rawProjects) return [];
+		return rawProjects.map((p) => ({ id: p._id as string, label: p.name }));
+	}, [rawProjects]);
+
+	const assigneeOptions = useMemo(() => {
+		if (!workspaceMembers) return [];
+		return workspaceMembers.map((m) => ({
+			id: m.userId as string,
+			name: m.user?.name ?? m.user?.email ?? "Unknown",
+		}));
+	}, [workspaceMembers]);
+
+	const milestoneOptions = useMemo(() => {
+		if (!activeMilestones) return [];
+		return activeMilestones.map((m) => ({
+			id: m._id as string,
+			label: m.name,
+		}));
+	}, [activeMilestones]);
+
+	// Focus title on open
+	useEffect(() => {
+		if (!open) return;
+		requestAnimationFrame(() => {
+			titleRef.current?.focus();
+		});
+	}, [open]);
+
+	const handleSubmit = useCallback(async () => {
+		if (submittingRef.current) return;
+		const trimmed = formState.title.trim();
+		if (!trimmed) {
+			toast.error("Title is required");
+			titleRef.current?.focus();
+			return;
+		}
+
+		submittingRef.current = true;
+		try {
+			const estimateVal = Number.parseFloat(formState.estimate);
+			const result = await createIssue({
+				workspaceId,
+				title: trimmed,
+				description: formState.description.trim() || undefined,
+				status: formState.status as
+					| "triage"
+					| "backlog"
+					| "todo"
+					| "in_progress"
+					| "in_review"
+					| "done"
+					| "cancelled",
+				priority: formState.priority as
+					| "urgent"
+					| "high"
+					| "medium"
+					| "low"
+					| "no_priority",
+				type: formState.issueType as
+					| "issue"
+					| "bug"
+					| "improvement"
+					| "feature",
+				projectId: formState.projectId
+					? (formState.projectId as Id<"projects">)
+					: undefined,
+				milestoneId: formState.milestoneId
+					? (formState.milestoneId as Id<"milestones">)
+					: undefined,
+				assigneeId: formState.assigneeId
+					? (formState.assigneeId as Id<"users">)
+					: undefined,
+				labelIds:
+					formState.labelIds.length > 0
+						? (formState.labelIds as Id<"labels">[])
+						: undefined,
+				estimate: estimateVal > 0 ? estimateVal : undefined,
+				dueDate: formState.dueDate?.getTime(),
+			});
+
+			onIssueCreated?.(result);
+
+			if (formState.createMore) {
+				toast.success(`${result.identifier} created`);
+				resetFormKeepProperties();
+				titleRef.current?.focus();
+				return;
+			}
+
+			toast.success(`${result.identifier} created`);
+			onClose();
+		} catch {
+			toast.error("Failed to create issue");
+		} finally {
+			submittingRef.current = false;
+		}
+	}, [
+		formState,
+		workspaceId,
+		createIssue,
+		onIssueCreated,
+		onClose,
+		resetFormKeepProperties,
+	]);
+
+	if (!open) return null;
+
+	const currentStatus =
+		STATUS_OPTIONS.find((s) => s.id === formState.status) ?? STATUS_OPTIONS[1];
+	const currentPriority =
+		PRIORITY_OPTIONS.find((p) => p.id === formState.priority) ??
+		PRIORITY_OPTIONS[0];
+	const currentType =
+		TYPE_OPTIONS.find((t) => t.id === formState.issueType) ?? TYPE_OPTIONS[0];
+	const selectedAssignee = assigneeOptions.find(
+		(a) => a.id === formState.assigneeId,
+	);
+	const selectedProject = projectOptions.find(
+		(p) => p.id === formState.projectId,
+	);
+	const selectedMilestone = milestoneOptions.find(
+		(m) => m.id === formState.milestoneId,
+	);
+	const currentEstimate =
+		ESTIMATE_OPTIONS.find((e) => e.id === formState.estimate) ??
+		ESTIMATE_OPTIONS[0];
+
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+			onClick={onClose}
+			onKeyDown={(e) => {
+				if (e.key === "Escape") onClose();
+			}}
+		>
+			{/* Full-screen modal */}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: modal content */}
+			<div
+				className="w-full max-w-[800px] max-h-[85vh] rounded-2xl bg-background shadow-2xl border border-border flex flex-col animate-in fade-in-0 zoom-in-95 duration-200"
+				onClick={(e) => e.stopPropagation()}
+				onKeyDown={(e) => {
+					if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+						e.preventDefault();
+						handleSubmit();
+					}
+				}}
+			>
+				{/* Header */}
+				<div className="flex items-center justify-between p-4 border-b border-border">
+					<div className="flex items-center gap-2">
+						<span className="text-sm font-medium text-foreground">
+							New issue
+						</span>
+						{identifierPreview && (
+							<Badge variant="secondary" className="text-xs font-mono">
+								{identifierPreview}
+							</Badge>
+						)}
+					</div>
+					<div className="flex items-center gap-1">
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={() => switchMode("quick")}
+							className="h-7 w-7 rounded-full"
+							title="Collapse to compact view"
+						>
+							<Minimize2 className="h-3.5 w-3.5 text-muted-foreground" />
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							onClick={onClose}
+							className="h-7 w-7 rounded-full"
+						>
+							<X className="h-4 w-4 text-muted-foreground" />
+						</Button>
+					</div>
+				</div>
+
+				{/* Content: two columns */}
+				<div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
+					{/* Left: title + description */}
+					<div className="flex-1 overflow-y-auto p-4 space-y-4">
+						{/* Title */}
+						<div className="flex items-center gap-2">
+							<button
+								type="button"
+								className="shrink-0"
+								onClick={() => {
+									const idx = STATUS_OPTIONS.findIndex(
+										(s) => s.id === formState.status,
+									);
+									const next =
+										STATUS_OPTIONS[(idx + 1) % STATUS_OPTIONS.length];
+									updateForm({ status: next.id });
+								}}
+							>
+								<currentStatus.icon
+									className={cn("h-5 w-5", currentStatus.color)}
+								/>
+							</button>
+							<input
+								ref={titleRef}
+								type="text"
+								value={formState.title}
+								onChange={(e) => updateForm({ title: e.target.value })}
+								placeholder="Issue title"
+								className="flex-1 text-xl font-semibold text-foreground placeholder:text-muted-foreground outline-none bg-transparent border-none"
+								autoComplete="off"
+							/>
+						</div>
+
+						{/* Description */}
+						<textarea
+							value={formState.description}
+							onChange={(e) => updateForm({ description: e.target.value })}
+							placeholder="Add a description..."
+							className="w-full min-h-[200px] text-sm bg-transparent border border-border rounded-lg p-3 outline-none focus:border-primary resize-y leading-relaxed placeholder:text-muted-foreground"
+						/>
+					</div>
+
+					{/* Right: properties sidebar */}
+					<div className="w-full md:w-[280px] md:border-l border-t md:border-t-0 border-border overflow-y-auto p-4 space-y-3">
+						<h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+							Properties
+						</h3>
+
+						{/* Status */}
+						<PropertyRow label="Status" icon={CircleDashed}>
+							<GenericPicker
+								items={STATUS_OPTIONS.map((s) => ({
+									id: s.id,
+									label: s.label,
+									icon: s.icon,
+									color: s.color,
+								}))}
+								onSelect={(item) =>
+									updateForm({ status: item.id as StatusKey })
+								}
+								selectedId={formState.status}
+								placeholder="Set status..."
+								renderItem={(item) => {
+									const Icon = item.icon;
+									return (
+										<div className="flex items-center gap-2 w-full">
+											<Icon className={cn("h-4 w-4", item.color)} />
+											<span className="flex-1">{item.label}</span>
+										</div>
+									);
+								}}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<currentStatus.icon
+											className={cn("h-4 w-4", currentStatus.color)}
+										/>
+										<span>{currentStatus.label}</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+
+						{/* Priority */}
+						<PropertyRow label="Priority" icon={SignalHigh}>
+							<GenericPicker
+								items={PRIORITY_OPTIONS.map((p) => ({
+									id: p.id,
+									label: p.label,
+									icon: p.icon,
+									color: p.color,
+								}))}
+								onSelect={(item) =>
+									updateForm({ priority: item.id as PriorityKey })
+								}
+								selectedId={formState.priority}
+								placeholder="Set priority..."
+								renderItem={(item) => {
+									const Icon = item.icon;
+									return (
+										<div className="flex items-center gap-2 w-full">
+											<Icon className={cn("h-4 w-4", item.color)} />
+											<span className="flex-1">{item.label}</span>
+										</div>
+									);
+								}}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<currentPriority.icon
+											className={cn("h-4 w-4", currentPriority.color)}
+										/>
+										<span>{currentPriority.label}</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+
+						{/* Assignee */}
+						<PropertyRow label="Assignee" icon={User}>
+							<GenericPicker
+								items={assigneeOptions}
+								onSelect={(item) => updateForm({ assigneeId: item.id })}
+								selectedId={formState.assigneeId}
+								placeholder="Assign to..."
+								renderItem={(item) => (
+									<div className="flex items-center gap-2 w-full">
+										<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
+											{item.name.charAt(0)}
+										</div>
+										<span className="flex-1">{item.name}</span>
+									</div>
+								)}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<span>
+											{selectedAssignee?.name ?? (
+												<span className="text-muted-foreground">
+													Unassigned
+												</span>
+											)}
+										</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+
+						{/* Type */}
+						<PropertyRow label="Type" icon={CircleDot}>
+							<GenericPicker
+								items={TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
+								onSelect={(item) =>
+									updateForm({ issueType: item.id as IssueTypeKey })
+								}
+								selectedId={formState.issueType}
+								placeholder="Set type..."
+								renderItem={(item) => (
+									<div className="flex items-center gap-2 w-full">
+										<span className="flex-1">{item.label}</span>
+									</div>
+								)}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<span>{currentType.label}</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+
+						<Separator className="my-2" />
+
+						{/* Project */}
+						<PropertyRow label="Project" icon={FolderOpen}>
+							<GenericPicker
+								items={projectOptions}
+								onSelect={(item) => {
+									updateForm({
+										projectId: item.id,
+										milestoneId: undefined,
+									});
+								}}
+								selectedId={formState.projectId}
+								placeholder="Set project..."
+								renderItem={(item) => (
+									<div className="flex items-center gap-2 w-full">
+										<span className="flex-1">{item.label}</span>
+									</div>
+								)}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<span>
+											{selectedProject?.label ?? (
+												<span className="text-muted-foreground">
+													No project
+												</span>
+											)}
+										</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+
+						{/* Milestone (only when project selected) */}
+						{formState.projectId && (
+							<PropertyRow label="Sprint" icon={Flag}>
+								<GenericPicker
+									items={milestoneOptions}
+									onSelect={(item) => updateForm({ milestoneId: item.id })}
+									selectedId={formState.milestoneId}
+									placeholder="Set sprint..."
+									renderItem={(item) => (
+										<div className="flex items-center gap-2 w-full">
+											<span className="flex-1">{item.label}</span>
+										</div>
+									)}
+									trigger={
+										<button
+											type="button"
+											className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+										>
+											<span>
+												{selectedMilestone?.label ?? (
+													<span className="text-muted-foreground">
+														No sprint
+													</span>
+												)}
+											</span>
+										</button>
+									}
+								/>
+							</PropertyRow>
+						)}
+
+						{/* Labels */}
+						{allLabels && allLabels.length > 0 && (
+							<PropertyRow label="Labels" icon={Tag}>
+								<GenericPicker
+									items={allLabels.map((l) => ({
+										id: l._id as string,
+										label: l.name,
+									}))}
+									onSelect={(item) => {
+										const prev = formState.labelIds;
+										updateForm({
+											labelIds: prev.includes(item.id)
+												? prev.filter((id) => id !== item.id)
+												: [...prev, item.id],
+										});
+									}}
+									selectedId={undefined}
+									placeholder="Add label..."
+									renderItem={(item) => (
+										<div className="flex items-center gap-2 w-full">
+											<span className="flex-1">{item.label}</span>
+											{formState.labelIds.includes(item.id) && (
+												<span className="text-primary text-xs">&#10003;</span>
+											)}
+										</div>
+									)}
+									trigger={
+										<button
+											type="button"
+											className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+										>
+											<span>
+												{formState.labelIds.length > 0 ? (
+													`${formState.labelIds.length} label${formState.labelIds.length > 1 ? "s" : ""}`
+												) : (
+													<span className="text-muted-foreground">
+														No labels
+													</span>
+												)}
+											</span>
+										</button>
+									}
+								/>
+							</PropertyRow>
+						)}
+
+						<Separator className="my-2" />
+
+						{/* Estimate */}
+						<PropertyRow label="Estimate" icon={Clock}>
+							<GenericPicker
+								items={ESTIMATE_OPTIONS}
+								onSelect={(item) => updateForm({ estimate: item.id })}
+								selectedId={formState.estimate}
+								placeholder="Set estimate..."
+								renderItem={(item) => (
+									<div className="flex items-center gap-2 w-full">
+										<span className="flex-1">{item.label}</span>
+									</div>
+								)}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<span>{currentEstimate.label}</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+
+						{/* Due date */}
+						<PropertyRow label="Due date" icon={Calendar}>
+							<DatePicker
+								date={formState.dueDate}
+								onSelect={(d) => updateForm({ dueDate: d })}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+									>
+										<span>
+											{formState.dueDate ? (
+												formState.dueDate.toLocaleDateString()
+											) : (
+												<span className="text-muted-foreground">
+													No due date
+												</span>
+											)}
+										</span>
+									</button>
+								}
+							/>
+						</PropertyRow>
+					</div>
+				</div>
+
+				{/* Footer */}
+				<div className="flex items-center justify-between gap-3 p-4 border-t border-border">
+					<div className="flex items-center gap-2">
+						<Switch
+							checked={formState.createMore}
+							onCheckedChange={(v) => updateForm({ createMore: Boolean(v) })}
+						/>
+						<span className="text-xs text-muted-foreground">Create more</span>
+					</div>
+					<div className="flex items-center gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={onClose}
+							className="h-8"
+						>
+							Cancel
+						</Button>
+						<Button
+							type="button"
+							onClick={handleSubmit}
+							disabled={submittingRef.current}
+							className="h-8 px-4"
+						>
+							Create issue
+						</Button>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+// ── Property row ───────────────────────────────────────────────────────────
+
+function PropertyRow({
+	icon: Icon,
+	label,
+	children,
+}: {
+	icon: React.ComponentType<{ className?: string }>;
+	label: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<div className="flex items-center gap-2 min-h-[28px]">
+			<span className="flex items-center gap-1.5 text-xs text-muted-foreground w-20 shrink-0">
+				<Icon className="h-3.5 w-3.5" />
+				{label}
+			</span>
+			<div className="flex-1 min-w-0">{children}</div>
+		</div>
+	);
+}
