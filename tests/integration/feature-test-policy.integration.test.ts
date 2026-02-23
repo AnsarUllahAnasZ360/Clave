@@ -1,4 +1,5 @@
 /**
+ * Integration tests for the feature test policy enforcement script.
  * @vitest-environment node
  */
 

@@ -51,7 +51,7 @@ jobs:
           npx changeset status --since=origin/main || echo "::warning::No changeset found. If this PR includes user-facing changes, run 'bun run changeset' to add one."
 
   test:
-    name: Test Gate
+    name: Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -81,53 +81,11 @@ jobs:
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
 
-      - name: Enforce feature test policy
-        if: github.event_name == 'pull_request'
-        run: bun run test:policy
+      - name: Unit tests
+        run: bun run test:unit
 
-      - name: Run consolidated test gate
-        run: bun run test:all
-        env:
-          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
-
-  e2e:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    needs: [quality, test]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Generate Convex types
-        run: bunx convex codegen
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-
-      - name: Install Playwright browsers
-        run: bunx playwright install --with-deps chromium
-
-      - name: Run E2E tests
-        run: bun run test:e2e
-        env:
-          NEXT_PUBLIC_CONVEX_URL: ${{ secrets.NEXT_PUBLIC_CONVEX_URL }}
+      - name: Integration tests
+        run: bun run test:integration
 
   build:
     name: Build

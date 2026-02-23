@@ -8,6 +8,7 @@ import {
 import { ChevronRight } from "lucide-react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import type React from "react";
 import { source } from "@/lib/source";
 
 interface PageProps {
@@ -22,7 +23,9 @@ export default async function Page(props: PageProps) {
 		notFound();
 	}
 
-	const MDX = page.data.body;
+	// fumadocs-mdx virtual module provides body/toc/full at build time
+	const pageData = page.data as unknown as Record<string, unknown>;
+	const MDX = pageData.body as React.ComponentType;
 	const breadcrumbs = getBreadcrumbItems(page.url, source.pageTree, {
 		includeRoot: false,
 		includePage: false,
@@ -57,8 +60,8 @@ export default async function Page(props: PageProps) {
 
 	return (
 		<DocsPage
-			toc={page.data.toc}
-			full={page.data.full}
+			toc={pageData.toc as never}
+			full={pageData.full as boolean | undefined}
 			breadcrumb={{ component: breadcrumbComponent }}
 			className="max-w-[980px] xl:mx-0"
 		>

@@ -165,12 +165,12 @@ describe("chunkCodeFile", () => {
 		// First declaration should be the function
 		const funcChunk = chunks.find((c) => c.chunkType === "function");
 		expect(funcChunk).toBeDefined();
-		expect(funcChunk!.symbolName).toBe("greet");
+		expect(funcChunk?.symbolName).toBe("greet");
 
 		// Should have the const
 		const varChunk = chunks.find((c) => c.chunkType === "variable");
 		expect(varChunk).toBeDefined();
-		expect(varChunk!.symbolName).toBe("PI");
+		expect(varChunk?.symbolName).toBe("PI");
 	});
 
 	it("detects class declarations", () => {
@@ -184,7 +184,7 @@ describe("chunkCodeFile", () => {
 		const chunks = chunkCodeFile(content, "typescript");
 		const classChunk = chunks.find((c) => c.chunkType === "class");
 		expect(classChunk).toBeDefined();
-		expect(classChunk!.symbolName).toBe("MyService");
+		expect(classChunk?.symbolName).toBe("MyService");
 	});
 
 	it("detects interface and type declarations", () => {
@@ -199,11 +199,11 @@ describe("chunkCodeFile", () => {
 		const chunks = chunkCodeFile(content, "typescript");
 		const interfaceChunk = chunks.find((c) => c.chunkType === "interface");
 		expect(interfaceChunk).toBeDefined();
-		expect(interfaceChunk!.symbolName).toBe("Config");
+		expect(interfaceChunk?.symbolName).toBe("Config");
 
 		const typeChunk = chunks.find((c) => c.chunkType === "type");
 		expect(typeChunk).toBeDefined();
-		expect(typeChunk!.symbolName).toBe("Status");
+		expect(typeChunk?.symbolName).toBe("Status");
 	});
 
 	it("returns whole file as one chunk when no declarations found", () => {
