@@ -223,7 +223,12 @@ export const listByIssue = query({
 				entry[1] !== null && !entry[1].deletedAt && !!entry[1].storageId,
 		);
 		const fileUrlResults = await Promise.all(
-			filesWithStorage.map(([, file]) => ctx.storage.getUrl(file.storageId!)),
+			filesWithStorage.map(([, file]) => {
+				// storageId is guaranteed non-null by the filter above
+				const sid = file.storageId;
+				if (!sid) throw new Error("unreachable: storageId filtered");
+				return ctx.storage.getUrl(sid);
+			}),
 		);
 		const fileUrlMap = new Map<string, string | null>();
 		for (let i = 0; i < filesWithStorage.length; i++) {

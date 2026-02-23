@@ -166,7 +166,7 @@ describe("focus-grouping", () => {
 			const result = groupByFocus(issues, new Set());
 			const backlog = result.find((g) => g.group === "backlog");
 			expect(backlog).toBeDefined();
-			expect(backlog!.issues.map((i) => i.priority)).toEqual([
+			expect(backlog?.issues.map((i) => i.priority)).toEqual([
 				"high",
 				"medium",
 				"low",

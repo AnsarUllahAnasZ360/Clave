@@ -191,7 +191,9 @@ export const listByWorkspace = query({
 				return ctx.db
 					.query("issues")
 					.withIndex("by_workspace_status", (q) =>
-						q.eq("workspaceId", args.workspaceId).eq("status", args.status!),
+						q
+							.eq("workspaceId", args.workspaceId)
+							.eq("status", args.status as string),
 					)
 					.order("desc");
 			}

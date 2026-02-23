@@ -840,11 +840,15 @@ export const sendDueDateReminders = internalMutation({
 
 		let count = 0;
 		for (const issue of allIssues) {
+			// assigneeId is guaranteed by the filter above
+			const assigneeId = issue.assigneeId;
+			if (!assigneeId) continue;
+
 			// Due within next 24 hours and not already past.
 			if (issue.dueDate && issue.dueDate > now && issue.dueDate <= in24Hours) {
 				const dueDate = new Date(issue.dueDate).toLocaleDateString();
 				const created = await createNotification(ctx, {
-					userId: issue.assigneeId!,
+					userId: assigneeId,
 					workspaceId: issue.workspaceId,
 					type: "issue_due_soon",
 					title: "Issue due soon",
@@ -860,7 +864,7 @@ export const sendDueDateReminders = internalMutation({
 			// Overdue notifications (at most once per day per issue).
 			if (issue.dueDate && issue.dueDate <= now) {
 				const created = await createNotification(ctx, {
-					userId: issue.assigneeId!,
+					userId: assigneeId,
 					workspaceId: issue.workspaceId,
 					type: "issue_overdue",
 					title: "Issue is overdue",
@@ -878,7 +882,7 @@ export const sendDueDateReminders = internalMutation({
 			if (issueUpdatedAt < staleThreshold) {
 				const staleBucket = Math.floor(now / (7 * 24 * 60 * 60 * 1000));
 				const created = await createNotification(ctx, {
-					userId: issue.assigneeId!,
+					userId: assigneeId,
 					workspaceId: issue.workspaceId,
 					type: "issue_stale",
 					title: "Issue is out of date",

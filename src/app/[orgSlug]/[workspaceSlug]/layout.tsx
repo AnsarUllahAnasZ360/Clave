@@ -30,6 +30,7 @@ import { AIActionMenuProvider } from "@/hooks/use-ai-keyboard-shortcuts";
 import { RightPanelProvider, useRightPanel } from "@/hooks/use-right-panel";
 import { ShortcutProvider } from "@/hooks/use-shortcuts";
 import { api } from "../../../../convex/_generated/api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 const AIChatSidebar = dynamic(
 	() => import("@/components/ai/chat-sidebar").then((mod) => mod.AIChatSidebar),
@@ -104,7 +105,7 @@ export default function WorkspaceLayout({
 
 	const workspaceContextValue = useMemo(
 		() => ({
-			workspaceId: workspace?._id ?? ("" as any),
+			workspaceId: workspace?._id ?? ("" as unknown as Id<"workspaces">),
 			workspaceSlug: workspace?.slug ?? "",
 			workspaceName: workspace?.name ?? "",
 			orgSlug,

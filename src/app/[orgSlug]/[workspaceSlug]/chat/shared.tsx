@@ -4,14 +4,7 @@ import type { FileUIPart } from "ai";
 import { EyeOff, Search, SquarePen } from "lucide-react";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import {
-	type RefObject,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContextChip } from "@/components/ai/shared";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { useAIChat } from "@/hooks/use-ai-chat";

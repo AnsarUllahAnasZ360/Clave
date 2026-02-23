@@ -3,7 +3,7 @@
 import type { ModelMessage } from "ai";
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
-import { components, internal } from "../_generated/api";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action } from "../_generated/server";
 import { claveAgent } from "./agents";
