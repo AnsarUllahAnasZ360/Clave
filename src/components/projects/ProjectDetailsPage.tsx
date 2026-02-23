@@ -173,7 +173,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 					The project you are looking for does not exist or has been deleted.
 				</p>
 				<Button asChild variant="outline">
-					<Link href={`/${orgSlug}/${workspaceSlug}/projects`}>
+					<Link href={`/${orgSlug}/${workspaceSlug}/projects`} prefetch={false}>
 						Back to projects
 					</Link>
 				</Button>
@@ -199,6 +199,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							<Link
 								href={`/${orgSlug}/${workspaceSlug}/projects` as never}
 								className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+								prefetch={false}
 							>
 								Projects
 							</Link>

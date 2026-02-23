@@ -406,6 +406,7 @@ function IssueRow({
 	return (
 		<Link
 			href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
+			prefetch={false}
 			onClick={(e) => {
 				e.preventDefault();
 				onClick();

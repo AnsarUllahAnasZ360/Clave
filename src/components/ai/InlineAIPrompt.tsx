@@ -179,7 +179,7 @@ export function useInlineAIPrompt(): InlineAIPromptContextValue {
 export function InlineAIPrompt() {
 	const { isOpen, close } = useInlineAIPrompt();
 	const pathname = usePathname();
-	const context = detectAIContext(pathname);
+	const context = useMemo(() => detectAIContext(pathname), [pathname]);
 	const quickActions = QUICK_ACTIONS[context.page];
 	const headerText = getContextHeaderText(context);
 

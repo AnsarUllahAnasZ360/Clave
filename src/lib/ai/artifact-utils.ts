@@ -13,7 +13,9 @@ import type { ArtifactData, ArtifactType } from "@/types/artifacts";
 
 // ── Code fence regex ────────────────────────────────────────────────────
 // Matches fenced code blocks: ```lang\n...content...\n```
-const CODE_FENCE_RE = /```(\w+)?\n([\s\S]*?)```/g;
+// Supports language tags with symbols (e.g. c++, c#, objective-c).
+const CODE_FENCE_RE = /```([^\s`]+)?[^\S\r\n]*\r?\n([\s\S]*?)\r?\n?```/g;
+const CODE_FENCE_STRIP_RE = /```([^\s`]+)?[^\S\r\n]*\r?\n([\s\S]*?)\r?\n?```/g;
 
 // ── Markdown heading regex ──────────────────────────────────────────────
 const HEADING_RE = /^#{1,6}\s+.+$/gm;
@@ -26,6 +28,11 @@ const CODE_LINE_THRESHOLD = 30;
 const MARKDOWN_HEADING_THRESHOLD = 2;
 const MARKDOWN_WORD_THRESHOLD = 200;
 const TABLE_ROW_THRESHOLD = 5;
+const INLINE_RENDERED_ARTIFACT_TYPES = new Set<ArtifactType>([
+	"code",
+	"diagram",
+	"table",
+]);
 
 let artifactCounter = 0;
 
@@ -118,9 +125,13 @@ export function extractArtifacts(
 		match = CODE_FENCE_RE.exec(text);
 	}
 
+	// Remove code fences before scanning tables/headings so markdown-like
+	// text inside code blocks doesn't produce false-positive artifacts.
+	const textWithoutCode = text.replace(CODE_FENCE_STRIP_RE, "");
+
 	// ── Scan for large tables ─────────────────────────────────────────
 	TABLE_RE.lastIndex = 0;
-	match = TABLE_RE.exec(text);
+	match = TABLE_RE.exec(textWithoutCode);
 	while (match !== null) {
 		const rowsBlock = match[3];
 		const rows = rowsBlock.trim().split("\n").filter(Boolean);
@@ -147,12 +158,11 @@ export function extractArtifacts(
 				});
 			}
 		}
-		match = TABLE_RE.exec(text);
+		match = TABLE_RE.exec(textWithoutCode);
 	}
 
 	// ── Check if the full message qualifies as a markdown artifact ────
-	// Strip code fences before evaluating headings and word count
-	const textWithoutCode = text.replace(CODE_FENCE_RE, "");
+	// Code fences are already stripped in textWithoutCode.
 	const headings = textWithoutCode.match(HEADING_RE);
 	const wordCount = textWithoutCode
 		.split(/\s+/)
@@ -177,6 +187,22 @@ export function extractArtifacts(
 	}
 
 	return artifacts;
+}
+
+/** Whether an artifact type is already rendered inline in chat messages. */
+export function isInlineRenderedArtifact(type: ArtifactType): boolean {
+	return INLINE_RENDERED_ARTIFACT_TYPES.has(type);
+}
+
+/**
+ * Keep only artifacts that should render standalone cards.
+ * Inline-rendered artifacts (code, mermaid, tables) are suppressed to avoid
+ * duplicate previews in the same assistant message.
+ */
+export function filterArtifactCards(artifacts: ArtifactData[]): ArtifactData[] {
+	return artifacts.filter(
+		(artifact) => !isInlineRenderedArtifact(artifact.type),
+	);
 }
 
 /** Icon name for each artifact type (maps to lucide-react icon names) */

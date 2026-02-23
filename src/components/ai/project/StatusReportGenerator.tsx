@@ -125,7 +125,10 @@ export function StatusReportGenerator({
 						<div className="flex flex-col items-center justify-center py-12 gap-3">
 							<Loader2Icon className="h-6 w-6 animate-spin text-sienna-500 dark:text-sienna-400" />
 							<p className="text-sm text-muted-foreground">
-								Analyzing project data and generating report...
+								Generating report with GPT 5.2...
+							</p>
+							<p className="text-xs text-muted-foreground">
+								Summarizing milestones, issue progress, and delivery risk.
 							</p>
 						</div>
 					)}

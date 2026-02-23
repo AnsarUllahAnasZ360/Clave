@@ -1,68 +1,62 @@
 "use client";
 
 import { LineHeightPlugin } from "@platejs/basic-styles/react";
-
-import type { DropdownMenuProps } from "@radix-ui/react-dropdown-menu";
-import { DropdownMenuItemIndicator } from "@radix-ui/react-dropdown-menu";
-import { CheckIcon, WrapText } from "lucide-react";
-import { useEditorRef, useSelectionFragmentProp } from "platejs/react";
-import * as React from "react";
+import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { useEditorRef } from "platejs/react";
+import type * as React from "react";
 
 import {
 	DropdownMenu,
 	DropdownMenuContent,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
+	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 import { ToolbarButton } from "./toolbar";
 
-export function LineHeightToolbarButton(props: DropdownMenuProps) {
+const LINE_HEIGHTS = [1, 1.2, 1.5, 2, 3];
+
+export function LineHeightToolbarButton(
+	props: React.ComponentProps<typeof ToolbarButton>,
+) {
 	const editor = useEditorRef();
-	const { defaultNodeValue, validNodeValues: values = [] } =
-		editor.getInjectProps(LineHeightPlugin);
-
-	const value = useSelectionFragmentProp({
-		defaultValue: defaultNodeValue,
-		getProp: (node) => node.lineHeight,
-	});
-
-	const [open, setOpen] = React.useState(false);
 
 	return (
-		<DropdownMenu open={open} onOpenChange={setOpen} modal={false} {...props}>
+		<DropdownMenu modal={false}>
 			<DropdownMenuTrigger asChild>
-				<ToolbarButton pressed={open} tooltip="Line height" isDropdown>
-					<WrapText />
+				<ToolbarButton
+					{...props}
+					tooltip="Line height"
+					isDropdown
+					onMouseDown={(event) => event.preventDefault()}
+				>
+					<ArrowDownToLine />
+					<span className={cn("text-[11px] leading-none")}>1.5</span>
 				</ToolbarButton>
 			</DropdownMenuTrigger>
 
-			<DropdownMenuContent className="min-w-0" align="start">
-				<DropdownMenuRadioGroup
-					value={value}
-					onValueChange={(newValue) => {
-						editor
-							.getTransforms(LineHeightPlugin)
-							.lineHeight.setNodes(Number(newValue));
-						editor.tf.focus();
-					}}
-				>
-					{values.map((value) => (
-						<DropdownMenuRadioItem
-							key={value}
-							className="min-w-[180px] pl-2 *:first:[span]:hidden"
-							value={value}
-						>
-							<span className="pointer-events-none absolute right-2 flex size-3.5 items-center justify-center">
-								<DropdownMenuItemIndicator>
-									<CheckIcon />
-								</DropdownMenuItemIndicator>
-							</span>
-							{value}
-						</DropdownMenuRadioItem>
-					))}
-				</DropdownMenuRadioGroup>
+			<DropdownMenuContent
+				align="start"
+				className="w-24"
+				onCloseAutoFocus={(event) => {
+					event.preventDefault();
+				}}
+			>
+				{LINE_HEIGHTS.map((height) => (
+					<DropdownMenuItem
+						key={height}
+						onSelect={() => {
+							(editor.getApi(LineHeightPlugin) as any).lineHeight.setNodes(
+								height,
+							);
+							editor.tf.focus();
+						}}
+					>
+						<ArrowUpFromLine className="size-3.5 text-muted-foreground" />
+						{height}
+					</DropdownMenuItem>
+				))}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

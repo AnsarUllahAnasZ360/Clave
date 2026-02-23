@@ -267,6 +267,7 @@ export function ClientDetailsDrawer({
 											key={p._id}
 											href={`/${orgSlug}/${workspaceSlug}/projects/${p.slug}`}
 											className="flex min-w-[220px] flex-col justify-between rounded-[24px] border border-border bg-muted px-4 py-4 shadow-[var(--shadow-workstream)] hover:bg-muted/80 sm:min-w-[240px]"
+											prefetch={false}
 										>
 											<div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background">
 												<Folder className="h-4 w-4 text-muted-foreground" />

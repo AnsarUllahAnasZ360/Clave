@@ -265,9 +265,23 @@ export const updateThreadMcpServers = mutation({
 		if (metadata.userId !== userId) {
 			throw new ConvexError("You can only update your own threads");
 		}
+		const activeServers = await ctx.db
+			.query("mcpServers")
+			.withIndex("by_workspace", (q) =>
+				q.eq("workspaceId", metadata.workspaceId),
+			)
+			.collect();
+		const activeServerIds = new Set(
+			activeServers
+				.filter((server) => server.status === "active" && !server.deletedAt)
+				.map((server) => server._id),
+		);
+		const normalizedSelectedServerIds = [
+			...new Set(selectedMcpServerIds),
+		].filter((id) => activeServerIds.has(id));
 
 		await ctx.db.patch(metadata._id, {
-			selectedMcpServerIds,
+			selectedMcpServerIds: normalizedSelectedServerIds,
 			updatedAt: Date.now(),
 		});
 		return null;

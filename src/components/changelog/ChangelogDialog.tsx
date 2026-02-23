@@ -31,9 +31,7 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
 			<DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
 				<DialogHeader>
 					<DialogTitle>Changelog</DialogTitle>
-					<DialogDescription>
-						See what's new in Millhouse Web.
-					</DialogDescription>
+					<DialogDescription>See what's new in Clave.</DialogDescription>
 				</DialogHeader>
 
 				<div className="flex-1 overflow-y-auto space-y-6 pr-2">

@@ -83,7 +83,10 @@ export function AdminSidebar() {
 											tooltip={item.title}
 											isActive={isActive}
 										>
-											<Link href={item.url as LinkProps<string>["href"]}>
+											<Link
+												href={item.url as LinkProps<string>["href"]}
+												prefetch={false}
+											>
 												<item.icon className="h-[18px] w-[18px]" />
 												<span>{item.title}</span>
 											</Link>
@@ -100,7 +103,7 @@ export function AdminSidebar() {
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton asChild tooltip="Back to App">
-							<Link href={"/" as LinkProps<string>["href"]}>
+							<Link href={"/" as LinkProps<string>["href"]} prefetch={false}>
 								<ArrowLeft className="h-[18px] w-[18px]" />
 								<span>Back to App</span>
 							</Link>

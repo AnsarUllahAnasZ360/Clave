@@ -145,6 +145,7 @@ function SortableSubIssueRow({
 					"text-sm truncate flex-1 hover:text-primary transition-colors",
 					isDone && "line-through text-muted-foreground",
 				)}
+				prefetch={false}
 			>
 				{subIssue.title}
 			</Link>

@@ -49,6 +49,12 @@ export type ErrorInfo = {
 	retryAfter?: number;
 };
 
+const CHAT_DEBUG_TIMING = process.env.NODE_ENV === "development";
+
+function generateDebugRequestId() {
+	return `frontend_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export type MCPServerSummary = {
 	_id: Id<"mcpServers">;
 	name: string;
@@ -61,6 +67,22 @@ export type MCPServerSummary = {
 	authConfigUrl?: string;
 };
 
+export type SkillSummary = {
+	_id: Id<"skills">;
+	name: string;
+	description: string;
+	category: string;
+	isEnabled: boolean;
+};
+
+export type SubAgentSummary = {
+	_id: Id<"subAgents">;
+	name: string;
+	description: string;
+	avatar?: string;
+	isPreset: boolean;
+};
+
 export type ChatAttachmentInput = Pick<
 	FileUIPart,
 	"filename" | "mediaType" | "url"
@@ -71,6 +93,50 @@ type PendingUserMessage = {
 	files: ChatAttachmentInput[];
 };
 
+export function isPendingUserMessageDelivered(
+	rawMessages: UIMessage[],
+	pending: PendingUserMessage,
+): boolean {
+	const lastUserMsg = [...rawMessages].reverse().find((m) => m.role === "user");
+	if (!lastUserMsg) return false;
+
+	const lastUserText =
+		lastUserMsg.parts
+			?.filter(
+				(p: {
+					type: string;
+					text?: string;
+				}): p is Extract<
+					(typeof lastUserMsg.parts)[number],
+					{ type: "text" }
+				> => p.type === "text",
+			)
+			.map((p: { text: string }) => p.text)
+			.join("") ?? "";
+	const lastUserFiles = (lastUserMsg.parts ?? [])
+		.filter(
+			(
+				part: (typeof lastUserMsg.parts)[number],
+			): part is Extract<
+				(typeof lastUserMsg.parts)[number],
+				{ type: "file" }
+			> =>
+				part.type === "file" && "url" in part && typeof part.url === "string",
+		)
+		.map((part: { url: string }) => part.url)
+		.sort()
+		.join("|");
+	const pendingFiles = pending.files
+		.map((file) => file.url)
+		.sort()
+		.join("|");
+
+	return (
+		lastUserText.trim() === pending.prompt.trim() &&
+		lastUserFiles === pendingFiles
+	);
+}
+
 type FailedMessagePayload = {
 	prompt: string;
 	context?: AIContext;
@@ -78,6 +144,39 @@ type FailedMessagePayload = {
 	mentions?: MentionReference[];
 	files?: ChatAttachmentInput[];
 };
+
+type ChatMentionEntityType = "document" | "issue" | "user";
+
+function isChatMentionEntityType(
+	entityType: MentionReference["entityType"],
+): entityType is ChatMentionEntityType {
+	return (
+		entityType === "document" || entityType === "issue" || entityType === "user"
+	);
+}
+
+export function toChatMentions(mentions?: MentionReference[]): {
+	entityType: ChatMentionEntityType;
+	entityId: string;
+	displayName: string;
+}[] {
+	if (!mentions) return [];
+	return mentions.reduce<
+		{
+			entityType: ChatMentionEntityType;
+			entityId: string;
+			displayName: string;
+		}[]
+	>((acc, mention) => {
+		if (!isChatMentionEntityType(mention.entityType)) return acc;
+		acc.push({
+			entityType: mention.entityType,
+			entityId: mention.entityId,
+			displayName: mention.displayName,
+		});
+		return acc;
+	}, []);
+}
 
 const pendingMessageHandoff = new Map<string, PendingUserMessage>();
 
@@ -89,6 +188,17 @@ function takePendingMessageHandoff(
 	if (!pending) return null;
 	pendingMessageHandoff.delete(threadId);
 	return pending;
+}
+
+function isRequiredExcalidrawServer(server: {
+	name: string;
+	url: string;
+}): boolean {
+	const lowerUrl = server.url.trim().toLowerCase();
+	return (
+		lowerUrl.includes("/api/mcp/excalidraw") ||
+		lowerUrl.includes("/mcp/excalidraw")
+	);
 }
 
 export type UseAIChatReturn = {
@@ -161,6 +271,18 @@ export type UseAIChatReturn = {
 	selectedMcpServerIds: Id<"mcpServers">[];
 	/** Persist selected MCP servers for the active thread */
 	setThreadMcpServers: (serverIds: Id<"mcpServers">[]) => Promise<void>;
+	/** Available skills for this workspace */
+	skills: SkillSummary[];
+	/** Selected skill IDs for this thread */
+	selectedSkillIds: Id<"skills">[];
+	/** Set selected skills for the active thread */
+	setSelectedSkillIds: (skillIds: Id<"skills">[]) => void;
+	/** Available sub-agents for this workspace */
+	subAgents: SubAgentSummary[];
+	/** Selected sub-agent for this thread (single selection) */
+	selectedSubAgentId: Id<"subAgents"> | null;
+	/** Set selected sub-agent for the active thread */
+	setSelectedSubAgentId: (id: Id<"subAgents"> | null) => void;
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────
@@ -173,6 +295,7 @@ export function useAIChat(
 		initialThreadId ?? null,
 	);
 	const [isSending, setIsSending] = useState(false);
+	const isSendingRef = useRef(false);
 	const [isForceStopped, setIsForceStopped] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
@@ -207,6 +330,7 @@ export function useAIChat(
 		[],
 	);
 	const prevInitialThreadIdRef = useRef<string | null>(initialThreadId ?? null);
+	const ensuredSystemServerWorkspaceRef = useRef<Id<"workspaces"> | null>(null);
 
 	// Keep hook state aligned with route-driven thread changes while avoiding
 	// stale-url feedback loops during in-app thread switches.
@@ -220,6 +344,22 @@ export function useAIChat(
 		}
 		prevInitialThreadIdRef.current = normalizedInitial;
 	}, [initialThreadId]);
+
+	// ── Thread list subscription ────────────────────────────────────────
+	const ensureSystemExcalidrawServer = useMutation(
+		api.mcpServers.ensureSystemExcalidrawServer,
+	);
+	useEffect(() => {
+		if (ensuredSystemServerWorkspaceRef.current === workspaceId) return;
+		ensuredSystemServerWorkspaceRef.current = workspaceId;
+		void ensureSystemExcalidrawServer({ workspaceId }).catch((error) => {
+			console.warn(
+				"[use-ai-chat] Failed to ensure system Excalidraw MCP server:",
+				error instanceof Error ? error.message : error,
+			);
+			ensuredSystemServerWorkspaceRef.current = null;
+		});
+	}, [ensureSystemExcalidrawServer, workspaceId]);
 
 	// ── Thread list subscription ────────────────────────────────────────
 	const {
@@ -244,6 +384,27 @@ export function useAIChat(
 	);
 	const mcpServersRaw = useQuery(api.mcpServers.list, { workspaceId });
 	const mcpServers = (mcpServersRaw ?? []) as MCPServerSummary[];
+	const skillsRaw = useQuery(api.ai.skills.list, { workspaceId });
+	const skills = (skillsRaw ?? []) as SkillSummary[];
+	const subAgentsRaw = useQuery(api.ai.subAgents.list, { workspaceId });
+	const subAgents = (subAgentsRaw ?? []) as SubAgentSummary[];
+	const [selectedSkillIds, setSelectedSkillIds] = useState<Id<"skills">[]>([]);
+	const [selectedSubAgentId, setSelectedSubAgentId] =
+		useState<Id<"subAgents"> | null>(null);
+	const requiredMcpServerIds = useMemo(
+		() =>
+			mcpServers
+				.filter(
+					(server) =>
+						server.status === "active" && isRequiredExcalidrawServer(server),
+				)
+				.map((server) => server._id),
+		[mcpServers],
+	);
+	const requiredServerIdSet = useMemo(
+		() => new Set(requiredMcpServerIds),
+		[requiredMcpServerIds],
+	);
 	const activeServerIdSet = useMemo(
 		() =>
 			new Set(
@@ -252,6 +413,23 @@ export function useAIChat(
 					.map((server) => server._id),
 			),
 		[mcpServers],
+	);
+	const normalizeMcpSelection = useCallback(
+		(serverIds: Id<"mcpServers">[]) => {
+			const deduped = [...new Set(serverIds)].filter((id) =>
+				activeServerIdSet.has(id),
+			);
+			const hasOptionalSelection = deduped.some(
+				(id) => !requiredServerIdSet.has(id),
+			);
+			if (!hasOptionalSelection) {
+				// Legacy threads may contain only auto-injected required connectors.
+				// Treat that case as "no explicit MCP selection" to preserve fast chat sends.
+				return [];
+			}
+			return deduped;
+		},
+		[activeServerIdSet, requiredServerIdSet],
 	);
 
 	// Derive isStreaming from message statuses, respecting client-side force-stop
@@ -265,50 +443,9 @@ export function useAIChat(
 	const messages = useMemo(() => {
 		if (!pendingUserMessage) return rawMessages;
 
-		// Check if the real messages already include the user's latest prompt
-		const lastUserMsg = [...rawMessages]
-			.reverse()
-			.find((m) => m.role === "user");
-		if (lastUserMsg) {
-			const lastUserText =
-				lastUserMsg.parts
-					?.filter(
-						(p: {
-							type: string;
-							text?: string;
-						}): p is Extract<
-							(typeof lastUserMsg.parts)[number],
-							{ type: "text" }
-						> => p.type === "text",
-					)
-					.map((p: { text: string }) => p.text)
-					.join("") ?? "";
-			const lastUserFiles = (lastUserMsg.parts ?? [])
-				.filter(
-					(
-						part: (typeof lastUserMsg.parts)[number],
-					): part is Extract<
-						(typeof lastUserMsg.parts)[number],
-						{ type: "file" }
-					> =>
-						part.type === "file" &&
-						"url" in part &&
-						typeof part.url === "string",
-				)
-				.map((part: { url: string }) => part.url)
-				.sort()
-				.join("|");
-			const pendingFiles = pendingUserMessage.files
-				.map((file) => file.url)
-				.sort()
-				.join("|");
-			if (
-				lastUserText.trim() === pendingUserMessage.prompt.trim() &&
-				lastUserFiles === pendingFiles
-			) {
-				// Real message arrived, no need for optimistic one
-				return rawMessages;
-			}
+		if (isPendingUserMessageDelivered(rawMessages, pendingUserMessage)) {
+			// Real message arrived, no need for optimistic one
+			return rawMessages;
 		}
 
 		// Append optimistic user message
@@ -346,8 +483,13 @@ export function useAIChat(
 		return [...rawMessages, optimisticMsg];
 	}, [rawMessages, pendingUserMessage]);
 
-	// Clear pending message when real messages update with it
-	// This is handled inline in the messages memo above
+	// Clear pending state only after the real user message is persisted.
+	useEffect(() => {
+		if (!pendingUserMessage) return;
+		if (isPendingUserMessageDelivered(rawMessages, pendingUserMessage)) {
+			setPendingUserMessage(null);
+		}
+	}, [rawMessages, pendingUserMessage]);
 
 	// ── Query thread metadata directly (includes incognito threads filtered from list) ───
 	const activeThreadMetadata = useQuery(
@@ -384,7 +526,6 @@ export function useAIChat(
 		activeThreadId,
 		activeThread?.model,
 		activeThreadMetadata,
-		activeThreadMetadata?.model,
 		normalizeModelId,
 		setSelectedModelState,
 	]);
@@ -400,22 +541,38 @@ export function useAIChat(
 				| { selectedMcpServerIds?: Id<"mcpServers">[] }
 				| undefined
 		)?.selectedMcpServerIds;
-		const normalized = (saved ?? []).filter((id) => activeServerIdSet.has(id));
+		const normalized = normalizeMcpSelection(saved ?? []);
 		setSelectedMcpServerIdsState(normalized);
 	}, [
 		activeThreadId,
 		activeThreadMetadata,
-		activeServerIdSet,
+		normalizeMcpSelection,
 		setSelectedMcpServerIdsState,
 	]);
 
 	useEffect(() => {
-		selectedModelRef.current = selectedModel;
-	}, [selectedModel]);
+		const normalized = normalizeMcpSelection(selectedMcpServerIdsRef.current);
+		if (
+			normalized.length === selectedMcpServerIdsRef.current.length &&
+			normalized.every(
+				(id, index) => id === selectedMcpServerIdsRef.current[index],
+			)
+		) {
+			return;
+		}
+		setSelectedMcpServerIdsState(normalized);
+	}, [normalizeMcpSelection, setSelectedMcpServerIdsState]);
 
+	// Reset skills/sub-agent selections when thread changes
+	// (These are session-local until backend persistence is added)
+	const prevThreadIdForReset = useRef<string | null>(null);
 	useEffect(() => {
-		selectedMcpServerIdsRef.current = selectedMcpServerIds;
-	}, [selectedMcpServerIds]);
+		if (activeThreadId !== prevThreadIdForReset.current) {
+			prevThreadIdForReset.current = activeThreadId;
+			setSelectedSkillIds([]);
+			setSelectedSubAgentId(null);
+		}
+	}, [activeThreadId]);
 
 	useEffect(() => {
 		if (pendingUserMessage || !activeThreadId) return;
@@ -459,13 +616,41 @@ export function useAIChat(
 			files?: ChatAttachmentInput[],
 			selectedServerIdsOverride?: Id<"mcpServers">[],
 		) => {
+			if (isSendingRef.current) return;
+
 			const trimmedPrompt = prompt.trim();
 			const normalizedFiles = files ?? [];
 			if (!trimmedPrompt && normalizedFiles.length === 0) return;
 			const effectiveModelId = selectedModelRef.current;
-			const effectiveSelectedMcpServerIds =
-				selectedServerIdsOverride ?? selectedMcpServerIdsRef.current;
+			const effectiveSelectedMcpServerIds = normalizeMcpSelection(
+				selectedServerIdsOverride ?? selectedMcpServerIdsRef.current,
+			);
+			const normalizedMentions = toChatMentions(mentions);
+			const requestStartAt = Date.now();
+			const debugRequestId = CHAT_DEBUG_TIMING
+				? generateDebugRequestId()
+				: undefined;
+			const requestContext = {
+				requestId: debugRequestId,
+				threadHint: activeThreadId ?? "new",
+				modelId: effectiveModelId,
+				workspaceId,
+				hasContext: Boolean(context),
+				hasMentions: normalizedMentions.length > 0,
+				hasAttachments: normalizedFiles.length > 0,
+			};
 
+			if (CHAT_DEBUG_TIMING) {
+				console.info("[ai-chat:send:start]", requestContext);
+			}
+			if (hasPendingApproval) {
+				setError(
+					"A tool action is waiting for approval. Approve/reject it before sending another message.",
+				);
+				return;
+			}
+
+			isSendingRef.current = true;
 			setIsSending(true);
 			setIsForceStopped(false);
 			setError(null);
@@ -513,6 +698,13 @@ export function useAIChat(
 							}
 						: {}),
 					selectedMcpServerIds: effectiveSelectedMcpServerIds,
+					...(selectedSkillIds.length > 0 ? { selectedSkillIds } : {}),
+					...(selectedSubAgentId
+						? {
+								aiTeammateId:
+									selectedSubAgentId as unknown as Id<"aiTeammates">,
+							}
+						: {}),
 					...(context
 						? {
 								pageContext: {
@@ -524,19 +716,29 @@ export function useAIChat(
 							}
 						: {}),
 					...(systemPromptSuffix ? { systemPromptSuffix } : {}),
-					...(mentions && mentions.length > 0
+					...(normalizedMentions.length > 0
 						? {
-								mentions: mentions.map((m) => ({
-									entityType: m.entityType,
-									entityId: m.entityId,
-									displayName: m.displayName,
-								})),
+								mentions: normalizedMentions,
+							}
+						: {}),
+					...(debugRequestId
+						? {
+								debugRequestId,
 							}
 						: {}),
 				})) as {
 					threadId: string;
 					resolvedModelId?: string;
 					modelWarning?: string;
+					requestId?: string;
+					timings?: {
+						authMs: number;
+						modelMs: number;
+						threadMs: number;
+						setupMs: number;
+						streamMs: number;
+						totalMs: number;
+					};
 					errorInfo?: ErrorInfo;
 				};
 
@@ -548,9 +750,18 @@ export function useAIChat(
 				if (result.errorInfo) {
 					setErrorInfo(result.errorInfo);
 				}
+				if (CHAT_DEBUG_TIMING) {
+					console.info("[ai-chat:send:done]", {
+						...requestContext,
+						requestId: result.requestId ?? debugRequestId,
+						serverTimingsMs: result.timings,
+						clientLatencyMs: Date.now() - requestStartAt,
+					});
+				}
 			} catch (err) {
 				const message =
 					err instanceof Error ? err.message : "Failed to send message";
+				setPendingUserMessage(null);
 				setError(message);
 				setLastFailedPayload({
 					prompt: trimmedPrompt,
@@ -560,8 +771,8 @@ export function useAIChat(
 					files: normalizedFiles,
 				});
 			} finally {
+				isSendingRef.current = false;
 				setIsSending(false);
-				setPendingUserMessage(null);
 			}
 		},
 		[
@@ -570,7 +781,9 @@ export function useAIChat(
 			sendMessageAction,
 			createThreadMutation,
 			normalizeModelId,
+			normalizeMcpSelection,
 			setSelectedModelState,
+			hasPendingApproval,
 		],
 	);
 
@@ -672,9 +885,7 @@ export function useAIChat(
 
 	const setThreadMcpServers = useCallback(
 		async (serverIds: Id<"mcpServers">[]) => {
-			const deduped = [...new Set(serverIds)].filter((id) =>
-				activeServerIdSet.has(id),
-			);
+			const deduped = normalizeMcpSelection(serverIds);
 			setSelectedMcpServerIdsState(deduped);
 			if (!activeThreadId) return;
 			try {
@@ -687,8 +898,8 @@ export function useAIChat(
 			}
 		},
 		[
-			activeServerIdSet,
 			activeThreadId,
+			normalizeMcpSelection,
 			updateThreadMcpServersMutation,
 			setSelectedMcpServerIdsState,
 		],
@@ -778,5 +989,11 @@ export function useAIChat(
 		mcpServers,
 		selectedMcpServerIds,
 		setThreadMcpServers,
+		skills,
+		selectedSkillIds,
+		setSelectedSkillIds,
+		subAgents,
+		selectedSubAgentId,
+		setSelectedSubAgentId,
 	};
 }

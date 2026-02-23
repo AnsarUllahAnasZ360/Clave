@@ -5,6 +5,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useState,
 } from "react";
 
@@ -33,8 +34,12 @@ export function RightPanelProvider({
 		setCount((c) => c + 1);
 		return () => setCount((c) => c - 1);
 	}, []);
+	const value = useMemo(
+		() => ({ anyOpen: count > 0, register }),
+		[count, register],
+	);
 	return (
-		<RightPanelContext.Provider value={{ anyOpen: count > 0, register }}>
+		<RightPanelContext.Provider value={value}>
 			{children}
 		</RightPanelContext.Provider>
 	);

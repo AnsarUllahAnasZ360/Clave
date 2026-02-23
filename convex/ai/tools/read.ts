@@ -707,7 +707,7 @@ export const searchDocuments = createTool({
 
 export const globalSearch = createTool({
 	description:
-		"Search across all entity types in the workspace: issues, projects, documents, whiteboards, clients, stories, and tasks. Use this for broad searches when the user's intent spans multiple categories.",
+		"Search across all entity types in the workspace: issues, projects, documents, whiteboards, clients, stories, and tasks. Best for broad queries that span multiple categories (e.g. 'find everything about authentication'). Returns lightweight summaries — use specific tools like getIssueDetails or getDocument for full content.",
 	inputSchema: z.object({
 		query: z.string().describe("The search term"),
 	}),
@@ -1275,7 +1275,7 @@ function truncateForContext(
 
 export const searchProjectKnowledge = createTool({
 	description:
-		"Search the project knowledge base using semantic (vector) and keyword search. Finds relevant issues, documents, comments, and code even when exact keywords don't match. Use this when the user asks questions about project content, wants to find related items, or needs context from the project knowledge base. Requires a projectId for semantic search.",
+		"Deep search within a specific project using semantic (vector) and keyword search. Finds relevant issues, documents, comments, and code even when exact keywords don't match. Use this for project-scoped questions like 'what issues are related to the login bug?' or 'find docs about the API design'. Requires a projectId for semantic search; without it, only keyword search runs across the workspace.",
 	inputSchema: z.object({
 		query: z.string().describe("Natural language search query"),
 		projectId: z
@@ -1392,7 +1392,7 @@ export const searchProjectKnowledge = createTool({
 
 export const searchCode = createTool({
 	description:
-		'Search indexed GitHub repository code using semantic search. Finds relevant code snippets, functions, classes, and modules even when exact keywords don\'t match. Use this when the user asks about code implementation, wants to find specific functions/classes, or asks "how does X work in the codebase?". Requires a projectId with a connected GitHub repository.',
+		'Search indexed GitHub repository code using semantic search. Finds relevant code snippets, functions, classes, and modules. Use this only when the user asks about code implementation in a connected GitHub repo (e.g. "how does authentication work in the codebase?" or "find the JWT validation function"). Requires a projectId with a connected GitHub repository — will fail without one.',
 	inputSchema: z.object({
 		query: z
 			.string()

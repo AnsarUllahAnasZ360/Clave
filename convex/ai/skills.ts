@@ -439,6 +439,22 @@ export const listEnabled = internalQuery({
 	},
 });
 
+/** Load specific skills by ID. No auth check — caller must validate. */
+export const listByIds = internalQuery({
+	args: {
+		skillIds: v.array(v.id("skills")),
+	},
+	returns: v.array(skillReturnValidator),
+	handler: async (ctx, args) => {
+		const skills = [];
+		for (const id of args.skillIds) {
+			const skill = await ctx.db.get(id);
+			if (skill) skills.push(skill);
+		}
+		return skills;
+	},
+});
+
 /** Load all skills attached to a sub-agent. No auth check — caller must validate. */
 export const listByAgentInternal = internalQuery({
 	args: {

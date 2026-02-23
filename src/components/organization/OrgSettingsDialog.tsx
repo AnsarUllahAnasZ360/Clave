@@ -25,6 +25,7 @@ import { useOrganization } from "@/components/providers/organization-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ImageCropDialog } from "@/components/ui/image-crop-dialog";
 import { Input } from "@/components/ui/input";
 import {
 	Select,
@@ -180,6 +181,8 @@ function GeneralPane({ isAdmin }: { isAdmin: boolean }) {
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
 	const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null);
 	const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+	const [logoCropSrc, setLogoCropSrc] = useState<string | null>(null);
+	const [logoCropOpen, setLogoCropOpen] = useState(false);
 
 	const [nameValue, setNameValue] = useState("");
 	const [slugValue, setSlugValue] = useState("");
@@ -266,9 +269,7 @@ function GeneralPane({ isAdmin }: { isAdmin: boolean }) {
 		}
 	}, [orgData, descValue, updateOrg, org.organizationId]);
 
-	const handleLogoChange = async (
-		event: React.ChangeEvent<HTMLInputElement>,
-	) => {
+	const handleLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0];
 		if (!file) return;
 
@@ -281,7 +282,17 @@ function GeneralPane({ isAdmin }: { isAdmin: boolean }) {
 			return;
 		}
 
-		const nextUrl = URL.createObjectURL(file);
+		const src = URL.createObjectURL(file);
+		setLogoCropSrc((prev) => {
+			if (prev) URL.revokeObjectURL(prev);
+			return src;
+		});
+		setLogoCropOpen(true);
+		event.target.value = "";
+	};
+
+	const handleLogoCropComplete = async (blob: Blob) => {
+		const nextUrl = URL.createObjectURL(blob);
 		setLogoObjectUrl((prev) => {
 			if (prev) URL.revokeObjectURL(prev);
 			return nextUrl;
@@ -294,8 +305,8 @@ function GeneralPane({ isAdmin }: { isAdmin: boolean }) {
 			});
 			const response = await fetch(uploadUrl, {
 				method: "POST",
-				headers: { "Content-Type": file.type },
-				body: file,
+				headers: { "Content-Type": blob.type },
+				body: blob,
 			});
 			const { storageId } = await response.json();
 			await updateOrg({
@@ -370,6 +381,14 @@ function GeneralPane({ isAdmin }: { isAdmin: boolean }) {
 							className="hidden"
 							onChange={handleLogoChange}
 							aria-label="Upload organization logo"
+						/>
+						<ImageCropDialog
+							open={logoCropOpen}
+							onOpenChange={setLogoCropOpen}
+							imageSrc={logoCropSrc}
+							cropShape="rect"
+							title="Crop organization logo"
+							onCropComplete={handleLogoCropComplete}
 						/>
 						<span className="text-xs text-muted-foreground">
 							Max 2MB, image files only

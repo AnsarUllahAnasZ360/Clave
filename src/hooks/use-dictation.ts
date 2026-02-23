@@ -37,7 +37,25 @@ export interface UseDictationResult {
 
 // ── Valid MIME types for upload validation ───────────────────────────────
 
-const VALID_MIME_TYPES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+const VALID_MIME_TYPE_PREFIXES = [
+	"audio/webm",
+	"audio/mp4",
+	"audio/m4a",
+	"audio/wav",
+	"audio/ogg",
+];
+
+function normalizeMimeType(mimeType: string): string | null {
+	const normalized = mimeType.trim().toLowerCase();
+	if (!normalized) return null;
+	if (
+		VALID_MIME_TYPE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+	) {
+		if (normalized.startsWith("audio/m4a")) return "audio/mp4";
+		return normalized;
+	}
+	return null;
+}
 
 // ── Hook ─────────────────────────────────────────────────────────────────
 
@@ -120,7 +138,8 @@ export function useDictation({
 			toast.error(msg);
 			return;
 		}
-		if (!VALID_MIME_TYPES.includes(recorder.audioMimeType)) {
+		const normalizedMimeType = normalizeMimeType(recorder.audioMimeType);
+		if (!normalizedMimeType) {
 			setFlowState("error");
 			const msg = "Invalid audio format";
 			setError(msg);
@@ -136,7 +155,7 @@ export function useDictation({
 
 				const uploadResponse = await fetch(uploadUrl, {
 					method: "POST",
-					headers: { "Content-Type": recorder.audioMimeType as string },
+					headers: { "Content-Type": normalizedMimeType },
 					body: recorder.audioBlob,
 				});
 
@@ -153,7 +172,7 @@ export function useDictation({
 				const newRecordingId = await createRecording({
 					workspaceId,
 					storageId,
-					mimeType: recorder.audioMimeType as string,
+					mimeType: normalizedMimeType,
 					duration: recorder.duration,
 					fileSize: recorder.audioBlob?.size,
 				});
@@ -307,11 +326,13 @@ export function useDictation({
 			return;
 		hasTriggeredUploadRef.current = false;
 		setError(null);
+		setFlowState("requesting-permission");
 		recorder.startRecording();
 	}, [flowState, recorder]);
 
 	const stopDictation = useCallback(() => {
 		if (flowState !== "recording") return;
+		setFlowState("processing");
 		recorder.stopRecording();
 	}, [flowState, recorder]);
 

@@ -246,8 +246,15 @@ export function createTextElement(
 	index: string,
 ): ExcalidrawElementLike {
 	const fontSize = config.fontSize ?? 16;
-	const width = config.width ?? config.text.length * fontSize * 0.6;
-	const height = config.height ?? fontSize * 1.5;
+	const normalizedText = config.text.replace(/\r/g, "");
+	const lines = normalizedText.split("\n");
+	const longestLineLength = Math.max(...lines.map((line) => line.length), 1);
+	const estimatedWidth = longestLineLength * fontSize * 0.6;
+	const estimatedHeight = lines.length * fontSize * 1.25;
+	const width = config.width ?? estimatedWidth;
+	// Guard against multi-line labels being persisted with a too-small fixed
+	// height (causes clipped text until Excalidraw recomputes dimensions).
+	const height = Math.max(config.height ?? estimatedHeight, estimatedHeight);
 	return {
 		...baseElement("text", config.x, config.y, width, height, index),
 		text: config.text,

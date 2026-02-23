@@ -107,6 +107,11 @@ export default function ProjectDescriptionEditor({
 		[flushPendingSave],
 	);
 
+	const aiPlugins = useMemo(
+		() => (workspace ? [AIEditorPlugin] : []),
+		[workspace?.workspaceId],
+	);
+
 	if (!mounted) {
 		return <ProjectDescriptionEditorSkeleton />;
 	}
@@ -122,7 +127,7 @@ export default function ProjectDescriptionEditor({
 					value={initialValue}
 					onChange={handleChange}
 					placeholder="Add a description..."
-					plugins={workspace ? [AIEditorPlugin] : []}
+					plugins={aiPlugins}
 				>
 					{workspace && (
 						<EditorAIBridge

@@ -3,19 +3,20 @@
 import type { FileUIPart } from "ai";
 import { EyeOff, Search, SquarePen } from "lucide-react";
 import type { Route } from "next";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConnectionBanner } from "@/components/ai/ConnectionBanner";
 import { McpActionMenuItems } from "@/components/ai/McpConnectorPicker";
 import { MentionAutocomplete } from "@/components/ai/MentionAutocomplete";
-import { RateLimitBanner } from "@/components/ai/RateLimitBanner";
+import { SkillsActionMenuItems } from "@/components/ai/SkillsActionMenuItems";
+import { SubAgentActionMenuItems } from "@/components/ai/SubAgentActionMenuItems";
 import {
 	ChatHeader,
 	ContextChip,
 	ConversationView,
 	ModelSelector,
 } from "@/components/ai/shared";
-import { ThreadBrowserPopup } from "@/components/ai/ThreadBrowserPopup";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAIChat } from "@/hooks/use-ai-chat";
@@ -24,6 +25,26 @@ import { useConnectionStatus } from "@/hooks/use-connection-status";
 import { useMessageQueue } from "@/hooks/use-message-queue";
 import { useMessageRetry } from "@/hooks/use-message-retry";
 import type { WorkspaceContext } from "@/lib/ai/slash-commands";
+
+const ThreadBrowserPopup = dynamic(
+	() =>
+		import("@/components/ai/ThreadBrowserPopup").then(
+			(mod) => mod.ThreadBrowserPopup,
+		),
+	{
+		loading: () => null,
+	},
+);
+
+const RateLimitBanner = dynamic(
+	() =>
+		import("@/components/ai/RateLimitBanner").then(
+			(mod) => mod.RateLimitBanner,
+		),
+	{
+		loading: () => null,
+	},
+);
 
 export default function ChatThreadPage() {
 	const params = useParams();
@@ -334,11 +355,23 @@ export default function ChatThreadPage() {
 						/>
 					}
 					actionMenuItems={
-						<McpActionMenuItems
-							servers={chat.mcpServers}
-							selectedIds={chat.selectedMcpServerIds}
-							onChange={chat.setThreadMcpServers}
-						/>
+						<>
+							<SkillsActionMenuItems
+								skills={chat.skills}
+								selectedIds={chat.selectedSkillIds}
+								onChange={chat.setSelectedSkillIds}
+							/>
+							<SubAgentActionMenuItems
+								subAgents={chat.subAgents}
+								selectedId={chat.selectedSubAgentId}
+								onChange={chat.setSelectedSubAgentId}
+							/>
+							<McpActionMenuItems
+								servers={chat.mcpServers}
+								selectedIds={chat.selectedMcpServerIds}
+								onChange={chat.setThreadMcpServers}
+							/>
+						</>
 					}
 				/>
 				{!chat.isIncognito && (

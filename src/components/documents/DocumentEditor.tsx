@@ -3,6 +3,7 @@
 import { registerProviderType } from "@platejs/yjs";
 import { YjsPlugin } from "@platejs/yjs/react";
 import { useConvex, useMutation, useQuery } from "convex/react";
+import dynamic from "next/dynamic";
 import { isUrl, KEYS } from "platejs";
 import { createPlateEditor, Plate, type PlateEditor } from "platejs/react";
 import type React from "react";
@@ -61,7 +62,11 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { createBasePlugins } from "../editor/plate-plugins";
 import { DictationButton } from "./DictationButton";
-import { GifPicker } from "./GifPicker";
+
+const GifPicker = dynamic(
+	() => import("./GifPicker").then((mod) => ({ default: mod.GifPicker })),
+	{ ssr: false },
+);
 
 // Register the Convex provider type for Plate's YjsPlugin
 registerProviderType("convex", ConvexYjsProvider);
@@ -78,10 +83,81 @@ const CURSOR_COLORS = [
 ];
 
 /** Default empty Slate document for new Yjs documents. */
-const DEFAULT_SLATE_VALUE = [{ type: "p", children: [{ text: "" }] }];
+function createDefaultSlateValue(): Record<string, unknown>[] {
+	return [{ type: "p", children: [{ text: "" }] }];
+}
+
+const DEFAULT_SLATE_VALUE = createDefaultSlateValue();
 
 /** Interval for periodic content snapshot saving (ms). */
 const SNAPSHOT_SAVE_INTERVAL_MS = 7_000;
+
+function sanitizeLeafNode(
+	node: Record<string, unknown>,
+): Record<string, unknown> {
+	const text =
+		typeof node.text === "string" ? node.text : String(node.text ?? "");
+	const leaf: Record<string, unknown> = { ...node };
+	delete leaf.children;
+	leaf.text = text;
+
+	return leaf;
+}
+
+function sanitizeElementNode(
+	node: Record<string, unknown>,
+): Record<string, unknown> {
+	const children = normalizeSlateValue(node.children);
+	const element: Record<string, unknown> = { ...node };
+	delete element.text;
+	element.children = children;
+
+	if (typeof element.type !== "string") {
+		element.type = "p";
+	}
+
+	return element;
+}
+
+function sanitizeSlateNode(
+	rawNode: unknown,
+	asTopLevel = false,
+): Record<string, unknown> | null {
+	if (!rawNode || typeof rawNode !== "object" || Array.isArray(rawNode)) {
+		return asTopLevel ? { type: "p", children: [{ text: "" }] } : { text: "" };
+	}
+
+	const node = rawNode as Record<string, unknown>;
+	const hasText = Object.hasOwn(node, "text");
+
+	if (hasText) {
+		const leaf = sanitizeLeafNode(node);
+		return asTopLevel
+			? {
+					type: typeof node.type === "string" ? node.type : "p",
+					children: [leaf],
+				}
+			: leaf;
+	}
+
+	const children = normalizeSlateValue(node.children);
+	const element = sanitizeElementNode(node);
+	element.children = children;
+
+	return element;
+}
+
+function normalizeSlateValue(rawValue: unknown): Record<string, unknown>[] {
+	if (!Array.isArray(rawValue) || rawValue.length === 0) {
+		return createDefaultSlateValue();
+	}
+
+	const nodes = rawValue
+		.map((node) => sanitizeSlateNode(node, true))
+		.filter((node): node is Record<string, unknown> => node !== null);
+
+	return nodes.length > 0 ? nodes : createDefaultSlateValue();
+}
 
 interface DocumentEditorProps {
 	documentId: Id<"documents">;
@@ -124,7 +200,7 @@ export default function DocumentEditor({
 			isV1 && document?.content
 				? parseAnyContentToSlate(document.content)
 				: undefined;
-		return convertedContent ?? DEFAULT_SLATE_VALUE;
+		return normalizeSlateValue(convertedContent ?? DEFAULT_SLATE_VALUE);
 	}, [document?.content, document?.syncVersion]);
 
 	// Note: mounted gate removed — this component is "use client" and loaded
@@ -288,7 +364,7 @@ function DocumentEditorInner({
 				// Ignore errors during cleanup
 			}
 		};
-	}, [editor, documentId, createDocument, initialValue]);
+	}, [editor, documentId, createDocument]);
 
 	// Periodic Slate JSON snapshot saving to documents.content
 	// Replicates the onSnapshot behavior from prosemirrorSync

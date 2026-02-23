@@ -16,6 +16,22 @@ import type { ActionCtx } from "../_generated/server";
 import { composeSystemPrompt } from "./promptComposer";
 import { parseSkillMarkdown } from "./skillParser";
 
+// ── Skills cache (module-level, persists across calls in the same process) ───
+
+type ParsedSkillEntry = {
+	name: string;
+	parsed: ReturnType<typeof parseSkillMarkdown>;
+	updatedAt: number;
+};
+
+type SkillsCacheValue = {
+	data: ParsedSkillEntry[];
+	timestamp: number;
+};
+
+const SKILLS_CACHE_TTL = 60_000; // 60 seconds
+const skillsCache = new Map<string, SkillsCacheValue>();
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface GetComposedPromptArgs {
@@ -23,6 +39,8 @@ export interface GetComposedPromptArgs {
 	workspaceId: Id<"workspaces">;
 	/** If provided, load skills attached to this sub-agent only */
 	subAgentId?: Id<"subAgents">;
+	/** Explicit skill IDs to load. If empty/undefined, no skills are loaded. */
+	selectedSkillIds?: Id<"skills">[];
 	/** Base agent instructions (always included first, never truncated) */
 	baseInstructions: string;
 	/** Page/entity context from the client */
@@ -39,11 +57,10 @@ export interface GetComposedPromptArgs {
  * Load skills from the database, parse their markdown, and compose a full
  * system prompt ready for agent invocation.
  *
- * - When `subAgentId` is provided: loads only skills attached to that sub-agent
- *   via the `agentSkills` bridge table. If the sub-agent has zero attached skills,
- *   returns just the base instructions (no workspace-level fallback).
- * - When `subAgentId` is omitted: loads all enabled workspace skills.
- *   This is the path used by the main Clave AI agent.
+ * Loading priority:
+ * 1. `subAgentId` — loads only skills attached to that sub-agent
+ * 2. `selectedSkillIds` — loads only the specified skills (on-demand)
+ * 3. Neither — loads zero skills (on-demand model: user must select)
  *
  * @param ctx - Convex action context (provides `ctx.runQuery`)
  * @param args - Composition arguments
@@ -56,39 +73,62 @@ export async function getComposedPrompt(
 	const {
 		workspaceId,
 		subAgentId,
+		selectedSkillIds,
 		baseInstructions,
 		pageContext,
 		ragPrefix,
 		tokenBudget,
 	} = args;
 
-	// ── Load skills from DB ───────────────────────────────────────────────
+	// ── Load + parse skills (with TTL cache) ────────────────────────────────
 
-	let rawSkills: Array<{
-		name: string;
-		markdownContent: string;
-		isEnabled: boolean;
-		updatedAt: number;
-	}>;
+	const sortedIds = selectedSkillIds
+		? [...selectedSkillIds].sort().join(",")
+		: "";
+	const cacheKey = subAgentId
+		? `agent:${subAgentId}`
+		: `ws:${workspaceId}:skills:${sortedIds}`;
+	const cached = skillsCache.get(cacheKey);
+	let parsedSkills: ParsedSkillEntry[];
 
-	if (subAgentId) {
-		// Sub-agent path: load only attached skills via bridge table
-		rawSkills = await ctx.runQuery(internal.ai.skills.listByAgentInternal, {
-			subAgentId,
-		});
+	if (cached && Date.now() - cached.timestamp < SKILLS_CACHE_TTL) {
+		parsedSkills = cached.data;
 	} else {
-		// Main agent path: load all enabled workspace skills
-		rawSkills = await ctx.runQuery(internal.ai.skills.listEnabled, {
-			workspaceId,
-		});
+		let rawSkills: Array<{
+			name: string;
+			markdownContent: string;
+			isEnabled: boolean;
+			updatedAt: number;
+		}>;
+
+		if (subAgentId) {
+			// Sub-agent path: load skills attached to the sub-agent
+			rawSkills = await ctx.runQuery(internal.ai.skills.listByAgentInternal, {
+				subAgentId,
+			});
+		} else if (selectedSkillIds && selectedSkillIds.length > 0) {
+			// On-demand path: load only the explicitly selected skills
+			rawSkills = await ctx.runQuery(internal.ai.skills.listByIds, {
+				skillIds: selectedSkillIds,
+			});
+		} else {
+			// No skills selected — return empty
+			rawSkills = [];
+		}
+
+		const enabledSkills = rawSkills.filter((s) => s.isEnabled);
+
+		parsedSkills = enabledSkills.map((skill) => ({
+			name: skill.name,
+			parsed: parseSkillMarkdown(skill.markdownContent),
+			updatedAt: skill.updatedAt,
+		}));
+
+		skillsCache.set(cacheKey, { data: parsedSkills, timestamp: Date.now() });
 	}
 
-	// Filter to only enabled skills (listEnabled already filters, but
-	// listByAgentInternal returns all attached skills regardless of status)
-	const enabledSkills = rawSkills.filter((s) => s.isEnabled);
-
 	// If no skills, return base instructions with optional context sections
-	if (enabledSkills.length === 0) {
+	if (parsedSkills.length === 0) {
 		return composeSystemPrompt({
 			baseInstructions,
 			skills: [],
@@ -97,14 +137,6 @@ export async function getComposedPrompt(
 			tokenBudget,
 		});
 	}
-
-	// ── Parse skills ──────────────────────────────────────────────────────
-
-	const parsedSkills = enabledSkills.map((skill) => ({
-		name: skill.name,
-		parsed: parseSkillMarkdown(skill.markdownContent),
-		updatedAt: skill.updatedAt,
-	}));
 
 	// ── Compose final prompt ──────────────────────────────────────────────
 

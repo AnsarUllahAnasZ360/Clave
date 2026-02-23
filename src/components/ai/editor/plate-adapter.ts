@@ -30,6 +30,25 @@ export class PlateAdapter implements AIEditorAdapter {
 
 	// ── Content read ──────────────────────────────────────────────────────
 
+	private static stripTrailingSlashCommand(content: string): string {
+		return content
+			.replace(/\s*\/[a-z0-9_-]*$/i, "")
+			.replace(/[ \t]+\n/g, "\n")
+			.trimEnd();
+	}
+
+	private insertMultilineText(text: string): void {
+		const lines = text.replace(/\r\n?/g, "\n").split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			if (i > 0) {
+				this.editor.tf.insertBreak();
+			}
+			if (lines[i]) {
+				this.editor.tf.insertText(lines[i]);
+			}
+		}
+	}
+
 	getSelectedText(): string | null {
 		const { selection } = this.editor;
 		if (!selection) return null;
@@ -53,7 +72,8 @@ export class PlateAdapter implements AIEditorAdapter {
 		const focusPath = selection.focus.path;
 		if (!focusPath || focusPath.length === 0) return "";
 
-		// Extract text from all blocks before the cursor's top-level block index.
+		// Extract text from all blocks before the cursor's top-level block index,
+		// then append text before the cursor within the current block.
 		const blockIndex = focusPath[0];
 		const texts: string[] = [];
 
@@ -64,7 +84,20 @@ export class PlateAdapter implements AIEditorAdapter {
 			}
 		}
 
-		return texts.join("\n");
+		const currentBlock = this.editor.children[blockIndex];
+		if (currentBlock) {
+			const blockText = NodeApi.string(currentBlock);
+			const clampedOffset = Math.max(
+				0,
+				Math.min(selection.focus.offset, blockText.length),
+			);
+			const beforeCursorInBlock = blockText.slice(0, clampedOffset);
+			if (beforeCursorInBlock) {
+				texts.push(beforeCursorInBlock);
+			}
+		}
+
+		return PlateAdapter.stripTrailingSlashCommand(texts.join("\n"));
 	}
 
 	getFullContent(): string {
@@ -76,7 +109,7 @@ export class PlateAdapter implements AIEditorAdapter {
 	// ── Content write ─────────────────────────────────────────────────────
 
 	insertAtCursor(text: string): void {
-		this.editor.tf.insertText(text);
+		this.insertMultilineText(text);
 	}
 
 	replaceSelection(text: string): void {
@@ -85,22 +118,7 @@ export class PlateAdapter implements AIEditorAdapter {
 
 		// Delete the current selection, then insert replacement text as blocks.
 		this.editor.tf.deleteFragment();
-
-		// Split text into paragraphs for multi-line content.
-		const paragraphs = text.split("\n").filter((line) => line.length > 0);
-
-		if (paragraphs.length <= 1) {
-			this.editor.tf.insertText(text);
-		} else {
-			// Insert first paragraph as inline text.
-			this.editor.tf.insertText(paragraphs[0]);
-
-			// Insert subsequent paragraphs as new blocks.
-			for (let i = 1; i < paragraphs.length; i++) {
-				this.editor.tf.insertBreak();
-				this.editor.tf.insertText(paragraphs[i]);
-			}
-		}
+		this.insertMultilineText(text);
 	}
 
 	insertBlock(content: string, position: "before" | "after"): void {

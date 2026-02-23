@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { api } from "../../../convex/_generated/api";
 
@@ -11,24 +11,26 @@ import { api } from "../../../convex/_generated/api";
  */
 export function AuthRedirect() {
 	const router = useRouter();
-	const user = useQuery(api.users.current);
-	const destination = useQuery(
-		api.users.resolvePostLoginDestination,
-		user ? {} : "skip",
-	);
+	const pathname = usePathname();
+	const bootState = useQuery(api.users.resolvePostLoginState);
+	const destination = bootState?.destination;
+	const destinationPath = destination?.path;
 
 	useEffect(() => {
-		if (user === undefined || (user !== null && destination === undefined)) {
+		if (bootState === undefined || destination === undefined) {
 			return; // Still loading
 		}
 
-		if (user === null) {
+		if (!bootState.isAuthenticated || destination === null) {
 			return; // Not authenticated — show landing page
 		}
 
-		if (!destination) return;
-		router.replace(destination.path as never);
-	}, [user, destination, router]);
+		if (destinationPath === pathname) {
+			return;
+		}
+
+		router.replace(destinationPath as never);
+	}, [bootState?.isAuthenticated, destinationPath, pathname, router]);
 
 	return null;
 }

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { query } from "./_generated/server";
 import {
@@ -84,20 +84,34 @@ function findBucketIndex(
 
 async function getBlockedOpenIssueCount(
 	ctx: QueryCtx,
-	openIssues: Doc<"issues">[],
+	openIssueIds: Set<string>,
 ): Promise<number> {
-	const blockedFlags = await Promise.all(
-		openIssues.map(async (issue) => {
-			const blockedBySample = await ctx.db
-				.query("issueRelations")
-				.withIndex("by_issue_type", (q) =>
-					q.eq("issueId", issue._id).eq("type", "blocked_by"),
-				)
-				.take(1);
-			return blockedBySample.length > 0;
-		}),
-	);
-	return blockedFlags.filter(Boolean).length;
+	const ISSUE_RELATION_BATCH_SIZE = 64;
+
+	if (openIssueIds.size === 0) return 0;
+
+	const openIssueIdList = [...openIssueIds];
+	let blockedCount = 0;
+
+	for (let i = 0; i < openIssueIdList.length; i += ISSUE_RELATION_BATCH_SIZE) {
+		const batch = openIssueIdList.slice(i, i + ISSUE_RELATION_BATCH_SIZE);
+		const blockStates = await Promise.all(
+			batch.map((issueId) =>
+				ctx.db
+					.query("issueRelations")
+					.withIndex("by_issue_type", (q) =>
+						q.eq("issueId", issueId as Id<"issues">).eq("type", "blocked_by"),
+					)
+					.first(),
+			),
+		);
+
+		for (const relation of blockStates) {
+			if (relation !== null) blockedCount++;
+		}
+	}
+
+	return blockedCount;
 }
 
 function buildHealthRows(
@@ -167,13 +181,32 @@ export const workspaceOverview = query({
 
 		const { rangeStartMs, rangeEndMs, projectId, memberId } = args;
 
-		// ── Fetch projects ───────────────────────────────────────────────────
-		const allProjects = await ctx.db
-			.query("projects")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
-		let projects = allProjects.filter((project) => !project.deletedAt);
+		// ── Fetch projects + issues in parallel ─────────────────────────────
+		const issueQuery = projectId
+			? ctx.db
+					.query("issues")
+					.withIndex("by_project", (q) => q.eq("projectId", projectId))
+			: memberId
+				? ctx.db
+						.query("issues")
+						.withIndex("by_workspace_assignee", (q) =>
+							q.eq("workspaceId", args.workspaceId).eq("assigneeId", memberId),
+						)
+				: ctx.db
+						.query("issues")
+						.withIndex("by_workspace", (q) =>
+							q.eq("workspaceId", args.workspaceId),
+						);
 
+		const [allProjects, allIssues] = await Promise.all([
+			ctx.db
+				.query("projects")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.collect(),
+			issueQuery.collect(),
+		]);
+
+		let projects = allProjects.filter((project) => !project.deletedAt);
 		if (accessibleProjectIds !== null) {
 			projects = projects.filter((project) =>
 				accessibleProjectIds.has(project._id),
@@ -184,11 +217,6 @@ export const workspaceOverview = query({
 			? projects.filter((project) => project._id === projectId)
 			: projects;
 
-		// ── Fetch issues (includes sub-issues) ──────────────────────────────
-		const allIssues = await ctx.db
-			.query("issues")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
 		let issues = allIssues.filter((issue) => !issue.deletedAt);
 
 		if (accessibleProjectIds !== null) {
@@ -237,99 +265,106 @@ export const workspaceOverview = query({
 			? Math.round((onTrackRows.length / activeRows.length) * 100)
 			: 0;
 
-		const openIssues = issues.filter((issue) => !isClosedStatus(issue.status));
-		const overdueOpenIssues = openIssues.filter(
-			(issue) => issue.dueDate != null && issue.dueDate < rangeEndMs,
-		);
-
-		const doneInRange = issues.filter(
-			(issue) =>
-				isDoneStatus(issue.status) &&
-				issue.completedAt != null &&
-				issue.completedAt >= rangeStartMs &&
-				issue.completedAt <= rangeEndMs,
-		);
-
-		const closedInRange = issues.filter(
-			(issue) =>
-				isClosedStatus(issue.status) &&
-				issue.completedAt != null &&
-				issue.completedAt >= rangeStartMs &&
-				issue.completedAt <= rangeEndMs,
-		);
-
-		const cancelledInRange = closedInRange.filter(
-			(issue) => issue.status === "cancelled",
-		);
-
-		const cycleTimeSamples = doneInRange
-			.map((issue) => {
-				if (!issue.completedAt) return 0;
-				const duration = (issue.completedAt - issue._creationTime) / MS_DAY;
-				return duration > 0 ? duration : 0;
-			})
-			.filter((duration) => duration > 0);
-		const cycleTimeP50Days = roundToOneDecimal(median(cycleTimeSamples));
-
-		const wipCount = issues.filter((issue) => isWipStatus(issue.status)).length;
-
-		const createdInRange = issues.filter(
-			(issue) =>
-				issue._creationTime >= rangeStartMs &&
-				issue._creationTime <= rangeEndMs,
-		);
-		const scopeDelta = createdInRange.length - doneInRange.length;
-
-		const cancellationRate =
-			closedInRange.length > 0
-				? roundToOneDecimal(
-						(cancelledInRange.length / closedInRange.length) * 100,
-					)
-				: 0;
-
-		const blockedOpenCount = await getBlockedOpenIssueCount(ctx, openIssues);
-
-		// ── Work type mix in selected window ────────────────────────────────
-		const issuesInRange = issues.filter(
-			(issue) =>
-				issue._creationTime <= rangeEndMs &&
-				(!issue.completedAt || issue.completedAt >= rangeStartMs),
-		);
-
+		const buckets = buildBuckets(rangeStartMs, rangeEndMs);
 		const workTypeMix = {
 			bug: 0,
 			improvement: 0,
 			feature: 0,
 			issue: 0,
 		};
-		for (const issue of issuesInRange) {
-			workTypeMix[mapIssueTypeToWorkCategory(issue.type)]++;
-		}
 
-		// ── Time series ─────────────────────────────────────────────────────
-		const buckets = buildBuckets(rangeStartMs, rangeEndMs);
+		const openIssueIds = new Set<string>();
+		const cycleTimeSamples: number[] = [];
+		let overdueOpenCount = 0;
+		let doneInRangeCount = 0;
+		let createdInRangeCount = 0;
+		let closedInRangeCount = 0;
+		let cancelledInRangeCount = 0;
+		let wipCount = 0;
+		let issuesInRangeCount = 0;
+
 		for (const issue of issues) {
-			if (
-				issue._creationTime >= rangeStartMs &&
-				issue._creationTime <= rangeEndMs
-			) {
-				const idx = findBucketIndex(buckets, issue._creationTime);
-				if (idx !== -1) buckets[idx].createdCount++;
-			}
-
-			if (
+			const isDone = isDoneStatus(issue.status);
+			const isClosed = isClosedStatus(issue.status);
+			const isOpen = !isClosed;
+			const isCompletedInRange =
+				isDone &&
 				issue.completedAt != null &&
 				issue.completedAt >= rangeStartMs &&
-				issue.completedAt <= rangeEndMs
-			) {
-				const idx = findBucketIndex(buckets, issue.completedAt);
-				if (idx !== -1) {
-					if (isDoneStatus(issue.status)) buckets[idx].doneCount++;
-					if (issue.status === "cancelled") buckets[idx].cancelledCount++;
+				issue.completedAt <= rangeEndMs;
+			const isCreatedInRange =
+				issue._creationTime >= rangeStartMs &&
+				issue._creationTime <= rangeEndMs;
+			const isInRangeWindow =
+				issue._creationTime <= rangeEndMs &&
+				(!issue.completedAt || issue.completedAt >= rangeStartMs);
+			const isCompletedInAnyRange =
+				issue.completedAt != null &&
+				issue.completedAt >= rangeStartMs &&
+				issue.completedAt <= rangeEndMs;
+			const isCreatedForSeries =
+				issue._creationTime >= rangeStartMs &&
+				issue._creationTime <= rangeEndMs;
+			const isClosedInRange = isClosed && isCompletedInAnyRange;
+
+			if (isOpen) {
+				openIssueIds.add(issue._id as string);
+				if (issue.dueDate != null && issue.dueDate < rangeEndMs) {
+					overdueOpenCount++;
+				}
+			}
+
+			if (isWipStatus(issue.status)) {
+				wipCount++;
+			}
+
+			if (isCompletedInRange) {
+				doneInRangeCount++;
+				if (issue.completedAt != null) {
+					const duration = (issue.completedAt - issue._creationTime) / MS_DAY;
+					if (duration > 0) cycleTimeSamples.push(duration);
+				}
+			}
+
+			if (isCreatedInRange) {
+				createdInRangeCount++;
+			}
+
+			if (isClosedInRange) {
+				closedInRangeCount++;
+				if (issue.status === "cancelled") cancelledInRangeCount++;
+			}
+
+			if (isInRangeWindow) {
+				issuesInRangeCount++;
+				workTypeMix[mapIssueTypeToWorkCategory(issue.type)]++;
+			}
+
+			if (isCreatedForSeries) {
+				const bucketIdx = findBucketIndex(buckets, issue._creationTime);
+				if (bucketIdx !== -1) {
+					buckets[bucketIdx].createdCount++;
+				}
+			}
+
+			if (isCompletedInAnyRange && issue.completedAt !== undefined) {
+				const bucketIdx = findBucketIndex(buckets, issue.completedAt);
+				if (bucketIdx !== -1) {
+					if (isDone) buckets[bucketIdx].doneCount++;
+					if (issue.status === "cancelled") buckets[bucketIdx].cancelledCount++;
 				}
 			}
 		}
 
+		const cycleTimeP50Days = roundToOneDecimal(
+			median(cycleTimeSamples.length ? cycleTimeSamples : [0]),
+		);
+		const scopeDelta = createdInRangeCount - doneInRangeCount;
+		const cancellationRate =
+			closedInRangeCount > 0
+				? roundToOneDecimal((cancelledInRangeCount / closedInRangeCount) * 100)
+				: 0;
+		const blockedOpenCount = await getBlockedOpenIssueCount(ctx, openIssueIds);
 		const maxThroughput = Math.max(
 			...buckets.map((bucket) => bucket.doneCount),
 			1,
@@ -370,18 +405,18 @@ export const workspaceOverview = query({
 			onTrackCount: onTrackRows.length,
 			activeProjectCount: activeRows.length,
 			onTrackRate,
-			overdueOpenCount: overdueOpenIssues.length,
-			completedInRangeCount: doneInRange.length,
+			overdueOpenCount,
+			completedInRangeCount: doneInRangeCount,
 			riskProjectCount: atRiskRows.length,
 			cycleTimeP50Days,
 			wipCount,
 			blockedOpenCount,
 			scopeDelta,
-			scopeCreatedInRange: createdInRange.length,
+			scopeCreatedInRange: createdInRangeCount,
 			cancellationRate,
 			healthRows,
 			workTypeMix,
-			workTypeMixTotal: issuesInRange.length,
+			workTypeMixTotal: issuesInRangeCount,
 			throughputSeries,
 			scopeSeries,
 			riskProjects,
@@ -494,6 +529,9 @@ export const projectDashboard = query({
 		const overdueOpenCount = openIssues.filter(
 			(issue) => issue.dueDate != null && issue.dueDate < now,
 		).length;
+		const openIssueIds = new Set<string>(
+			openIssues.map((issue) => issue._id as string),
+		);
 
 		const doneInRange = issues.filter(
 			(issue) =>
@@ -531,7 +569,7 @@ export const projectDashboard = query({
 				? roundToOneDecimal((cancelledInRange / closedInRange.length) * 100)
 				: 0;
 
-		const blockedOpenCount = await getBlockedOpenIssueCount(ctx, openIssues);
+		const blockedOpenCount = await getBlockedOpenIssueCount(ctx, openIssueIds);
 
 		return {
 			total,
@@ -571,10 +609,18 @@ export const projectHealth = query({
 			member.role as "admin" | "member",
 		);
 
-		const allProjects = await ctx.db
-			.query("projects")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
+		// Parallel fetch: projects + issues
+		const [allProjects, allIssues] = await Promise.all([
+			ctx.db
+				.query("projects")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.collect(),
+			ctx.db
+				.query("issues")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.collect(),
+		]);
+
 		let projects = allProjects.filter((project) => !project.deletedAt);
 		if (accessibleProjectIds !== null) {
 			projects = projects.filter((project) =>
@@ -582,10 +628,6 @@ export const projectHealth = query({
 			);
 		}
 
-		const allIssues = await ctx.db
-			.query("issues")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
 		let issues = allIssues.filter((issue) => !issue.deletedAt);
 		if (accessibleProjectIds !== null) {
 			issues = issues.filter(

@@ -140,6 +140,7 @@ function LinkedDocCard({
 			<Link
 				href={`/${orgSlug}/${workspaceSlug}/docs/${docId}`}
 				className="truncate max-w-[160px] hover:text-primary transition-colors"
+				prefetch={false}
 			>
 				{doc.title}
 			</Link>
@@ -180,6 +181,7 @@ function LinkedBoardCard({
 			<Link
 				href={`/${orgSlug}/${workspaceSlug}/boards/${boardId}`}
 				className="truncate max-w-[160px] hover:text-primary transition-colors"
+				prefetch={false}
 			>
 				{board.title}
 			</Link>

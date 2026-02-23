@@ -22,7 +22,12 @@ export function Navbar() {
 		>
 			<div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
 				{/* Logo */}
-				<Link href="/" className="shrink-0" aria-label="Clave home">
+				<Link
+					href="/"
+					prefetch={false}
+					className="shrink-0"
+					aria-label="Clave home"
+				>
 					<PixelLogo
 						cellSize={3}
 						gap={1}
@@ -40,6 +45,7 @@ export function Navbar() {
 					</a>
 					<Link
 						href={"/docs" as never}
+						prefetch={false}
 						className="relative text-sm text-[#525252] dark:text-[#A3A3A3] transition-colors hover:text-[#0A0A0A] dark:hover:text-[#FAFAFA] after:absolute after:bottom-[-2px] after:left-0 after:h-px after:w-0 after:bg-current after:transition-all after:duration-200 hover:after:w-full"
 					>
 						Docs
@@ -67,12 +73,14 @@ export function Navbar() {
 					)}
 					<Link
 						href={"/sign-in" as never}
+						prefetch={false}
 						className="rounded-md px-4 py-2 text-sm font-medium text-[#525252] dark:text-[#A3A3A3] transition-colors hover:text-[#0A0A0A] dark:hover:text-[#FAFAFA]"
 					>
 						Sign in
 					</Link>
 					<Link
 						href={"/sign-in" as never}
+						prefetch={false}
 						className="rounded-md bg-sienna-500 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-sienna-600 hover:scale-[1.03] hover:shadow-[0_0_16px_2px_rgba(194,106,58,0.25)] active:scale-100"
 					>
 						Start building
@@ -135,6 +143,7 @@ export function Navbar() {
 						</button>
 						<Link
 							href={"/docs" as never}
+							prefetch={false}
 							className="flex min-h-[44px] items-center text-sm text-[#525252] dark:text-[#A3A3A3] transition-colors hover:text-[#0A0A0A] dark:hover:text-[#FAFAFA]"
 							onClick={() => setMobileOpen(false)}
 						>
@@ -158,12 +167,14 @@ export function Navbar() {
 							)}
 							<Link
 								href={"/sign-in" as never}
+								prefetch={false}
 								className="flex min-h-[44px] items-center text-sm font-medium text-[#525252] dark:text-[#A3A3A3] transition-colors hover:text-[#0A0A0A] dark:hover:text-[#FAFAFA]"
 							>
 								Sign in
 							</Link>
 							<Link
 								href={"/sign-in" as never}
+								prefetch={false}
 								className="flex min-h-[44px] items-center justify-center rounded-md bg-sienna-500 px-4 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-sienna-600"
 							>
 								Start building

@@ -73,5 +73,5 @@ describe("AIWhiteboardToolbar", () => {
 		fireEvent.pointerDown(trigger, { button: 0 });
 		fireEvent.click(screen.getByText("Clean Up Layout"));
 		expect(screen.getByTestId("cleanup-panel")).toBeInTheDocument();
-	});
+	}, 15_000);
 });

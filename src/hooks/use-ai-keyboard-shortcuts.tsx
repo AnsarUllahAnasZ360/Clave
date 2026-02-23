@@ -47,7 +47,7 @@ export function AIActionMenuProvider({
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const pathname = usePathname();
-	const context = detectAIContext(pathname);
+	const context = useMemo(() => detectAIContext(pathname), [pathname]);
 
 	const open = useCallback(() => setIsOpen(true), []);
 	const close = useCallback(() => setIsOpen(false), []);

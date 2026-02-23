@@ -27,6 +27,7 @@ export function OrgSidebar() {
 			<SidebarHeader className="p-4 group-data-[collapsible=icon]:p-2">
 				<Link
 					href="/organizations"
+					prefetch={false}
 					className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center"
 				>
 					<span className="text-lg font-semibold group-data-[collapsible=icon]:text-sm">
@@ -45,7 +46,7 @@ export function OrgSidebar() {
 									isActive={isOrgsActive}
 									tooltip="Organizations"
 								>
-									<Link href="/organizations">
+									<Link href="/organizations" prefetch={false}>
 										<Buildings className="h-4 w-4" />
 										<span>Organizations</span>
 									</Link>

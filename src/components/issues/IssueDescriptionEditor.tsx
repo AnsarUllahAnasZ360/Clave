@@ -121,7 +121,10 @@ export default function IssueDescriptionEditor({
 		return <IssueDescriptionEditorSkeleton />;
 	}
 
-	const aiPlugins = workspace ? [AIEditorPlugin] : [];
+	const aiPlugins = useMemo(
+		() => (workspace ? [AIEditorPlugin] : []),
+		[workspace?.workspaceId],
+	);
 	const hasContent = (activeContent ?? "").trim().length > 0;
 
 	return (

@@ -4,7 +4,6 @@ set -uo pipefail
 
 steps=(
   "gate|bun run test:gate"
-  "e2e|bun run test:e2e"
 )
 
 names=()
@@ -25,7 +24,7 @@ done
 
 echo
 echo "========================================"
-echo "Full Test Summary"
+echo "Non-E2E Test Summary"
 echo "========================================"
 
 overall=0
@@ -40,14 +39,16 @@ for i in "${!names[@]}"; do
     overall=1
   fi
 
-  printf "%-10s %s\n" "$name" "$status"
+printf "%-10s %s\n" "$name" "$status"
 done
 
 echo "----------------------------------------"
 if [ "$overall" -eq 0 ]; then
   echo "Overall: PASS"
+  echo "Note: E2E is intentionally excluded from this consolidated command."
   exit 0
 fi
 
 echo "Overall: FAIL"
+echo "Fix all failing checks before continuing."
 exit 1

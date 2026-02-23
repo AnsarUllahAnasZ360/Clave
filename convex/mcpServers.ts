@@ -1,7 +1,9 @@
 import { ConvexError, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import {
 	internalMutation,
 	internalQuery,
+	type MutationCtx,
 	mutation,
 	query,
 } from "./_generated/server";
@@ -30,6 +32,104 @@ const mcpServerDoc = v.object({
 	updatedAt: v.optional(v.number()),
 	deletedAt: v.optional(v.number()),
 });
+
+const EXCALIDRAW_SYSTEM_SERVER_NAME = "Excalidraw";
+const EXCALIDRAW_SYSTEM_MCP_PATH = "/api/mcp/excalidraw";
+const EXCALIDRAW_SYSTEM_DESCRIPTION =
+	"Built-in Excalidraw MCP server used by whiteboard AI features.";
+
+function normalizeBaseUrl(raw: string | undefined): string | null {
+	const value = raw?.trim();
+	if (!value) return null;
+	const withProtocol =
+		value.startsWith("http://") || value.startsWith("https://")
+			? value
+			: `https://${value}`;
+	try {
+		const parsed = new URL(withProtocol);
+		return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}`;
+	} catch {
+		return null;
+	}
+}
+
+function resolveSystemExcalidrawUrl(): string {
+	const baseUrl =
+		normalizeBaseUrl(process.env.APP_URL) ??
+		normalizeBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ??
+		normalizeBaseUrl(process.env.VERCEL_URL) ??
+		`http://localhost:${process.env.DEV_PORT ?? "4000"}`;
+	return `${baseUrl}${EXCALIDRAW_SYSTEM_MCP_PATH}`;
+}
+
+export function isSystemExcalidrawServer(server: {
+	name: string;
+	url: string;
+}): boolean {
+	const lowerUrl = server.url.trim().toLowerCase();
+	return (
+		lowerUrl.includes("/api/mcp/excalidraw") ||
+		lowerUrl.includes("/mcp/excalidraw")
+	);
+}
+
+async function ensureSystemExcalidrawServerDoc(
+	ctx: MutationCtx,
+	workspaceId: Id<"workspaces">,
+	createdBy: Id<"users">,
+): Promise<Id<"mcpServers">> {
+	const servers = await ctx.db
+		.query("mcpServers")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.collect();
+	const canonicalUrl = resolveSystemExcalidrawUrl();
+	const existing = servers.find((server) => isSystemExcalidrawServer(server));
+	const now = Date.now();
+
+	if (existing) {
+		// Skip the write if every field already matches the expected state.
+		const alreadyCurrent =
+			existing.name === EXCALIDRAW_SYSTEM_SERVER_NAME &&
+			existing.description === EXCALIDRAW_SYSTEM_DESCRIPTION &&
+			existing.url === canonicalUrl &&
+			existing.transport === "http" &&
+			existing.authType === "none" &&
+			existing.authConfigUrl === undefined &&
+			existing.apiKey === undefined &&
+			existing.enabledTools === undefined &&
+			existing.status === "active" &&
+			existing.deletedAt === undefined;
+		if (!alreadyCurrent) {
+			await ctx.db.patch(existing._id, {
+				name: EXCALIDRAW_SYSTEM_SERVER_NAME,
+				description: EXCALIDRAW_SYSTEM_DESCRIPTION,
+				url: canonicalUrl,
+				transport: "http",
+				authType: "none",
+				authConfigUrl: undefined,
+				apiKey: undefined,
+				enabledTools: undefined,
+				status: "active",
+				deletedAt: undefined,
+				updatedAt: now,
+			});
+		}
+		return existing._id;
+	}
+
+	return await ctx.db.insert("mcpServers", {
+		workspaceId,
+		name: EXCALIDRAW_SYSTEM_SERVER_NAME,
+		description: EXCALIDRAW_SYSTEM_DESCRIPTION,
+		url: canonicalUrl,
+		transport: "http",
+		authType: "none",
+		status: "active",
+		createdBy,
+		createdAt: now,
+		updatedAt: now,
+	});
+}
 
 // ── Internal Queries (server-side only, includes apiKey) ─────────────────
 
@@ -143,7 +243,12 @@ export const list = query({
 				updatedAt: s.updatedAt,
 				deletedAt: s.deletedAt,
 			}))
-			.sort((a, b) => a.name.localeCompare(b.name));
+			.sort((a, b) => {
+				const aSystem = isSystemExcalidrawServer(a);
+				const bSystem = isSystemExcalidrawServer(b);
+				if (aSystem !== bSystem) return aSystem ? -1 : 1;
+				return a.name.localeCompare(b.name);
+			});
 	},
 });
 
@@ -186,6 +291,40 @@ export const add = mutation({
 	},
 });
 
+export const ensureSystemExcalidrawServer = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+	},
+	returns: v.id("mcpServers"),
+	handler: async (ctx, args) => {
+		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		return await ensureSystemExcalidrawServerDoc(ctx, args.workspaceId, userId);
+	},
+});
+
+export const ensureSystemExcalidrawServerInternal = internalMutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		createdBy: v.optional(v.id("users")),
+	},
+	returns: v.id("mcpServers"),
+	handler: async (ctx, args) => {
+		let createdBy = args.createdBy;
+		if (!createdBy) {
+			const workspace = await ctx.db.get(args.workspaceId);
+			if (!workspace) {
+				throw new ConvexError("Workspace not found");
+			}
+			createdBy = workspace.ownerId;
+		}
+		return await ensureSystemExcalidrawServerDoc(
+			ctx,
+			args.workspaceId,
+			createdBy,
+		);
+	},
+});
+
 export const update = mutation({
 	args: {
 		id: v.id("mcpServers"),
@@ -209,6 +348,11 @@ export const update = mutation({
 			throw new ConvexError("MCP server not found");
 		}
 		await requireWorkspaceAdmin(ctx, server.workspaceId);
+		if (isSystemExcalidrawServer(server)) {
+			throw new ConvexError(
+				"Excalidraw MCP is a required system connector and cannot be edited.",
+			);
+		}
 
 		const updates: Record<string, unknown> = { updatedAt: Date.now() };
 		if (args.name !== undefined) updates.name = args.name;
@@ -290,6 +434,11 @@ export const remove = mutation({
 			throw new ConvexError("MCP server not found");
 		}
 		await requireWorkspaceAdmin(ctx, server.workspaceId);
+		if (isSystemExcalidrawServer(server)) {
+			throw new ConvexError(
+				"Excalidraw MCP is a required system connector and cannot be removed.",
+			);
+		}
 		await ctx.db.patch(args.id, { deletedAt: Date.now() });
 		return null;
 	},

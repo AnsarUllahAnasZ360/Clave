@@ -136,10 +136,17 @@ export const listByWorkspace = query({
 			member.role as "admin" | "member",
 		);
 
-		const projects = await ctx.db
-			.query("projects")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
+		// Parallel fetch: projects + all workspace issues (for progress computation)
+		const [projects, allWorkspaceIssues] = await Promise.all([
+			ctx.db
+				.query("projects")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.collect(),
+			ctx.db
+				.query("issues")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.collect(),
+		]);
 
 		const visibleProjects = projects.filter((p) => {
 			if (p.deletedAt) return false;
@@ -147,24 +154,45 @@ export const listByWorkspace = query({
 			return accessibleProjectIds.has(p._id);
 		});
 
+		// Group active issues by sprintId for O(1) progress lookups
+		const issuesBySprintId = new Map<
+			string,
+			{ total: number; completed: number }
+		>();
+		for (const issue of allWorkspaceIssues) {
+			if (issue.deletedAt || !issue.sprintId) continue;
+			const key = issue.sprintId as string;
+			const stats = issuesBySprintId.get(key) ?? { total: 0, completed: 0 };
+			stats.total++;
+			if (isCompletedStatus(issue.status)) stats.completed++;
+			issuesBySprintId.set(key, stats);
+		}
+
+		// Fetch sprints for all visible projects in parallel (no per-sprint issue query)
 		const sprintRows = await Promise.all(
 			visibleProjects.map(async (project) => {
 				const sprints = await ctx.db
 					.query("sprints")
 					.withIndex("by_project_sort", (q) => q.eq("projectId", project._id))
 					.collect();
-				return Promise.all(
-					sprints
-						.filter((s) => !s.deletedAt)
-						.map(async (sprint) => {
-							const progress = await computeProgress(ctx, sprint._id);
-							return {
-								...sprint,
-								...progress,
-								projectName: project.name,
-							};
-						}),
-				);
+				return sprints
+					.filter((s) => !s.deletedAt)
+					.map((sprint) => {
+						const stats = issuesBySprintId.get(sprint._id as string) ?? {
+							total: 0,
+							completed: 0,
+						};
+						return {
+							...sprint,
+							issueCount: stats.total,
+							completedCount: stats.completed,
+							progressPercentage:
+								stats.total > 0
+									? Math.round((stats.completed / stats.total) * 100)
+									: 0,
+							projectName: project.name,
+						};
+					});
 			}),
 		);
 

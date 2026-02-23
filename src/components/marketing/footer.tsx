@@ -6,7 +6,7 @@ const FOOTER_LINKS = {
 	Product: [
 		{ label: "Features", href: "#features" },
 		{ label: "Pricing", href: "#" },
-		{ label: "Changelog", href: "#" },
+		{ label: "Changelog", href: "/changelog" },
 		{ label: "Roadmap", href: "#" },
 	],
 	Resources: [
@@ -76,6 +76,7 @@ export function Footer() {
 											{isInternal ? (
 												<Link
 													href={link.href as never}
+													prefetch={false}
 													className="text-sm text-[#A3A3A3] dark:text-[#525252] transition-colors hover:text-[#525252] dark:hover:text-[#A3A3A3]"
 												>
 													{link.label}

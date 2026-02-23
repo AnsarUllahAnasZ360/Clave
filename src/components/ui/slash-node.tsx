@@ -62,13 +62,29 @@ type Group = {
 	}[];
 };
 
+function getEditorRuntimeId(editor: PlateEditor): string | undefined {
+	if (editor.id === null || editor.id === undefined) return undefined;
+	return String(editor.id);
+}
+
 /** Dispatch a custom event for AI slash actions. Handled by EditorAIBridge. */
-function dispatchAIAction(actionType: string, requiresPrompt?: boolean) {
-	window.dispatchEvent(
-		new CustomEvent("plate:ai-slash-action", {
-			detail: { actionType, requiresPrompt },
-		}),
-	);
+function dispatchAIAction(
+	editor: PlateEditor,
+	actionType: string,
+	requiresPrompt?: boolean,
+) {
+	// Defer until the slash input node has been removed and selection restored.
+	requestAnimationFrame(() => {
+		window.dispatchEvent(
+			new CustomEvent("plate:ai-slash-action", {
+				detail: {
+					actionType,
+					requiresPrompt,
+					editorId: getEditorRuntimeId(editor),
+				},
+			}),
+		);
+	});
 }
 
 const groups: Group[] = [
@@ -80,8 +96,8 @@ const groups: Group[] = [
 				keywords: ["ai", "continue", "write", "generate"],
 				label: "AI: Continue writing",
 				value: "ai_continue",
-				onSelect: () => {
-					dispatchAIAction("document_continue");
+				onSelect: (editor) => {
+					dispatchAIAction(editor, "document_continue");
 				},
 			},
 			{
@@ -89,8 +105,8 @@ const groups: Group[] = [
 				keywords: ["ai", "summarize", "summary", "tldr"],
 				label: "AI: Summarize above",
 				value: "ai_summarize",
-				onSelect: () => {
-					dispatchAIAction("document_summarize");
+				onSelect: (editor) => {
+					dispatchAIAction(editor, "document_summarize");
 				},
 			},
 			{
@@ -98,8 +114,8 @@ const groups: Group[] = [
 				keywords: ["ai", "write", "prompt", "generate", "create"],
 				label: "AI: Write from prompt...",
 				value: "ai_write_prompt",
-				onSelect: () => {
-					dispatchAIAction("document_write_from_prompt", true);
+				onSelect: (editor) => {
+					dispatchAIAction(editor, "document_write_from_prompt", true);
 				},
 			},
 			{
@@ -107,8 +123,8 @@ const groups: Group[] = [
 				keywords: ["ai", "improve", "enhance", "better", "rewrite"],
 				label: "AI: Improve writing",
 				value: "ai_improve",
-				onSelect: () => {
-					dispatchAIAction("document_improve");
+				onSelect: (editor) => {
+					dispatchAIAction(editor, "document_improve");
 				},
 			},
 			{
@@ -116,8 +132,8 @@ const groups: Group[] = [
 				keywords: ["ai", "translate", "language", "convert"],
 				label: "AI: Translate...",
 				value: "ai_translate",
-				onSelect: () => {
-					dispatchAIAction("document_translate", true);
+				onSelect: (editor) => {
+					dispatchAIAction(editor, "document_translate", true);
 				},
 			},
 			{
@@ -125,12 +141,19 @@ const groups: Group[] = [
 				keywords: ["dictate", "voice", "speech", "audio", "transcribe"],
 				label: "AI: Dictate with voice",
 				value: "ai_dictate",
-				onSelect: () => {
-					window.dispatchEvent(
-						new CustomEvent("clave:dictation-toggle", {
-							detail: { source: "slash-command", surface: "document" },
-						}),
-					);
+				onSelect: (editor) => {
+					// Keep dictation start/stop scoped to the invoking editor.
+					requestAnimationFrame(() => {
+						window.dispatchEvent(
+							new CustomEvent("clave:dictation-toggle", {
+								detail: {
+									source: "slash-command",
+									surface: "document",
+									editorId: getEditorRuntimeId(editor),
+								},
+							}),
+						);
+					});
 				},
 			},
 		],

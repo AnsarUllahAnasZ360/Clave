@@ -217,14 +217,19 @@ export function usePlateDiscussions(
 		editor.setOption(discussionPlugin, "users", usersMap);
 	}, [resolvedUsers, editor]);
 
-	// Sync thread data to discussion plugin
-	useEffect(() => {
-		if (!threads) return;
-		const discussions = threads
+	// Memoize thread → discussion transformation (avoids re-parsing JSON on unrelated renders)
+	const discussions = useMemo(() => {
+		if (!threads) return null;
+		return threads
 			.filter((t) => !t.deletedAt)
 			.map((t) => toTDiscussion(t, t._id as string));
+	}, [threads]);
+
+	// Sync thread data to discussion plugin
+	useEffect(() => {
+		if (!discussions) return;
 		editor.setOption(discussionPlugin, "discussions", discussions);
-	}, [threads, editor]);
+	}, [discussions, editor]);
 
 	// CRUD callbacks
 	const callbacks: DiscussionCallbacks = useMemo(

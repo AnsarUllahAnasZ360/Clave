@@ -165,14 +165,18 @@ export const listByWorkspace = query({
 		);
 
 		const pageSize = args.limit ?? 50;
+		// Overfetch factor accounts for in-memory filters (RBAC, deleted, status, etc.)
+		const fetchLimit = pageSize * 4;
 
-		// Smart index selection: use narrower index when a filter is provided
+		// Smart index selection: use narrower index when a filter is provided.
+		// Order descending so newest issues come first, enabling cursor-based pagination.
 		const buildIssueQuery = () => {
 			if (args.projectId) {
 				const projectId = args.projectId;
 				return ctx.db
 					.query("issues")
-					.withIndex("by_project", (q) => q.eq("projectId", projectId));
+					.withIndex("by_project", (q) => q.eq("projectId", projectId))
+					.order("desc");
 			}
 			if (args.assigneeId) {
 				const assigneeId = args.assigneeId;
@@ -180,16 +184,24 @@ export const listByWorkspace = query({
 					.query("issues")
 					.withIndex("by_workspace_assignee", (q) =>
 						q.eq("workspaceId", args.workspaceId).eq("assigneeId", assigneeId),
-					);
+					)
+					.order("desc");
+			}
+			if (args.status) {
+				return ctx.db
+					.query("issues")
+					.withIndex("by_workspace_status", (q) =>
+						q.eq("workspaceId", args.workspaceId).eq("status", args.status!),
+					)
+					.order("desc");
 			}
 			return ctx.db
 				.query("issues")
-				.withIndex("by_workspace", (q) =>
-					q.eq("workspaceId", args.workspaceId),
-				);
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.order("desc");
 		};
 
-		const allIssues = await buildIssueQuery().take(500);
+		const allIssues = await buildIssueQuery().take(fetchLimit);
 
 		// Apply filters and pagination
 		const filtered = allIssues.filter((issue) => {
@@ -218,9 +230,7 @@ export const listByWorkspace = query({
 			return true;
 		});
 
-		// Sort by creation time descending (newest first)
-		filtered.sort((a, b) => b._creationTime - a._creationTime);
-
+		// Already sorted descending by _creationTime from the index order
 		const page = filtered.slice(0, pageSize);
 		const nextCursor =
 			page.length === pageSize
@@ -2375,13 +2385,13 @@ export const myIssuesCreated = query({
 
 		const issues = await ctx.db
 			.query("issues")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+			.withIndex("by_workspace_creator", (q) =>
+				q.eq("workspaceId", args.workspaceId).eq("createdBy", userId),
+			)
 			.collect();
 
 		// RBAC: created issues are always visible to the creator
-		return issues.filter(
-			(issue) => !issue.deletedAt && issue.createdBy === userId,
-		);
+		return issues.filter((issue) => !issue.deletedAt);
 	},
 });
 
@@ -2482,28 +2492,30 @@ export const myIssuesActivity = query({
 			}
 		}
 
-		const assignedIssues = await ctx.db
-			.query("issues")
-			.withIndex("by_workspace_assignee", (q) =>
-				q.eq("workspaceId", args.workspaceId).eq("assigneeId", userId),
-			)
-			.collect();
+		// Parallel fetch: assigned issues + created issues (targeted index queries, no full scan)
+		const [assignedIssues, createdIssues] = await Promise.all([
+			ctx.db
+				.query("issues")
+				.withIndex("by_workspace_assignee", (q) =>
+					q.eq("workspaceId", args.workspaceId).eq("assigneeId", userId),
+				)
+				.collect(),
+			ctx.db
+				.query("issues")
+				.withIndex("by_workspace_creator", (q) =>
+					q.eq("workspaceId", args.workspaceId).eq("createdBy", userId),
+				)
+				.collect(),
+		]);
 		for (const issue of assignedIssues) {
 			issueIdSet.add(issue._id as string);
 		}
-
-		const workspaceIssues = await ctx.db
-			.query("issues")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
-		for (const issue of workspaceIssues) {
-			if (issue.createdBy === userId) {
-				issueIdSet.add(issue._id as string);
-			}
+		for (const issue of createdIssues) {
+			issueIdSet.add(issue._id as string);
 		}
 
 		const issueResults = await Promise.all(
-			Array.from(issueIdSet).map(async (id) => ctx.db.get(id as Id<"issues">)),
+			Array.from(issueIdSet).map((id) => ctx.db.get(id as Id<"issues">)),
 		);
 
 		return issueResults

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	Buildings,
 	CaretRight,
 	ChartBar,
 	ChatCircleText,
@@ -54,7 +53,6 @@ type NavItemId =
 	| "docs"
 	| "boards"
 	| "clients"
-	| "organizations"
 	| "performance";
 const navItemIcons: Record<
 	NavItemId,
@@ -67,7 +65,6 @@ const navItemIcons: Record<
 	docs: FileText,
 	boards: PenNib,
 	clients: Users,
-	organizations: Buildings,
 	performance: ChartBar,
 };
 
@@ -79,7 +76,6 @@ const navItems: { id: NavItemId; label: string }[] = [
 	{ id: "docs", label: "Docs" },
 	{ id: "boards", label: "Boards" },
 	{ id: "clients", label: "Clients" },
-	{ id: "organizations", label: "Organizations" },
 	{ id: "performance", label: "Performance" },
 ];
 
@@ -140,8 +136,6 @@ export function AppSidebar() {
 		if (id === "docs") return `${base}/docs` as LinkProps<string>["href"];
 		if (id === "boards") return `${base}/boards` as LinkProps<string>["href"];
 		if (id === "clients") return `${base}/clients` as LinkProps<string>["href"];
-		if (id === "organizations")
-			return "/organizations" as LinkProps<string>["href"];
 		if (id === "performance")
 			return `${base}/analytics` as LinkProps<string>["href"];
 		return "#" as LinkProps<string>["href"];
@@ -172,9 +166,6 @@ export function AppSidebar() {
 		}
 		if (id === "clients") {
 			return pathname.startsWith(`${base}/clients`);
-		}
-		if (id === "organizations") {
-			return pathname.startsWith("/organizations");
 		}
 		if (id === "performance") {
 			return pathname.startsWith(`${base}/analytics`);
@@ -232,7 +223,7 @@ export function AppSidebar() {
 											tooltip={item.label}
 											className="h-9 rounded-lg px-3 font-normal text-muted-foreground"
 										>
-											<Link href={href}>
+											<Link href={href} prefetch={false}>
 												{(() => {
 													const Icon = navItemIcons[item.id];
 													return Icon ? (
@@ -381,6 +372,7 @@ export function AppSidebar() {
 															href={
 																getRecentHref() as LinkProps<string>["href"]
 															}
+															prefetch={false}
 														>
 															{getRecentIcon()}
 															<span className="flex-1 truncate text-sm">
@@ -475,6 +467,7 @@ export function AppSidebar() {
 														>
 															<Link
 																href={getFavHref() as LinkProps<string>["href"]}
+																prefetch={false}
 															>
 																{getFavIcon()}
 																<span className="flex-1 truncate text-sm">
@@ -556,6 +549,7 @@ export function AppSidebar() {
 														href={
 															`/${orgSlug}/${workspaceSlug}/projects/${project.slug}` as LinkProps<string>["href"]
 														}
+														prefetch={false}
 													>
 														{project.icon ? (
 															<span className="text-[14px] leading-none flex items-center justify-center w-[18px] h-[18px]">

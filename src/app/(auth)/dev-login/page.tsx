@@ -56,8 +56,19 @@ function isDevMode() {
 	return process.env.NEXT_PUBLIC_DEV_MODE === "true";
 }
 
+function shouldRetryWithSignUp(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : "";
+	const normalized = message.toLowerCase();
+	return (
+		normalized.includes("user not found") ||
+		normalized.includes("no user") ||
+		normalized.includes("account not found") ||
+		normalized.includes("user does not exist")
+	);
+}
+
 export default function DevLoginPage() {
-	const { signIn } = useAuthActions();
+	const { signIn, signOut } = useAuthActions();
 	const router = useRouter();
 	const [loading, setLoading] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -90,6 +101,12 @@ export default function DevLoginPage() {
 		setSeedStatus("clearing");
 		setSeedMessage(null);
 		try {
+			try {
+				await signOut();
+			} catch {
+				// Ignore: sign-out may fail when no active auth session exists.
+			}
+
 			const result = await clearDb();
 			setSeedStatus("success");
 			setSeedMessage(result.message);
@@ -97,13 +114,19 @@ export default function DevLoginPage() {
 			setSeedStatus("error");
 			setSeedMessage(e instanceof Error ? e.message : "Failed to clear data.");
 		}
-	}, [clearDb]);
+	}, [clearDb, signOut]);
 
 	const handleDevSignIn = useCallback(
 		async (user: (typeof DEV_USERS)[number]) => {
 			setError(null);
 			setLoading(user.email);
 			try {
+				try {
+					await signOut();
+				} catch {
+					// Ignore: sign-out may fail when no local auth session exists.
+				}
+
 				// Prefer sign-in for deterministic retries during E2E runs.
 				// Only fall back to sign-up when the account doesn't exist yet.
 				try {
@@ -112,7 +135,10 @@ export default function DevLoginPage() {
 						password: DEV_PASSWORD,
 						flow: "signIn",
 					});
-				} catch {
+				} catch (error) {
+					if (!shouldRetryWithSignUp(error)) {
+						throw error;
+					}
 					// Account likely doesn't exist yet, create it.
 					await signIn("password", {
 						email: user.email,
@@ -125,7 +151,7 @@ export default function DevLoginPage() {
 				// Ensure the auth user is linked to the seeded org + workspace
 				await ensureDevMember();
 				// Hand off to the logged-in bootstrap route to resolve destination.
-				router.push("/boot");
+				router.replace("/boot");
 			} catch {
 				setError(
 					`Failed to sign in as ${user.name}. Check that Convex dev server is running.`,
@@ -134,9 +160,8 @@ export default function DevLoginPage() {
 				setLoading(null);
 			}
 		},
-		[signIn, router, ensureDevMember],
+		[signIn, signOut, router, ensureDevMember],
 	);
-
 	// Redirect to sign-in in production
 	if (!isDevMode()) {
 		if (typeof window !== "undefined") {

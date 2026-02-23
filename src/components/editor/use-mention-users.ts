@@ -33,17 +33,21 @@ export function useMentionUsers(): MentionUserItem[] {
 	return useMemo(() => {
 		if (!members) return [];
 
-		return members
-			.filter((m) => m.user != null)
-			.map((m) => ({
-				key: m.user?._id,
-				text: m.user?.name ?? m.user?.email ?? "Unknown",
+		const items: MentionUserItem[] = [];
+		for (const member of members) {
+			const user = member.user;
+			if (!user) continue;
+			items.push({
+				key: String(user._id),
+				text: user.name ?? user.email ?? "Unknown",
 				data: {
-					userId: m.user?._id,
-					avatarUrl: m.user?.avatarUrl ?? m.user?.image,
-					email: m.user?.email,
-					role: m.user?.role,
+					userId: String(user._id),
+					avatarUrl: user.avatarUrl ?? user.image,
+					email: user.email,
+					role: user.role,
 				},
-			}));
+			});
+		}
+		return items;
 	}, [members]);
 }

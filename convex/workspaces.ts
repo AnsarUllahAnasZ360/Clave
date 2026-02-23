@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
 	requireAuth,
@@ -103,6 +104,15 @@ export const create = mutation({
 			taskPrefix: "TSK",
 			nextTaskNumber: 1,
 		});
+
+		// Always provision the built-in Excalidraw MCP connector.
+		await ctx.runMutation(
+			internal.mcpServers.ensureSystemExcalidrawServerInternal,
+			{
+				workspaceId,
+				createdBy: userId,
+			},
+		);
 
 		// TODO(STORY-008): Seed preset sub-agents for new workspaces.
 		// Once internal functions are available, add:
@@ -232,6 +242,7 @@ export const listByOrganization = query({
 			),
 			description: v.optional(v.string()),
 			logoStorageId: v.optional(v.id("_storage")),
+			logoUrl: v.optional(v.string()),
 			updatedAt: v.optional(v.number()),
 			deletedAt: v.optional(v.number()),
 			isMember: v.boolean(),
@@ -249,33 +260,53 @@ export const listByOrganization = query({
 			)
 			.collect();
 
-		const results = [];
-		for (const workspace of orgWorkspaces) {
-			if (workspace.deletedAt) continue;
+		const activeWorkspaces = orgWorkspaces.filter((w) => !w.deletedAt);
 
-			// Check if user is a workspace member
-			const membership = await ctx.db
-				.query("workspaceMembers")
-				.withIndex("by_workspace_user", (q) =>
-					q.eq("workspaceId", workspace._id).eq("userId", userId),
-				)
-				.unique();
-			const isMember = !!membership;
+		// Parallel fetch: membership check + member count for each workspace
+		const enriched = await Promise.all(
+			activeWorkspaces.map(async (workspace) => {
+				const [membership, members] = await Promise.all([
+					ctx.db
+						.query("workspaceMembers")
+						.withIndex("by_workspace_user", (q) =>
+							q.eq("workspaceId", workspace._id).eq("userId", userId),
+						)
+						.unique(),
+					ctx.db
+						.query("workspaceMembers")
+						.withIndex("by_workspace", (q) =>
+							q.eq("workspaceId", workspace._id),
+						)
+						.collect(),
+				]);
+				return {
+					workspace,
+					isMember: !!membership,
+					memberCount: members.length,
+				};
+			}),
+		);
 
-			// Count workspace members
-			const members = await ctx.db
-				.query("workspaceMembers")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-				.collect();
+		// Filter to visible workspaces and resolve logos in parallel
+		const visible = enriched.filter(
+			({ workspace, isMember }) =>
+				(workspace.visibility ?? "public") === "public" || isMember,
+		);
 
-			// Include workspace if it's public (or no visibility set) or if user is a member
-			const visibility = workspace.visibility ?? "public";
-			if (visibility === "public" || isMember) {
-				results.push({ ...workspace, isMember, memberCount: members.length });
-			}
-		}
+		const logoUrls = await Promise.all(
+			visible.map(({ workspace }) =>
+				workspace.logoStorageId
+					? ctx.storage.getUrl(workspace.logoStorageId)
+					: null,
+			),
+		);
 
-		return results;
+		return visible.map(({ workspace, isMember, memberCount }, i) => ({
+			...workspace,
+			logoUrl: logoUrls[i] ?? undefined,
+			isMember,
+			memberCount,
+		}));
 	},
 });
 

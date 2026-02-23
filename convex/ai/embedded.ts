@@ -11,8 +11,9 @@ import { generateText } from "ai";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, internalAction } from "../_generated/server";
+import { type ActionCtx, action, internalAction } from "../_generated/server";
 import { extractPlainTextFromBody } from "./embedded_helpers";
+import { DEFAULT_CHAT_MODEL_ID } from "./modelIds";
 import {
 	documentContinuePrompt,
 	documentExpandPrompt,
@@ -41,10 +42,11 @@ import {
 	whiteboardExplainDiagramPrompt,
 	whiteboardGenerateDiagramPrompt,
 } from "./prompts/whiteboard_prompts";
-import { chatModel } from "./providers";
+import { chatModel, getReasoningProviderOptions } from "./providers";
 import { getProjectNamespace, rag } from "./rag";
 import {
 	extractElementsPayload,
+	fallbackElementsForMode,
 	inferGenerationMode,
 	sanitizeDrawableElements,
 	validateGeneratedElements,
@@ -59,38 +61,54 @@ type EmbeddedResult = {
 	error?: string;
 };
 
-const AI_GENERATION_TIMEOUT_MS = 60_000;
+const AI_GENERATION_TIMEOUT_MS = 120_000;
+const MAX_SCENE_ELEMENTS_IN_PROMPT = 80;
+const MAX_CONTINUE_CONTEXT_CHARS = 8_000;
+const MAX_SUMMARY_CONTEXT_CHARS = 12_000;
+const EMBEDDED_REASONING_OPTIONS = getReasoningProviderOptions(
+	DEFAULT_CHAT_MODEL_ID,
+);
 
-async function withTimeout<T>(
-	promise: Promise<T>,
-	timeoutMs: number,
-	label: string,
-): Promise<T> {
-	return await Promise.race([
-		promise,
-		new Promise<T>((_, reject) =>
-			setTimeout(() => reject(new Error(label)), timeoutMs),
-		),
-	]);
+function normalizeEditorContext(input?: string): string {
+	if (!input) return "";
+	return extractPlainTextFromBody(input).replace(/\s+/g, " ").trim();
+}
+
+function clampContextWindow(
+	content: string,
+	maxChars: number,
+	options?: { preferTail?: boolean },
+): string {
+	if (content.length <= maxChars) return content;
+	if (options?.preferTail) {
+		return content.slice(-maxChars);
+	}
+	const headSize = Math.floor(maxChars * 0.6);
+	const tailSize = maxChars - headSize;
+	return `${content.slice(0, headSize)}\n...\n${content.slice(-tailSize)}`;
 }
 
 // ── Helper: safe AI call ─────────────────────────────────────────────────
 
 async function callAI(
 	systemPrompt: string,
-	options?: { maxOutputTokens?: number; timeoutMs?: number },
+	options?: {
+		maxOutputTokens?: number;
+		timeoutMs?: number;
+		maxRetries?: number;
+	},
 ): Promise<string> {
-	const generation = generateText({
+	const result = await generateText({
 		model: chatModel,
 		prompt: systemPrompt,
-		maxOutputTokens: options?.maxOutputTokens ?? 4096,
+		maxOutputTokens: options?.maxOutputTokens ?? 1024,
+		timeout: options?.timeoutMs ?? AI_GENERATION_TIMEOUT_MS,
+		// Keep retries low to preserve responsiveness for embedded actions.
+		maxRetries: options?.maxRetries ?? 1,
+		...(EMBEDDED_REASONING_OPTIONS
+			? { providerOptions: EMBEDDED_REASONING_OPTIONS }
+			: {}),
 	});
-	const timeoutMs = options?.timeoutMs ?? AI_GENERATION_TIMEOUT_MS;
-	const result = await withTimeout(
-		generation,
-		timeoutMs,
-		"AI generation timed out",
-	);
 	return result.text ?? "";
 }
 
@@ -156,8 +174,128 @@ function parseJsonResponse(text: string): unknown {
 	return null;
 }
 
+function compactWhiteboardScene(sceneData?: string): string | undefined {
+	if (!sceneData) return undefined;
+
+	try {
+		const parsed = JSON.parse(sceneData) as unknown;
+		if (!Array.isArray(parsed)) return undefined;
+
+		const compact = parsed
+			.filter((item) => item && typeof item === "object")
+			.filter(
+				(item) =>
+					(item as { isDeleted?: unknown }).isDeleted !== true &&
+					typeof (item as { type?: unknown }).type === "string",
+			)
+			.slice(0, MAX_SCENE_ELEMENTS_IN_PROMPT)
+			.map((item) => {
+				const el = item as Record<string, unknown>;
+				return {
+					id: typeof el.id === "string" ? el.id : undefined,
+					type: el.type,
+					x: typeof el.x === "number" ? el.x : undefined,
+					y: typeof el.y === "number" ? el.y : undefined,
+					width: typeof el.width === "number" ? el.width : undefined,
+					height: typeof el.height === "number" ? el.height : undefined,
+					text: typeof el.text === "string" ? el.text : undefined,
+					label:
+						el.label && typeof el.label === "object"
+							? {
+									text:
+										typeof (el.label as { text?: unknown }).text === "string"
+											? (el.label as { text: string }).text
+											: undefined,
+								}
+							: undefined,
+					startBinding:
+						el.startBinding && typeof el.startBinding === "object"
+							? {
+									elementId:
+										typeof (el.startBinding as { elementId?: unknown })
+											.elementId === "string"
+											? (el.startBinding as { elementId: string }).elementId
+											: undefined,
+								}
+							: undefined,
+					endBinding:
+						el.endBinding && typeof el.endBinding === "object"
+							? {
+									elementId:
+										typeof (el.endBinding as { elementId?: unknown })
+											.elementId === "string"
+											? (el.endBinding as { elementId: string }).elementId
+											: undefined,
+								}
+							: undefined,
+				};
+			});
+
+		return JSON.stringify(compact);
+	} catch {
+		return undefined;
+	}
+}
+
 function stub(type: string): EmbeddedResult {
 	return { type, text: "Not yet implemented", data: undefined };
+}
+
+async function loadWritingEntityContext(
+	ctx: ActionCtx,
+	context: {
+		documentId?: Id<"documents">;
+		issueId?: Id<"issues">;
+		projectId?: Id<"projects">;
+	},
+): Promise<{ title: string; content?: string; error?: string }> {
+	if (context.documentId) {
+		const doc = (await ctx.runQuery(
+			internal.ai.embedded_helpers.loadDocumentContext,
+			{
+				documentId: context.documentId,
+			},
+		)) as { title: string; content?: string } | null;
+		if (!doc) {
+			return { title: "Untitled", error: "Document not found" };
+		}
+		return {
+			title: doc.title,
+			content: normalizeEditorContext(doc.content),
+		};
+	}
+
+	if (context.issueId) {
+		const issue = (await ctx.runQuery(
+			internal.ai.embedded_helpers.loadIssueContext,
+			{
+				issueId: context.issueId,
+			},
+		)) as { title: string; description?: string } | null;
+		if (!issue) {
+			return { title: "Untitled", error: "Issue not found" };
+		}
+		return {
+			title: issue.title,
+			content: normalizeEditorContext(issue.description),
+		};
+	}
+
+	if (context.projectId) {
+		const project = (await ctx.runQuery(
+			internal.ai.embedded_helpers.loadProjectContext,
+			{ projectId: context.projectId },
+		)) as { name: string; description?: string } | null;
+		if (!project) {
+			return { title: "Untitled", error: "Project not found" };
+		}
+		return {
+			title: project.name,
+			content: normalizeEditorContext(project.description),
+		};
+	}
+
+	return { title: "Untitled" };
 }
 
 // ── Main Dispatcher ──────────────────────────────────────────────────────
@@ -261,25 +399,37 @@ export const embeddedAction = action({
 			switch (args.type) {
 				// ── Document actions ──────────────────────────────────
 				case "document_continue": {
-					const doc = args.context.documentId
-						? await ctx.runQuery(
-								internal.ai.embedded_helpers.loadDocumentContext,
-								{
-									documentId: args.context.documentId,
-								},
-							)
-						: null;
-					if (!doc)
+					const inlineContext = normalizeEditorContext(args.prompt);
+					const entityContext = await loadWritingEntityContext(
+						ctx,
+						args.context,
+					);
+					if (entityContext.error && !inlineContext) {
 						return {
 							type: args.type,
 							text: "",
-							error: "Document not found",
+							error: entityContext.error,
 						};
+					}
+
+					const contentBefore = clampContextWindow(
+						inlineContext || entityContext.content || "",
+						MAX_CONTINUE_CONTEXT_CHARS,
+						{ preferTail: true },
+					);
+					if (!contentBefore) {
+						return {
+							type: args.type,
+							text: "",
+							error: "Nothing above the cursor to continue.",
+						};
+					}
+
 					const prompt = documentContinuePrompt({
-						title: doc.title,
-						contentBefore: doc.content ?? "",
+						title: entityContext.title,
+						contentBefore,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 900 });
 					return { type: args.type, text };
 				}
 
@@ -302,30 +452,41 @@ export const embeddedAction = action({
 						title: doc?.title ?? "Untitled",
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 600 });
 					return { type: args.type, text };
 				}
 
 				case "document_summarize": {
-					const doc = args.context.documentId
-						? await ctx.runQuery(
-								internal.ai.embedded_helpers.loadDocumentContext,
-								{
-									documentId: args.context.documentId,
-								},
-							)
-						: null;
-					if (!doc)
+					const inlineContext = normalizeEditorContext(args.prompt);
+					const entityContext = await loadWritingEntityContext(
+						ctx,
+						args.context,
+					);
+					if (entityContext.error && !inlineContext) {
 						return {
 							type: args.type,
 							text: "",
-							error: "Document not found",
+							error: entityContext.error,
 						};
+					}
+
+					const content = clampContextWindow(
+						inlineContext || entityContext.content || "",
+						MAX_SUMMARY_CONTEXT_CHARS,
+					);
+					if (!content) {
+						return {
+							type: args.type,
+							text: "",
+							error: "Nothing to summarize.",
+						};
+					}
+
 					const prompt = documentSummarizePrompt({
-						title: doc.title,
-						content: doc.content ?? "",
+						title: entityContext.title,
+						content,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 500 });
 					return { type: args.type, text };
 				}
 
@@ -348,7 +509,7 @@ export const embeddedAction = action({
 						title: doc?.title ?? "Untitled",
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 600 });
 					return { type: args.type, text };
 				}
 
@@ -363,7 +524,7 @@ export const embeddedAction = action({
 						selectedText: args.selectedText,
 						targetLanguage: args.targetLanguage ?? "English",
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 600 });
 					return { type: args.type, text };
 				}
 
@@ -386,7 +547,7 @@ export const embeddedAction = action({
 						title: doc?.title ?? "Untitled",
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 900 });
 					return { type: args.type, text };
 				}
 
@@ -400,7 +561,7 @@ export const embeddedAction = action({
 					const prompt = documentFixGrammarPrompt({
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 500 });
 					return { type: args.type, text };
 				}
 
@@ -411,20 +572,28 @@ export const embeddedAction = action({
 							text: "",
 							error: "No prompt provided",
 						};
-					const doc = args.context.documentId
-						? await ctx.runQuery(
-								internal.ai.embedded_helpers.loadDocumentContext,
-								{
-									documentId: args.context.documentId,
-								},
-							)
-						: null;
+					const entityContext = await loadWritingEntityContext(
+						ctx,
+						args.context,
+					);
+					if (
+						entityContext.error &&
+						(args.context.documentId ||
+							args.context.issueId ||
+							args.context.projectId)
+					) {
+						return {
+							type: args.type,
+							text: "",
+							error: entityContext.error,
+						};
+					}
 					const prompt = documentWriteFromPromptFn({
-						title: doc?.title ?? "Untitled",
+						title: entityContext.title,
 						prompt: args.prompt,
-						contentBefore: doc?.content ?? undefined,
+						contentBefore: entityContext.content ?? undefined,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 1200 });
 					return { type: args.type, text };
 				}
 
@@ -448,7 +617,7 @@ export const embeddedAction = action({
 						description: issue?.description ?? undefined,
 						existingLabels: labels,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 450 });
 					const data = parseJsonResponse(text);
 					return {
 						type: args.type,
@@ -474,7 +643,7 @@ export const embeddedAction = action({
 						priority: issue?.priority,
 						type: issue?.type,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 700 });
 					return { type: args.type, text };
 				}
 
@@ -502,7 +671,7 @@ export const embeddedAction = action({
 						description: issue?.description ?? undefined,
 						existingIssues: backlogIssues,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 700 });
 					const data = parseJsonResponse(text);
 					return { type: args.type, text, data };
 				}
@@ -533,7 +702,7 @@ export const embeddedAction = action({
 						description: issue.description ?? undefined,
 						comments,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 600 });
 					return { type: args.type, text };
 				}
 
@@ -551,7 +720,7 @@ export const embeddedAction = action({
 						commentBody: args.selectedText ?? args.prompt ?? "",
 						commentAuthor: "User",
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 600 });
 					return { type: args.type, text };
 				}
 
@@ -569,7 +738,7 @@ export const embeddedAction = action({
 						issueDescription: issue?.description ?? undefined,
 						mentionPrompt: args.prompt ?? "",
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 600 });
 					return { type: args.type, text };
 				}
 
@@ -593,58 +762,78 @@ export const embeddedAction = action({
 						args.whiteboard?.generation?.mode ??
 						inferGenerationMode(args.prompt);
 
-					// The prompt includes the vendored Excalidraw element reference
-					// (colors, element types, bindings, sizing rules, example).
-					// No MCP connection needed — zero network latency.
+					// The prompt includes the vendored official Excalidraw MCP element
+					// reference, but we keep board context compact to avoid generation
+					// timeouts on large canvases.
 					const generationPrompt = whiteboardGenerateDiagramPrompt({
 						title: wb?.title ?? "Untitled board",
 						prompt: args.prompt,
-						existingElements: wb?.sceneData ?? undefined,
+						existingElements: compactWhiteboardScene(wb?.sceneData),
 						mode,
 						generation: args.whiteboard?.generation,
 					});
 
-					const generatedText = await callAI(generationPrompt, {
-						maxOutputTokens: 8192,
-						timeoutMs: AI_GENERATION_TIMEOUT_MS,
-					});
-					const parsed = parseJsonResponse(generatedText);
-					const elements = sanitizeDrawableElements(
-						extractElementsPayload(parsed),
-					);
-					const quality = validateGeneratedElements(elements, mode);
+					try {
+						const generatedText = await callAI(generationPrompt, {
+							maxOutputTokens: 4096,
+							timeoutMs: AI_GENERATION_TIMEOUT_MS,
+						});
+						const parsed = parseJsonResponse(generatedText);
+						const elements = sanitizeDrawableElements(
+							extractElementsPayload(parsed),
+						);
+						const quality = validateGeneratedElements(elements, mode);
 
-					if (elements.length > 0) {
-						return {
-							type: args.type,
-							text: `Generated ${mode} diagram`,
-							data: { mode, elements, quality },
-						};
-					}
-
-					// Last resort: check for nodes/edges format
-					if (parsed && typeof parsed === "object") {
-						const parsedRecord = parsed as Record<string, unknown>;
-						if (
-							Array.isArray(parsedRecord.elements) ||
-							Array.isArray(parsedRecord.nodes) ||
-							Array.isArray(parsedRecord.edges)
-						) {
+						if (elements.length > 0) {
 							return {
 								type: args.type,
 								text: `Generated ${mode} diagram`,
-								data: { mode, ...parsedRecord },
+								data: { mode, elements, quality },
 							};
 						}
+
+						// Last resort: check for nodes/edges format
+						if (parsed && typeof parsed === "object") {
+							const parsedRecord = parsed as Record<string, unknown>;
+							if (
+								Array.isArray(parsedRecord.elements) ||
+								Array.isArray(parsedRecord.nodes) ||
+								Array.isArray(parsedRecord.edges)
+							) {
+								return {
+									type: args.type,
+									text: `Generated ${mode} diagram`,
+									data: { mode, ...parsedRecord },
+								};
+							}
+						}
+
+						if (quality.issues.length > 0) {
+							return {
+								type: args.type,
+								text: "",
+								error: `Generation quality issues: ${quality.issues.join("; ")}. Try a more specific prompt.`,
+							};
+						}
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : "Generation failed";
+						console.warn(
+							"[embedded:whiteboard_generate_diagram] falling back to deterministic layout:",
+							message,
+						);
 					}
 
+					const fallback = fallbackElementsForMode(mode);
 					return {
 						type: args.type,
-						text: "",
-						error:
-							quality.issues.length > 0
-								? `Generation quality issues: ${quality.issues.join("; ")}. Try a more specific prompt.`
-								: "AI did not return a usable diagram payload. Please try a more specific prompt.",
+						text: `Generated ${mode} diagram (fallback layout)`,
+						data: {
+							mode,
+							elements: fallback,
+							quality: validateGeneratedElements(fallback, mode),
+							fallback: true,
+						},
 					};
 				}
 
@@ -673,7 +862,7 @@ export const embeddedAction = action({
 						elements: elementsDesc,
 						scope: args.whiteboard?.explain?.scope,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 900 });
 					return { type: args.type, text };
 				}
 
@@ -699,7 +888,7 @@ export const embeddedAction = action({
 						title: wb.title,
 						elements: elementsDesc,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 1000 });
 					const data = parseJsonResponse(text);
 					return { type: args.type, text, data };
 				}
@@ -731,7 +920,7 @@ export const embeddedAction = action({
 						projectDescription: project.description ?? undefined,
 						issueStats: stats,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 700 });
 					const data = parseJsonResponse(text);
 					return { type: args.type, text, data };
 				}
@@ -783,7 +972,7 @@ export const embeddedAction = action({
 						),
 						issueStats: stats,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 1400 });
 					return { type: args.type, text };
 				}
 
@@ -819,7 +1008,7 @@ export const embeddedAction = action({
 						avgVelocity: velocity.avgIssuesPerSprint,
 						completedSprints: velocity.completedSprints,
 					});
-					const text = await callAI(prompt);
+					const text = await callAI(prompt, { maxOutputTokens: 1000 });
 					const data = parseJsonResponse(text);
 					return { type: args.type, text, data };
 				}
@@ -862,36 +1051,40 @@ export const embeddedAction = action({
 						score: number;
 						projectId: string;
 					};
-					const allResults: SemanticResult[] = [];
-
-					for (const pid of projectIds) {
-						try {
-							const ns = getProjectNamespace(pid);
-							const res = await rag.search(ctx, {
-								namespace: ns,
-								query: searchQuery,
-								limit: perProjectLimit,
-							});
-							for (let i = 0; i < res.entries.length; i++) {
-								const entry = res.entries[i];
-								const meta = entry.metadata as
-									| Record<string, unknown>
-									| undefined;
-								const text = entry.text ?? "";
-								allResults.push({
-									sourceType: (meta?.sourceType as string) ?? "unknown",
-									sourceId: (meta?.sourceId as string) ?? "",
-									title: entry.title ?? "",
-									snippet:
-										text.length > 150 ? `${text.slice(0, 147)}...` : text,
-									score: res.results[i]?.score ?? 0,
-									projectId: pid,
+					const resultGroups = await Promise.all(
+						projectIds.map(async (pid) => {
+							try {
+								const ns = getProjectNamespace(pid);
+								const res = await rag.search(ctx, {
+									namespace: ns,
+									query: searchQuery,
+									limit: perProjectLimit,
 								});
+								const mapped: SemanticResult[] = [];
+								for (let i = 0; i < res.entries.length; i++) {
+									const entry = res.entries[i];
+									const meta = entry.metadata as
+										| Record<string, unknown>
+										| undefined;
+									const text = entry.text ?? "";
+									mapped.push({
+										sourceType: (meta?.sourceType as string) ?? "unknown",
+										sourceId: (meta?.sourceId as string) ?? "",
+										title: entry.title ?? "",
+										snippet:
+											text.length > 150 ? `${text.slice(0, 147)}...` : text,
+										score: res.results[i]?.score ?? 0,
+										projectId: pid,
+									});
+								}
+								return mapped;
+							} catch {
+								// Namespace may not exist — skip
+								return [];
 							}
-						} catch {
-							// Namespace may not exist — skip
-						}
-					}
+						}),
+					);
+					const allResults = resultGroups.flat();
 
 					// Sort by score descending, take top 10
 					allResults.sort((a, b) => b.score - a.score);
@@ -1004,7 +1197,9 @@ Rules:
 - Prioritize unread and actionable items
 - If there's truly nothing important, return just a greeting with empty categories`;
 
-					const digestText = await callAI(digestPrompt);
+					const digestText = await callAI(digestPrompt, {
+						maxOutputTokens: 700,
+					});
 					const digestData = parseJsonResponse(digestText);
 					return {
 						type: args.type,
@@ -1096,7 +1291,7 @@ export const handleAIMention = internalAction({
 				mentionPrompt: userMessage,
 				threadContext: threadContext || undefined,
 			});
-			const responseText = await callAI(prompt);
+			const responseText = await callAI(prompt, { maxOutputTokens: 600 });
 
 			if (!responseText.trim()) return null;
 
@@ -1195,7 +1390,7 @@ export const handleDocumentAIMention = internalAction({
 				mentionPrompt: userMessage,
 				threadContext: threadContext || undefined,
 			});
-			const responseText = await callAI(prompt);
+			const responseText = await callAI(prompt, { maxOutputTokens: 600 });
 
 			if (!responseText.trim()) return null;
 

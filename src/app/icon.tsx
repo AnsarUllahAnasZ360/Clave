@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
+export const alt = "Clave icon";
 
 const C_GRID = [
 	[0, 1, 1, 1, 0],

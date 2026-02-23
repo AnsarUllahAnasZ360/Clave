@@ -10,6 +10,13 @@ const destinationSourceValidator = v.union(
 	v.literal("onboarding"),
 );
 
+const destinationValidator = v.object({
+	path: v.string(),
+	source: destinationSourceValidator,
+	organizationId: v.optional(v.id("organizations")),
+	workspaceId: v.optional(v.id("workspaces")),
+});
+
 const slashCommandValidator = v.object({
 	id: v.string(),
 	command: v.string(),
@@ -69,6 +76,97 @@ async function resolveWorkspaceDestination(
 		workspaceId: workspace._id,
 	};
 }
+
+async function resolvePostLoginDestinationForUser(
+	ctx: QueryCtx,
+	user: {
+		_id: Id<"users">;
+		_creationTime: number;
+		lastActiveWorkspaceId?: Id<"workspaces">;
+		lastActiveOrganizationId?: Id<"organizations">;
+	},
+) {
+	const orgMemberships = (
+		await ctx.db
+			.query("organizationMembers")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.collect()
+	).sort(byMostRecentJoinedAt);
+
+	const workspaceMemberships = (
+		await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_user", (q) => q.eq("userId", user._id))
+			.collect()
+	).sort(byMostRecentJoinedAt);
+
+	const organizationMembershipIds = new Set(
+		orgMemberships.map((m) => m.organizationId),
+	);
+	const organizationFallbackIds = orgMemberships.map((m) => m.organizationId);
+	const workspaceMembershipIds = new Set(
+		workspaceMemberships.map((m) => m.workspaceId),
+	);
+
+	if (
+		user.lastActiveWorkspaceId &&
+		workspaceMembershipIds.has(user.lastActiveWorkspaceId)
+	) {
+		const resolved = await resolveWorkspaceDestination(
+			ctx,
+			user.lastActiveWorkspaceId,
+			organizationMembershipIds,
+			organizationFallbackIds,
+			user.lastActiveOrganizationId,
+		);
+		if (resolved) {
+			return { ...resolved, source: "lastActiveContext" as const };
+		}
+	}
+
+	for (const membership of workspaceMemberships) {
+		const resolved = await resolveWorkspaceDestination(
+			ctx,
+			membership.workspaceId,
+			organizationMembershipIds,
+			organizationFallbackIds,
+			user.lastActiveOrganizationId,
+		);
+		if (resolved) {
+			return { ...resolved, source: "recentMembership" as const };
+		}
+	}
+
+	return {
+		path: "/onboarding",
+		source: "onboarding" as const,
+	};
+}
+
+/** Resolve post-login destination in one query using auth + destination state */
+export const resolvePostLoginState = query({
+	args: {},
+	returns: v.object({
+		isAuthenticated: v.boolean(),
+		destination: v.union(destinationValidator, v.null()),
+	}),
+	handler: async (ctx) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) {
+			return { isAuthenticated: false, destination: null };
+		}
+
+		const user = await ctx.db.get(userId);
+		if (!user) {
+			return { isAuthenticated: false, destination: null };
+		}
+
+		return {
+			isAuthenticated: true,
+			destination: await resolvePostLoginDestinationForUser(ctx, user),
+		};
+	},
+});
 
 /** Return the authenticated user's full profile */
 export const current = query({
@@ -180,62 +278,7 @@ export const resolvePostLoginDestination = query({
 		if (!user) {
 			throw new ConvexError("User not found");
 		}
-
-		const orgMemberships = (
-			await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_user", (q) => q.eq("userId", userId))
-				.collect()
-		).sort(byMostRecentJoinedAt);
-
-		const workspaceMemberships = (
-			await ctx.db
-				.query("workspaceMembers")
-				.withIndex("by_user", (q) => q.eq("userId", userId))
-				.collect()
-		).sort(byMostRecentJoinedAt);
-
-		const organizationMembershipIds = new Set(
-			orgMemberships.map((m) => m.organizationId),
-		);
-		const organizationFallbackIds = orgMemberships.map((m) => m.organizationId);
-		const workspaceMembershipIds = new Set(
-			workspaceMemberships.map((m) => m.workspaceId),
-		);
-
-		if (
-			user.lastActiveWorkspaceId &&
-			workspaceMembershipIds.has(user.lastActiveWorkspaceId)
-		) {
-			const resolved = await resolveWorkspaceDestination(
-				ctx,
-				user.lastActiveWorkspaceId,
-				organizationMembershipIds,
-				organizationFallbackIds,
-				user.lastActiveOrganizationId,
-			);
-			if (resolved) {
-				return { ...resolved, source: "lastActiveContext" as const };
-			}
-		}
-
-		for (const membership of workspaceMemberships) {
-			const resolved = await resolveWorkspaceDestination(
-				ctx,
-				membership.workspaceId,
-				organizationMembershipIds,
-				organizationFallbackIds,
-				user.lastActiveOrganizationId,
-			);
-			if (resolved) {
-				return { ...resolved, source: "recentMembership" as const };
-			}
-		}
-
-		return {
-			path: "/onboarding",
-			source: "onboarding" as const,
-		};
+		return resolvePostLoginDestinationForUser(ctx, user);
 	},
 });
 

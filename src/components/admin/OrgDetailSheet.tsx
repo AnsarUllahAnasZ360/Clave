@@ -117,7 +117,7 @@ export function OrgDetailSheet({
 			const destination = await openOrganization({ organizationId });
 			toast.success("Opened organization context");
 			onOpenChange(false);
-			router.push(destination.path);
+			router.push(destination.path as Parameters<typeof router.push>[0]);
 		} catch (error) {
 			toast.error(
 				error instanceof Error

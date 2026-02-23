@@ -1,12 +1,65 @@
 import { Agent } from "@convex-dev/agent";
+import type { ModelMessage } from "ai";
 import { stepCountIs } from "ai";
 import { components } from "../_generated/api";
 import { chatModel, embeddingModel } from "./providers";
 import { subAgentTools } from "./subAgentTool";
 import { allTools } from "./tools";
 
+// Enable verbose AI SDK/agent tracing by setting this env var to true.
+const ENABLE_AGENT_TRACE = process.env.AI_CHAT_DEBUG_TIMING === "true";
+
+function clipText(input: string, maxChars: number): string {
+	return input.length <= maxChars
+		? input
+		: `${input.slice(0, maxChars - 3)}...`;
+}
+
+// ── Context trimming ──────────────────────────────────────────────────────
+
+/** Max characters for an assistant message before truncation in older context. */
+const TRIM_THRESHOLD_CHARS = 1500;
+/** Number of most-recent messages to keep untouched. */
+const PROTECTED_RECENT_COUNT = 4;
+
+/**
+ * Truncate long assistant messages in older conversation history.
+ * Keeps the last `PROTECTED_RECENT_COUNT` messages intact and trims
+ * older assistant messages that exceed `TRIM_THRESHOLD_CHARS`.
+ */
+function trimOlderMessages(messages: ModelMessage[]): ModelMessage[] {
+	if (messages.length <= PROTECTED_RECENT_COUNT) return messages;
+
+	const cutoff = messages.length - PROTECTED_RECENT_COUNT;
+	return messages.map((msg, i) => {
+		if (i >= cutoff) return msg;
+		if (msg.role !== "assistant") return msg;
+		if (typeof msg.content !== "string") return msg;
+		if (msg.content.length <= TRIM_THRESHOLD_CHARS) return msg;
+
+		return {
+			...msg,
+			content: `${msg.content.slice(0, TRIM_THRESHOLD_CHARS)}… [trimmed]`,
+		};
+	});
+}
+
 // ── System Prompt ─────────────────────────────────────────────────────────
-const CLAVE_SYSTEM_PROMPT = `You are Clave AI, a helpful workspace assistant embedded in a collaborative project management platform. You help teams manage issues, plan projects, write documents, and stay organized. Be concise, direct, and practical. When relevant, reference the workspace context provided.`;
+const CLAVE_SYSTEM_PROMPT = `You are Clave AI, a helpful workspace assistant embedded in a collaborative project management platform. You help teams manage issues, plan projects, write documents, and stay organized. Be concise, direct, and practical.
+
+## Tool usage
+- For questions about project data, issues, or documents, use the search tools. For general knowledge, answer directly.
+- Use globalSearch for broad workspace searches spanning multiple entity types.
+- Use searchProjectKnowledge for deep project-scoped searches (semantic + keyword).
+- Use searchCode only when the user asks about code in a connected GitHub repo.
+- Prefer the fewest tool calls needed — batch related lookups when possible.
+
+## Markdown artifacts
+- Always emit valid markdown with balanced code fences.
+- For code samples, use triple-backtick fences with an explicit language tag and a closing fence.
+- For Mermaid diagrams, use a single \`\`\`mermaid fenced block, start with a valid diagram declaration (e.g. flowchart/graph/sequenceDiagram/classDiagram), and keep all Mermaid syntax inside that fence.
+- For markdown tables, include a header row, separator row, and consistent column counts.
+`;
 
 // ── Default Clave AI Agent ────────────────────────────────────────────────
 // The primary agent used for all chat interactions.
@@ -15,11 +68,79 @@ const CLAVE_SYSTEM_PROMPT = `You are Clave AI, a helpful workspace assistant emb
 export const claveAgent = new Agent(components.agent, {
 	name: "Clave AI",
 	languageModel: chatModel,
-	textEmbeddingModel: embeddingModel,
+	embeddingModel,
 	instructions: CLAVE_SYSTEM_PROMPT,
 	tools: { ...allTools, ...subAgentTools },
+	rawRequestResponseHandler: async (_ctx, { request, response }) => {
+		if (!ENABLE_AGENT_TRACE) return;
+
+		console.info(
+			"[claveAgent:rawRequestResponse]",
+			clipText(JSON.stringify(request), 600),
+			clipText(JSON.stringify(response), 1200),
+		);
+	},
+	contextHandler: async (_ctx, args) => {
+		// Use the decomposed args pattern from @convex-dev/agent docs:
+		// search, recent, inputMessages, inputPrompt, existingResponses
+		const { search, recent, inputMessages, inputPrompt, existingResponses } =
+			args;
+
+		// Trim long assistant messages in older conversation history
+		const trimmedRecent = trimOlderMessages(recent);
+
+		const context = [
+			...search,
+			...trimmedRecent,
+			...inputMessages,
+			...inputPrompt,
+			...existingResponses,
+		];
+
+		if (ENABLE_AGENT_TRACE) {
+			console.info(
+				"[claveAgent:context]",
+				JSON.stringify({
+					searchCount: search.length,
+					recentCount: recent.length,
+					trimmedCount: trimmedRecent.filter(
+						(m, i) =>
+							i < recent.length - PROTECTED_RECENT_COUNT &&
+							m.role === "assistant" &&
+							typeof m.content === "string" &&
+							m.content.endsWith("… [trimmed]"),
+					).length,
+					inputCount: inputMessages.length,
+					promptCount: inputPrompt.length,
+					existingCount: existingResponses.length,
+					totalMessages: context.length,
+				}),
+			);
+		}
+
+		return context;
+	},
+	usageHandler: async (_ctx, args) => {
+		const { userId, threadId, agentName, model, provider, usage } = args;
+		console.info(
+			"[chat-tokens]",
+			JSON.stringify({
+				userId,
+				threadId,
+				agentName,
+				model,
+				provider,
+				inputTokens: usage.inputTokens,
+				outputTokens: usage.outputTokens,
+				totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+			}),
+		);
+	},
 	stopWhen: stepCountIs(15),
 	callSettings: {
 		maxRetries: 1,
 	},
 });
+
+// Export for testing
+export { trimOlderMessages, TRIM_THRESHOLD_CHARS, PROTECTED_RECENT_COUNT };

@@ -153,10 +153,11 @@ bun run test         # Vitest tests (unit + integration)
 bun run test:unit    # Vitest unit tests only
 bun run test:integration # Vitest integration tests only
 bun run test:coverage # Vitest coverage report
+bun run test:changed # Run only tests related to changed files (feature-scoped)
 bun run test:gate    # Fast non-E2E gate (format + lint + typecheck + unit + integration + coverage)
 bun run test:e2e     # Playwright E2E
 bun run test:policy  # Enforce feature test update policy
-bun run test:all     # Full gate (test:gate + E2E)
+bun run test:all     # Consolidated non-E2E gate (test:gate)
 bun run clean        # Kill stale processes + clear cache
 bun run changeset    # Add changeset before merging user-facing changes
 ```
@@ -179,7 +180,7 @@ bun run changeset    # Add changeset before merging user-facing changes
 
 ### PR flow
 
-1. `ci.yml` — format check → lint → typecheck → feature test policy gate → `test:gate` → build (blocks merge on failure); run `test:e2e` as a separate stage when required
+1. `ci.yml` — format check → lint → typecheck → feature test policy gate → `test:gate` → build (blocks merge on failure)
 2. `preview.yml` — deploys Convex preview (`pr-<N>`) + Vercel preview → posts URLs as PR comment
 3. `preview-cleanup.yml` — tears down Convex preview on PR close
 
@@ -197,18 +198,13 @@ bun run changeset    # Add changeset before merging user-facing changes
 - Include the `.changeset/*.md` file in the PR (CI warns if missing)
 - Changesets action manages version PRs and git tags automatically
 
-### Test Policy (Required)
+### Test Policy
 
-- Every feature change must include test updates:
-  - Unit tests (`tests/unit` or `*.test.*` / `*.spec.*`)
-  - Integration tests (`tests/integration`)
-  - E2E tests (`tests/e2e` or `*.e2e.*`) when the change impacts user-facing browser flows
-- All gates must pass locally and in CI:
-  - `bun run test:policy`
-  - `bun run test:gate`
-  - `bun run test:e2e` when applicable
-- `test:gate` exits nonzero when any format, lint, typecheck, unit, integration, or coverage step fails.
-- Do not finish work with known failing checks. "Pre-existing failure" is not an acceptable exception.
+- Every feature change must include test updates for the feature being changed.
+- Agents run **only feature-scoped tests** during development — never the full suite.
+- `test:gate` and `test:all` are **CI-only** — they run in GitHub Actions, not during agent work.
+- E2E tests (`test:e2e`) are **never run by agents** unless the user explicitly requests it.
+- `test:policy` is **CI-only** — enforced in the PR pipeline, not during agent work.
 
 ## Skills — When to Use Which
 
@@ -237,10 +233,10 @@ Always check for a matching skill before implementing. Invoke with the `Skill` t
 - `/sprint-review <id>` — Audit outcomes, classify follow-up
 - `/sprint-retro <id>` — Write retrospective, process improvements
 
-## Hooks (Auto-Run on Save)
+## Hooks (Auto-Run on Every File Write)
 
-1. Biome formats the file
-2. TypeScript reports errors
+1. **Biome** — `biome check --write --unsafe` → format + lint + autofix (scoped to the edited file)
+2. **TypeScript** — `tsc --noEmit | grep <file>` → type errors for the edited file only
 
 ## Agent Protocol — How to Work
 
@@ -250,7 +246,11 @@ Always check for a matching skill before implementing. Invoke with the `Skill` t
 2. **Investigate** — read relevant files, understand current state before touching anything
 3. **Plan** — outline the approach, identify files to change, present to user if non-trivial
 4. **Implement** — make the smallest correct diff; use appropriate skills
-5. **Verify** — run `bun run test:policy` then `bun run test:gate`; run `bun run test:e2e` when the change affects browser flows; fix every failing check before finishing
+5. **Feature-scoped verify** — run only the tests related to the feature you changed:
+   - Write unit/integration tests for the code you changed
+   - Run only those specific test files (e.g. `bunx vitest run tests/unit/my-feature.test.ts`)
+   - If tests fail → fix the code, re-run only the failing test files
+   - **NEVER** run `test:gate`, `test:all`, `test:e2e`, or the full test suite — those are CI-only
 6. **Report** — summarize what was done, what was skipped, any blockers
 
 After compaction: `TaskList` → re-read relevant files → continue. Never work from memory.
@@ -284,8 +284,8 @@ After compaction: `TaskList` → re-read relevant files → continue. Never work
 - Use `convex-rules` skill for all Convex code
 - Use `tailwind-shadcn` skill before any UI work
 - Use `agent-browser` skill to verify every UI change
-- Write tests first — `test-driven-development` skill
-- Enforce feature test updates (unit + integration) and require passing format, lint, typecheck, and `test:gate`
+- Write tests for the feature you're implementing
+- Run only feature-scoped tests — never the full suite
 - Add a changeset for every user-facing PR: `bun run changeset`
 - Keep PRs focused — one concern per PR
 
@@ -301,7 +301,8 @@ After compaction: `TaskList` → re-read relevant files → continue. Never work
 - **NEVER** add speculative error handling, fallbacks, or abstractions
 - **NEVER** create custom UI components when shadcn has an equivalent
 - **NEVER** introduce new brand colors — Sienna only
-- **NEVER** claim completion while format/lint/typecheck/unit/integration/coverage checks are failing
+- **NEVER** run `test:gate`, `test:all`, `test:e2e`, or the full test suite — those are CI-only
+- **NEVER** claim completion while feature-scoped tests are failing
 
 ## CLIs
 

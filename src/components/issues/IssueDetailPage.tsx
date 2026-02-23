@@ -27,6 +27,7 @@ import {
 	User,
 	X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -99,7 +100,11 @@ import { IssueAttachDialog } from "./IssueAttachDialog";
 import { IssueDescriptionEditorDynamic } from "./IssueDescriptionEditorDynamic";
 import { IssueRelationsSection } from "./IssueRelationsSection";
 import { LinkedResources, useAttachmentCount } from "./LinkedResources";
-import { SubIssuesList } from "./SubIssuesList";
+
+const SubIssuesList = dynamic(
+	() => import("./SubIssuesList").then((mod) => mod.SubIssuesList),
+	{ ssr: false },
+);
 
 // ── Issue config (from centralized module) ────────────────────────────────
 
@@ -614,6 +619,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 						<Link
 							href={`/${orgSlug}/${workspaceSlug}/projects`}
 							className="hover:text-foreground transition-colors truncate"
+							prefetch={false}
 						>
 							{workspaceSlug}
 						</Link>
@@ -623,6 +629,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 								<Link
 									href={`/${orgSlug}/${workspaceSlug}/projects/${project.slug}`}
 									className="hover:text-foreground transition-colors truncate"
+									prefetch={false}
 								>
 									{project.name}
 								</Link>
@@ -634,6 +641,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 								<Link
 									href={`/${orgSlug}/${workspaceSlug}/issues/${issue.parent.identifier}`}
 									className="hover:text-foreground transition-colors"
+									prefetch={false}
 								>
 									{issue.parent.identifier}
 								</Link>

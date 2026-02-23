@@ -133,6 +133,22 @@ afterEach(() => {
 });
 
 describe("scripts/check-feature-tests.sh", () => {
+	it("fails when feature changes are missing unit updates", () => {
+		const { baseRef, repoDir } = createFixtureRepo();
+		commitFeatureChange(repoDir, {
+			updateIntegration: true,
+			updateUnit: false,
+		});
+
+		const result = runPolicy(repoDir, baseRef);
+		const output = `${result.stdout}\n${result.stderr}`;
+
+		expect(result.status).toBe(1);
+		expect(output).toContain(
+			"[policy] FAIL: feature changes require unit test updates.",
+		);
+	});
+
 	it("fails when feature changes are missing integration updates", () => {
 		const { baseRef, repoDir } = createFixtureRepo();
 		commitFeatureChange(repoDir, {

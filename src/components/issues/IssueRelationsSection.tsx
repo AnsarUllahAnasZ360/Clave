@@ -174,6 +174,7 @@ export function IssueRelationsSection({ issueId }: IssueRelationsSectionProps) {
 								<NextLink
 									href={`/${orgSlug}/${workspaceSlug}/issues/${rel.relatedIssue.identifier}`}
 									className="flex items-center gap-2 flex-1 min-w-0"
+									prefetch={false}
 								>
 									<span className="text-xs font-mono text-muted-foreground shrink-0">
 										{rel.relatedIssue.identifier}

@@ -269,6 +269,27 @@ export const getWorkspaceProjectSummaries = query({
 			.collect();
 
 		const activeIssues = allIssues.filter((i) => !i.deletedAt && !i.parentId);
+		const issueCountsByProject = new Map<
+			string,
+			{ issueCount: number; doneCount: number }
+		>();
+
+		for (const issue of activeIssues) {
+			if (!issue.projectId) continue;
+			const projectId = issue.projectId;
+			const current = issueCountsByProject.get(projectId);
+			const isDone = issue.status === "done" || issue.status === "cancelled";
+
+			if (current) {
+				current.issueCount += 1;
+				if (isDone) current.doneCount += 1;
+			} else {
+				issueCountsByProject.set(projectId, {
+					issueCount: 1,
+					doneCount: isDone ? 1 : 0,
+				});
+			}
+		}
 
 		// Get all projects
 		const projects = await ctx.db
@@ -321,14 +342,10 @@ export const getWorkspaceProjectSummaries = query({
 		for (let i = 0; i < accessibleProjects.length; i++) {
 			const project = accessibleProjects[i];
 			const members = allMembersArrays[i];
-
-			// Count issues for this project
-			const projectIssues = activeIssues.filter(
-				(i) => i.projectId === project._id,
-			);
-			const doneCount = projectIssues.filter(
-				(i) => i.status === "done" || i.status === "cancelled",
-			).length;
+			const stats = issueCountsByProject.get(project._id) ?? {
+				issueCount: 0,
+				doneCount: 0,
+			};
 
 			const memberProfiles = members.map((m) => {
 				const user = userMap.get(m.userId);
@@ -336,8 +353,8 @@ export const getWorkspaceProjectSummaries = query({
 			});
 
 			result[project._id] = {
-				issueCount: projectIssues.length,
-				doneCount,
+				issueCount: stats.issueCount,
+				doneCount: stats.doneCount,
 				members: memberProfiles,
 			};
 		}

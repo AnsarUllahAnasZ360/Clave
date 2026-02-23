@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { POST } from "../../src/app/api/mcp/excalidraw/route";
+import { GET, POST } from "../../src/app/api/mcp/excalidraw/route";
 
 function extractEventData(body: string): unknown {
 	const dataLine = body
@@ -16,6 +16,16 @@ function extractEventData(body: string): unknown {
 }
 
 describe("excalidraw MCP route", () => {
+	it("always returns a Response for GET probes", async () => {
+		const res = await GET(
+			new Request("http://local/api/mcp/excalidraw", {
+				method: "GET",
+			}),
+		);
+
+		expect(res).toBeInstanceOf(Response);
+	});
+
 	it("initializes and exposes official tool surface", async () => {
 		const accept = "application/json, text/event-stream";
 

@@ -58,7 +58,7 @@ type GenerationPhase =
 	| "complete"
 	| "cancelled";
 
-const EMBEDDED_AI_TIMEOUT_MS = 90_000;
+const EMBEDDED_AI_TIMEOUT_MS = 120_000;
 
 function withTimeout<T>(
 	promise: Promise<T>,

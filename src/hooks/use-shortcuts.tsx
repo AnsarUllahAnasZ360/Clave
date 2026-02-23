@@ -304,6 +304,8 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 	const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
 	const [propertyPicker, setPropertyPicker] =
 		useState<PropertyPickerType>(null);
+	const activeIssueIdRef = useRef<string | null>(null);
+	activeIssueIdRef.current = activeIssueId;
 	const pendingNavChordRef = useRef<"g" | null>(null);
 	const chordTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -412,7 +414,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 			}
 
 			// Issue-context shortcuts (require active issue)
-			if (activeIssueId && !e.metaKey && !e.ctrlKey) {
+			if (activeIssueIdRef.current && !e.metaKey && !e.ctrlKey) {
 				// Shift+M — set milestone
 				if (e.shiftKey && e.key === "M") {
 					e.preventDefault();
@@ -463,7 +465,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 				chordTimeoutRef.current = null;
 			}
 		};
-	}, [activeIssueId, router, orgSlug, workspaceSlug, hasWorkspaceContext]);
+	}, [router, orgSlug, workspaceSlug, hasWorkspaceContext]);
 
 	const value = useMemo<ShortcutContextValue>(
 		() => ({

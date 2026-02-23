@@ -75,6 +75,7 @@ interface ErrorResult {
 }
 
 type SceneElement = Record<string, unknown>;
+const WHITEBOARD_GENERATION_TIMEOUT_MS = 120_000;
 
 const SHAPE_TYPES = new Set(["rectangle", "ellipse", "diamond"]);
 
@@ -1091,7 +1092,7 @@ export const generateWhiteboardDiagram = createTool({
 						}
 					: {}),
 			}),
-			90_000,
+			WHITEBOARD_GENERATION_TIMEOUT_MS,
 			"generateWhiteboardDiagram:embeddedAction",
 		);
 

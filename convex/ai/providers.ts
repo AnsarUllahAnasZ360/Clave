@@ -539,6 +539,7 @@ export const resolveChatModel = (
 const REASONING_EFFORT_BY_MODEL: Partial<
 	Record<ChatModelId, "low" | "medium" | "high">
 > = {
+	// Azure GPT-5.2 in our environment only accepts "medium" for responses API.
 	"gpt-5.2": "medium",
 	"kimi-k2.5": "low",
 };

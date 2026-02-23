@@ -312,30 +312,63 @@ export class ConvexYjsProvider implements UnifiedProvider {
 	): void {
 		if (!data) return;
 
+		const safeApplyUpdate = (
+			update: ArrayBuffer,
+			source: string,
+			index?: number,
+		) => {
+			try {
+				Y.applyUpdate(this._document, new Uint8Array(update), "remote");
+				return true;
+			} catch (error) {
+				const err = error instanceof Error ? error : new Error(String(error));
+				const context = index === undefined ? source : `${source}[${index}]`;
+				this.onError?.(
+					new Error(`Failed to apply Yjs ${context}: ${err.message}`),
+				);
+				if (process.env.NODE_ENV === "development") {
+					console.error(
+						`[ConvexYjsProvider] Failed applying Yjs remote ${context}`,
+						err,
+					);
+				}
+				return false;
+			}
+		};
+
+		let remoteApplyFailed = false;
+
 		const { snapshot, updates, snapshotVersion } = data;
 
 		// If snapshot version changed, a compaction happened — re-sync from snapshot
 		if (snapshotVersion !== this.lastAppliedSnapshotVersion) {
 			if (snapshot) {
-				Y.applyUpdate(this._document, new Uint8Array(snapshot), "remote");
+				remoteApplyFailed ||= !safeApplyUpdate(snapshot, "snapshot");
 			}
 			for (const update of updates) {
-				Y.applyUpdate(this._document, new Uint8Array(update), "remote");
+				remoteApplyFailed ||= !safeApplyUpdate(update, "incremental");
 			}
 			this.lastAppliedSnapshotVersion = snapshotVersion;
 			this.lastAppliedUpdateCount = updates.length;
 		} else if (updates.length > this.lastAppliedUpdateCount) {
 			// Apply only new incremental updates
 			const newUpdates = updates.slice(this.lastAppliedUpdateCount);
-			for (const update of newUpdates) {
-				Y.applyUpdate(this._document, new Uint8Array(update), "remote");
-			}
+			newUpdates.forEach((update, index) => {
+				const applied = safeApplyUpdate(update, "incremental", index);
+				remoteApplyFailed ||= !applied;
+			});
 			this.lastAppliedUpdateCount = updates.length;
+		}
+
+		if (remoteApplyFailed) {
+			this.setSynced(false);
 		}
 
 		if (!this.initialSyncDone) {
 			this.initialSyncDone = true;
-			this.setSynced(true);
+			if (!remoteApplyFailed) {
+				this.setSynced(true);
+			}
 		}
 
 		// Remote data arriving means connection is alive — try flushing any pending updates

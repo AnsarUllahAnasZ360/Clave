@@ -210,6 +210,7 @@ export function ClientDetailsPage({ clientId }: ClientDetailsPageProps) {
 																key={p._id}
 																href={`/${orgSlug}/${workspaceSlug}/projects/${p.slug}`}
 																className="flex items-center justify-between px-4 py-3 hover:bg-muted/80"
+																prefetch={false}
 															>
 																<div className="flex flex-col">
 																	<p className="text-sm font-medium text-foreground">

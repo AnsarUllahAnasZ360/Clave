@@ -51,6 +51,14 @@ function needsConfiguration(server: MCPServerSummary) {
 	);
 }
 
+function isRequiredExcalidrawServer(server: Pick<MCPServerSummary, "url">) {
+	const lowerUrl = server.url.trim().toLowerCase();
+	return (
+		lowerUrl.includes("/api/mcp/excalidraw") ||
+		lowerUrl.includes("/mcp/excalidraw")
+	);
+}
+
 export function McpActionMenuItems({
 	servers,
 	selectedIds,
@@ -62,12 +70,15 @@ export function McpActionMenuItems({
 		.slice(0, maxVisible);
 	if (activeServers.length === 0) return null;
 
-	const toggleServer = (serverId: Id<"mcpServers">) => {
-		if (selectedIds.includes(serverId)) {
-			onChange(selectedIds.filter((id) => id !== serverId));
+	const toggleServer = (server: MCPServerSummary) => {
+		if (isRequiredExcalidrawServer(server)) {
 			return;
 		}
-		onChange([...selectedIds, serverId]);
+		if (selectedIds.includes(server._id)) {
+			onChange(selectedIds.filter((id) => id !== server._id));
+			return;
+		}
+		onChange([...selectedIds, server._id]);
 	};
 
 	const handleServerSelect = (server: MCPServerSummary) => {
@@ -79,7 +90,7 @@ export function McpActionMenuItems({
 			);
 			return;
 		}
-		toggleServer(server._id);
+		toggleServer(server);
 	};
 
 	return (
@@ -89,7 +100,8 @@ export function McpActionMenuItems({
 				MCP connectors
 			</div>
 			{activeServers.map((server) => {
-				const selected = selectedIds.includes(server._id);
+				const isRequired = isRequiredExcalidrawServer(server);
+				const selected = isRequired || selectedIds.includes(server._id);
 				const serverNeedsConfig = needsConfiguration(server);
 				return (
 					<DropdownMenuItem
@@ -98,7 +110,10 @@ export function McpActionMenuItems({
 							event.preventDefault();
 							handleServerSelect(server);
 						}}
-						className="flex items-center gap-2"
+						className={cn(
+							"flex items-center gap-2",
+							isRequired && "cursor-default",
+						)}
 					>
 						<div
 							className={cn(
@@ -111,6 +126,11 @@ export function McpActionMenuItems({
 							<Check className="size-3" />
 						</div>
 						<span className="truncate text-sm">{server.name}</span>
+						{isRequired && (
+							<span className="ml-auto text-[10px] text-muted-foreground">
+								Required
+							</span>
+						)}
 						{serverNeedsConfig && (
 							<span className="ml-auto inline-flex items-center gap-1 text-[10px] text-amber-500">
 								Configure
@@ -138,14 +158,25 @@ export function McpConnectorPicker({
 		return active.slice(0, maxVisible);
 	}, [servers, maxVisible]);
 
-	const selectedCount = selectedIds.length;
+	const selectedCount = useMemo(() => {
+		const requiredIds = servers
+			.filter(
+				(server) =>
+					server.status === "active" && isRequiredExcalidrawServer(server),
+			)
+			.map((server) => server._id);
+		return new Set([...selectedIds, ...requiredIds]).size;
+	}, [selectedIds, servers]);
 
-	const toggleServer = (serverId: Id<"mcpServers">) => {
-		if (selectedIds.includes(serverId)) {
-			onChange(selectedIds.filter((id) => id !== serverId));
+	const toggleServer = (server: MCPServerSummary) => {
+		if (isRequiredExcalidrawServer(server)) {
 			return;
 		}
-		onChange([...selectedIds, serverId]);
+		if (selectedIds.includes(server._id)) {
+			onChange(selectedIds.filter((id) => id !== server._id));
+			return;
+		}
+		onChange([...selectedIds, server._id]);
 	};
 
 	const handleServerSelect = (server: MCPServerSummary) => {
@@ -157,7 +188,7 @@ export function McpConnectorPicker({
 			);
 			return;
 		}
-		toggleServer(server._id);
+		toggleServer(server);
 	};
 
 	return (
@@ -195,7 +226,8 @@ export function McpConnectorPicker({
 						<CommandEmpty>No active MCP connectors</CommandEmpty>
 						<CommandGroup>
 							{visibleServers.map((server) => {
-								const selected = selectedIds.includes(server._id);
+								const isRequired = isRequiredExcalidrawServer(server);
+								const selected = isRequired || selectedIds.includes(server._id);
 								const serverNeedsConfig = needsConfiguration(server);
 								return (
 									<div
@@ -208,6 +240,7 @@ export function McpConnectorPicker({
 											className={cn(
 												"flex items-start gap-2 py-2",
 												serverNeedsConfig && "opacity-60",
+												isRequired && "cursor-default",
 											)}
 										>
 											<div
@@ -242,6 +275,11 @@ export function McpConnectorPicker({
 															Configure
 															<ExternalLink className="size-3" />
 														</a>
+													</div>
+												)}
+												{isRequired && (
+													<div className="mt-1 text-[10px] text-muted-foreground">
+														Required system connector
 													</div>
 												)}
 											</div>

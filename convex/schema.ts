@@ -276,6 +276,7 @@ export default defineSchema({
 		linkedWhiteboardIds: v.optional(v.array(v.id("whiteboards"))),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_status", ["workspaceId", "status"])
 		.index("by_project_sort", ["projectId", "sortOrder"])
 		.index("by_sprint_sort", ["sprintId", "sortOrder"])
 		.index("by_milestone_sort", ["milestoneId", "sortOrder"])
@@ -285,6 +286,7 @@ export default defineSchema({
 		.index("by_project", ["projectId"])
 		.index("by_sprint", ["sprintId"])
 		.index("by_milestone", ["milestoneId"])
+		.index("by_workspace_creator", ["workspaceId", "createdBy"])
 		.searchIndex("search_title", {
 			searchField: "title",
 			filterFields: ["workspaceId"],
@@ -299,7 +301,8 @@ export default defineSchema({
 	})
 		.index("by_issue", ["issueId"])
 		.index("by_related_issue", ["relatedIssueId"])
-		.index("by_issue_type", ["issueId", "type"]),
+		.index("by_issue_type", ["issueId", "type"])
+		.index("by_type", ["type"]),
 
 	issueSubscriptions: defineTable({
 		issueId: v.id("issues"),
@@ -427,7 +430,9 @@ export default defineSchema({
 		createdAt: v.optional(v.number()),
 		updatedAt: v.optional(v.number()),
 		deletedAt: v.optional(v.number()),
-	}).index("by_workspace", ["workspaceId"]),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_name", ["workspaceId", "name"]),
 
 	// ── Documents ─────────────────────────────────────────────────────────────
 
@@ -588,7 +593,9 @@ export default defineSchema({
 		.index("by_issue", ["issueId"])
 		.index("by_task", ["taskId"])
 		.index("by_story", ["storyId"])
-		.index("by_whiteboard", ["whiteboardId"]),
+		.index("by_whiteboard", ["whiteboardId"])
+		.index("by_parent", ["parentId"])
+		.index("by_author", ["authorId"]),
 
 	// ── Notifications ─────────────────────────────────────────────────────────
 
@@ -700,7 +707,8 @@ export default defineSchema({
 		.index("by_issue", ["issueId"])
 		.index("by_task", ["taskId"])
 		.index("by_project", ["projectId"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_story", ["storyId"]),
 
 	// ── Files ─────────────────────────────────────────────────────────────────
 
@@ -817,6 +825,7 @@ export default defineSchema({
 		sourceUrl: v.optional(v.string()),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_name", ["workspaceId", "name"])
 		.index("by_workspace_enabled", ["workspaceId", "isEnabled"])
 		.index("by_creator", ["createdBy"]),
 
@@ -883,7 +892,6 @@ export default defineSchema({
 		createdAt: v.number(),
 	})
 		.index("by_workspace_user", ["workspaceId", "userId"])
-		.index("by_status", ["status"])
 		.index("by_created_at", ["createdAt"]),
 
 	// ── AI Audit Log ─────────────────────────────────────────────────────────
@@ -936,9 +944,9 @@ export default defineSchema({
 		completedAt: v.optional(v.number()),
 	})
 		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_status", ["workspaceId", "status"])
 		.index("by_user", ["userId"])
-		.index("by_thread", ["threadId"])
-		.index("by_status", ["status"]),
+		.index("by_thread", ["threadId"]),
 
 	// ── MCP Servers ─────────────────────────────────────────────────────────
 

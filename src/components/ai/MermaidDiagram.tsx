@@ -8,7 +8,15 @@ import {
 	Maximize2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { memo, useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -55,6 +63,18 @@ function useSvgRef(svg: string | null) {
 	return ref;
 }
 
+function normalizeMermaidDefinition(definition: string): string {
+	const normalizedLineEndings = definition.replace(/\r\n/g, "\n").trim();
+	if (!normalizedLineEndings) return "";
+
+	const withoutFence = normalizedLineEndings
+		.replace(/^```(?:mermaid)?[^\S\r\n]*\n?/i, "")
+		.replace(/\n?```$/, "")
+		.trim();
+
+	return withoutFence.replace(/\u00A0/g, " ");
+}
+
 // ── MermaidDiagram ──────────────────────────────────────────────────────
 
 function MermaidDiagramInner({
@@ -68,9 +88,14 @@ function MermaidDiagramInner({
 	const [state, setState] = useState<RenderState>({ status: "loading" });
 	const [fullscreen, setFullscreen] = useState(false);
 	const [sourceVisible, setSourceVisible] = useState(false);
+	const renderSequenceRef = useRef(0);
 
 	const { resolvedTheme } = useTheme();
 	const mermaidTheme = resolvedTheme === "dark" ? "dark" : "default";
+	const normalizedDefinition = useMemo(
+		() => normalizeMermaidDefinition(definition),
+		[definition],
+	);
 
 	const sanitizedSvg = state.status === "success" ? state.svg : null;
 	const containerRef = useSvgRef(sanitizedSvg);
@@ -93,7 +118,9 @@ function MermaidDiagramInner({
 					fontFamily: "inherit",
 				});
 
-				const { svg } = await mermaid.render(diagramId, definition.trim());
+				// Mermaid IDs must be unique per render call.
+				const renderId = `${diagramId}-${++renderSequenceRef.current}`;
+				const { svg } = await mermaid.render(renderId, normalizedDefinition);
 
 				if (!cancelled) {
 					const sanitized = sanitizeHtml(svg);
@@ -108,7 +135,7 @@ function MermaidDiagramInner({
 			}
 		}
 
-		if (definition.trim()) {
+		if (normalizedDefinition) {
 			render();
 		} else {
 			setState({ status: "error", message: "Empty diagram definition" });
@@ -117,7 +144,7 @@ function MermaidDiagramInner({
 		return () => {
 			cancelled = true;
 		};
-	}, [definition, diagramId, mermaidTheme]);
+	}, [normalizedDefinition, diagramId, mermaidTheme]);
 
 	// Export as PNG
 	const exportPng = useCallback(() => {

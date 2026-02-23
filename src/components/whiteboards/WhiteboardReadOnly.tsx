@@ -16,6 +16,11 @@ if (typeof window !== "undefined") {
 	(window as any).EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/";
 }
 
+const RESTORE_SCENE_OPTIONS = {
+	repairBindings: true,
+	refreshDimensions: true,
+} as const;
+
 interface WhiteboardReadOnlyProps {
 	sceneData?: string;
 	appState?: string;
@@ -51,7 +56,7 @@ export function WhiteboardReadOnly({
 	try {
 		if (sceneData) {
 			const raw = JSON.parse(sceneData);
-			initialElements = restoreElements(raw, null);
+			initialElements = restoreElements(raw, null, RESTORE_SCENE_OPTIONS);
 		}
 	} catch {
 		// Invalid JSON -- show empty canvas

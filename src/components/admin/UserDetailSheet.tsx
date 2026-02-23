@@ -181,7 +181,7 @@ export function UserDetailSheet({
 			const destination = await openUserContextMut({ userId });
 			toast.success("Opened user organization context");
 			onOpenChange(false);
-			router.push(destination.path);
+			router.push(destination.path as Parameters<typeof router.push>[0]);
 		} catch (error) {
 			toast.error(
 				error instanceof Error ? error.message : "Failed to open user context",
@@ -199,7 +199,7 @@ export function UserDetailSheet({
 				});
 				toast.success("Opened organization");
 				onOpenChange(false);
-				router.push(destination.path);
+				router.push(destination.path as Parameters<typeof router.push>[0]);
 			} catch (error) {
 				toast.error(
 					error instanceof Error

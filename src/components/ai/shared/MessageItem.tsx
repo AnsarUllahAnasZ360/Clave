@@ -56,7 +56,7 @@ import { useWorkspaceOptional } from "@/components/providers/workspace-context";
 import { useCurrentUser } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PixelCIcon } from "@/components/ui/pixel-c-icon";
-import { extractArtifacts } from "@/lib/ai/artifact-utils";
+import { extractArtifacts, filterArtifactCards } from "@/lib/ai/artifact-utils";
 import { cn } from "@/lib/utils";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -434,6 +434,10 @@ export const AssistantMessage = memo(
 			() => extractArtifacts(message.text, message.status),
 			[message.text, message.status],
 		);
+		const artifactCards = useMemo(
+			() => filterArtifactCards(artifacts),
+			[artifacts],
+		);
 
 		// Simple path — no tool parts, no reasoning, render text or streaming dots
 		if (!hasToolParts && !hasReasoningParts) {
@@ -451,7 +455,7 @@ export const AssistantMessage = memo(
 								<ReasoningContent>{""}</ReasoningContent>
 							</Reasoning>
 						) : null}
-						{artifacts.map((artifact) => (
+						{artifactCards.map((artifact) => (
 							<ArtifactCard key={artifact.id} artifact={artifact} />
 						))}
 						<SourcesList sources={sourceParts} />
@@ -603,7 +607,7 @@ export const AssistantMessage = memo(
 			<Message from="assistant">
 				<MessageContent>
 					{rendered}
-					{artifacts.map((artifact) => (
+					{artifactCards.map((artifact) => (
 						<ArtifactCard key={artifact.id} artifact={artifact} />
 					))}
 					<SourcesList sources={sourceParts} />

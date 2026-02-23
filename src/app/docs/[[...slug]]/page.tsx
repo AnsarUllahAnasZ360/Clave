@@ -34,10 +34,12 @@ export default async function Page(props: PageProps) {
 			<div className="flex items-center gap-1.5 text-sm text-fd-muted-foreground">
 				{breadcrumbs.map((item) => (
 					<span
-						key={`${item.url ?? item.name}-${item.name}`}
+						key={`${item.url ?? ""}-${item.name}`}
 						className="flex items-center gap-1.5"
 					>
-						{i !== 0 && <ChevronRight className="size-3.5 shrink-0" />}
+						{item !== breadcrumbs[0] && (
+							<ChevronRight className="size-3.5 shrink-0" />
+						)}
 						{item.url ? (
 							<a
 								href={item.url}

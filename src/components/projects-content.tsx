@@ -1,11 +1,11 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProjectCardsView } from "@/components/project-cards-view";
 import { ProjectHeader } from "@/components/project-header";
-import { ProjectQuickCreateModal } from "@/components/projects/ProjectQuickCreateModal";
 import type { FilterCounts, Project } from "@/lib/data/projects";
 import { chipsToParams, paramsToChips } from "@/lib/url/filters";
 import {
@@ -16,6 +16,16 @@ import {
 import { api } from "../../convex/_generated/api";
 import { useWorkspace } from "./providers/workspace-context";
 import { useWorkspaceProjects } from "./providers/workspace-data-context";
+
+const ProjectQuickCreateModal = dynamic(
+	() =>
+		import("@/components/projects/ProjectQuickCreateModal").then(
+			(mod) => mod.ProjectQuickCreateModal,
+		),
+	{
+		loading: () => null,
+	},
+);
 
 function computeFilterCountsFromList(list: Project[]): FilterCounts {
 	const res: FilterCounts = {

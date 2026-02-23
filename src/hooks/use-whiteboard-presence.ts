@@ -19,9 +19,11 @@ export function useWhiteboardPresence(
 	const upsertPresence = useMutation(api.whiteboardPresence.upsert);
 	const heartbeatPresence = useMutation(api.whiteboardPresence.heartbeat);
 	const leavePresence = useMutation(api.whiteboardPresence.leave);
-	const activePresence = useQuery(api.whiteboardPresence.listActive, {
-		whiteboardId,
-	});
+	// Skip presence query when no authenticated user (e.g. public share mode)
+	const activePresence = useQuery(
+		api.whiteboardPresence.listActive,
+		currentUserId ? { whiteboardId } : "skip",
+	);
 
 	// Stable refs to avoid re-creating intervals/effects
 	const upsertRef = useRef(upsertPresence);
@@ -33,17 +35,19 @@ export function useWhiteboardPresence(
 	const whiteboardIdRef = useRef(whiteboardId);
 	whiteboardIdRef.current = whiteboardId;
 
-	// Upsert on mount to register presence immediately
+	// Upsert on mount to register presence immediately — skip when no authenticated user
 	useEffect(() => {
+		if (!currentUserId) return;
 		upsertRef
 			.current({
 				whiteboardId: whiteboardIdRef.current,
 			})
 			.catch(() => {});
-	}, []);
+	}, [currentUserId]);
 
-	// Heartbeat interval (10s)
+	// Heartbeat interval (10s) — skip when no authenticated user
 	useEffect(() => {
+		if (!currentUserId) return;
 		const interval = setInterval(
 			() => {
 				heartbeatRef
@@ -56,10 +60,11 @@ export function useWhiteboardPresence(
 		);
 
 		return () => clearInterval(interval);
-	}, []);
+	}, [currentUserId]);
 
-	// Leave on unmount and beforeunload
+	// Leave on unmount and beforeunload — skip when no authenticated user
 	useEffect(() => {
+		if (!currentUserId) return;
 		const handleBeforeUnload = () => {
 			leaveRef
 				.current({
@@ -78,7 +83,7 @@ export function useWhiteboardPresence(
 				})
 				.catch(() => {});
 		};
-	}, []);
+	}, [currentUserId]);
 
 	// All active users including current user
 	const activeUsers = useMemo<WhiteboardActiveUser[]>(() => {

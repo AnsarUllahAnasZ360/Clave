@@ -14,14 +14,37 @@ import type { ActionCtx } from "../_generated/server";
 // Keep MCP tool discovery responsive so chat generation starts quickly even
 // when a selected MCP server is slow or unreachable.
 const MCP_CONNECTION_TIMEOUT_MS = 1_500;
+const ENABLE_MCP_TRACE = process.env.AI_CHAT_DEBUG_TIMING === "true";
+
+function logMcpClient(message: string, data?: Record<string, unknown>) {
+	if (!ENABLE_MCP_TRACE) return;
+	console.info(`[mcpClient] ${message}`, data ?? {});
+}
 
 export type McpToolSet = Record<string, Tool>;
+
+export interface McpServerTiming {
+	serverName: string;
+	connectMs: number;
+	toolDiscoveryMs: number;
+	totalMs: number;
+	toolCount: number;
+}
+
+export interface McpTiming {
+	totalMs: number;
+	queryMs: number;
+	servers: McpServerTiming[];
+	fastPath: boolean;
+}
 
 export interface McpLoadResult {
 	/** Merged MCP tools from all successfully connected servers */
 	tools: McpToolSet;
 	/** Active MCP client instances — caller must close these after use */
 	clients: MCPClient[];
+	/** Timing data for performance analysis */
+	timing: McpTiming;
 }
 
 export function resolveMcpTransportType(server: {
@@ -43,6 +66,17 @@ function requiresConfiguration(server: {
 	return false;
 }
 
+function isRequiredExcalidrawServer(server: {
+	name: string;
+	url: string;
+}): boolean {
+	const lowerUrl = server.url.trim().toLowerCase();
+	return (
+		lowerUrl.includes("/api/mcp/excalidraw") ||
+		lowerUrl.includes("/mcp/excalidraw")
+	);
+}
+
 /**
  * Load tools from all active MCP servers for a workspace.
  *
@@ -59,12 +93,41 @@ export async function loadMcpTools(
 	workspaceId: Id<"workspaces">,
 	options?: {
 		selectedServerIds?: Id<"mcpServers">[];
+		pageContext?: string;
 	},
 ): Promise<McpLoadResult> {
 	const selectedServerIds = options?.selectedServerIds;
-	// Explicitly selected none: skip workspace server query entirely.
-	if (selectedServerIds && selectedServerIds.length === 0) {
-		return { tools: {}, clients: [] };
+	const pageContext = options?.pageContext;
+	const startedAt = Date.now();
+	logMcpClient("loadMcpTools:start", {
+		workspaceId,
+		hasSelection: selectedServerIds !== undefined,
+		selectionCount: selectedServerIds?.length ?? 0,
+		pageContext: pageContext ?? "none",
+		timeoutMs: MCP_CONNECTION_TIMEOUT_MS,
+	});
+
+	// Fast path: skip all MCP work when no optional servers are selected
+	// and the page is not a board (Excalidraw tools only needed on boards).
+	const hasOptionalServers =
+		selectedServerIds !== undefined && selectedServerIds.length > 0;
+	if (!hasOptionalServers && pageContext !== "board") {
+		const fastPathMs = Date.now() - startedAt;
+		logMcpClient("loadMcpTools:fast-path", {
+			workspaceId,
+			pageContext: pageContext ?? "none",
+			elapsedMs: fastPathMs,
+		});
+		return {
+			tools: {},
+			clients: [],
+			timing: {
+				totalMs: fastPathMs,
+				queryMs: 0,
+				servers: [],
+				fastPath: true,
+			},
+		};
 	}
 
 	type InternalMcpServer = {
@@ -77,28 +140,48 @@ export async function loadMcpTools(
 		apiKey?: string;
 		enabledTools?: string[];
 	};
+	const queryStart = Date.now();
 	const servers = (await ctx.runQuery(internal.mcpServers.listActiveInternal, {
 		workspaceId,
 	})) as InternalMcpServer[];
-	const selectedSet =
-		selectedServerIds !== undefined ? new Set(selectedServerIds) : null;
+	const queryMs = Date.now() - queryStart;
+	const selectedSet = selectedServerIds ? new Set(selectedServerIds) : null;
+	const requiredServerIds = new Set(
+		servers
+			.filter((server) => isRequiredExcalidrawServer(server))
+			.map((server) => server._id),
+	);
 	const eligibleServers = (
 		selectedSet
-			? servers.filter((server) => selectedSet.has(server._id))
+			? servers.filter(
+					(server) =>
+						selectedSet.has(server._id) || requiredServerIds.has(server._id),
+				)
 			: servers
 	).filter((server) => !requiresConfiguration(server));
 
 	if (eligibleServers.length === 0) {
-		return { tools: {}, clients: [] };
+		const emptyMs = Date.now() - startedAt;
+		logMcpClient("loadMcpTools:empty", {
+			workspaceId,
+			elapsedMs: emptyMs,
+		});
+		return {
+			tools: {},
+			clients: [],
+			timing: { totalMs: emptyMs, queryMs, servers: [], fastPath: false },
+		};
 	}
 
 	const allTools: McpToolSet = {};
 	const clients: MCPClient[] = [];
+	const serverTimings: McpServerTiming[] = [];
 
 	// Connect to each server concurrently with individual timeouts
 	type McpServer = (typeof eligibleServers)[number];
 	const results = await Promise.allSettled(
 		eligibleServers.map(async (server: McpServer) => {
+			const serverStartedAt = Date.now();
 			const headers: Record<string, string> = {};
 			if (server.apiKey) {
 				headers.Authorization = `Bearer ${server.apiKey}`;
@@ -106,6 +189,7 @@ export async function loadMcpTools(
 			}
 			const transportType = resolveMcpTransportType(server);
 
+			const connectStart = Date.now();
 			const client = await Promise.race([
 				createMCPClient({
 					transport: {
@@ -122,9 +206,21 @@ export async function loadMcpTools(
 					),
 				),
 			]);
+			const connectMs = Date.now() - connectStart;
 
+			const toolDiscoveryStart = Date.now();
 			const tools = await client.tools();
-			return { server, client, tools };
+			const toolDiscoveryMs = Date.now() - toolDiscoveryStart;
+
+			return {
+				server,
+				client,
+				tools,
+				connectMs,
+				toolDiscoveryMs,
+				totalMs: Date.now() - serverStartedAt,
+				toolCount: Object.keys(tools).length,
+			};
 		}),
 	);
 
@@ -137,7 +233,31 @@ export async function loadMcpTools(
 			continue;
 		}
 
-		const { server, client, tools } = result.value;
+		const {
+			server,
+			client,
+			tools,
+			connectMs,
+			toolDiscoveryMs,
+			totalMs,
+			toolCount,
+		} = result.value;
+		serverTimings.push({
+			serverName: server.name,
+			connectMs,
+			toolDiscoveryMs,
+			totalMs,
+			toolCount,
+		});
+		logMcpClient("loadMcpTools:server", {
+			serverId: server._id,
+			serverName: server.name,
+			transport: resolveMcpTransportType(server),
+			connectMs,
+			toolDiscoveryMs,
+			totalMs,
+			toolCount,
+		});
 		clients.push(client);
 
 		// Apply enabledTools whitelist if configured
@@ -151,7 +271,22 @@ export async function loadMcpTools(
 		}
 	}
 
-	return { tools: allTools, clients };
+	const totalMs = Date.now() - startedAt;
+	logMcpClient("loadMcpTools:complete", {
+		workspaceId,
+		serversFound: servers.length,
+		eligibleServers: eligibleServers.length,
+		toolCount: Object.keys(allTools).length,
+		connectedClients: clients.length,
+		queryMs,
+		totalMs,
+	});
+
+	return {
+		tools: allTools,
+		clients,
+		timing: { totalMs, queryMs, servers: serverTimings, fastPath: false },
+	};
 }
 
 /**

@@ -1,5 +1,10 @@
+import bundleAnalyzer from "@next/bundle-analyzer";
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
+
+const withBundleAnalyzer = bundleAnalyzer({
+	enabled: process.env.ANALYZE === "true",
+});
 
 const nextConfig: NextConfig = {
 	typedRoutes: true,
@@ -12,4 +17,4 @@ const nextConfig: NextConfig = {
 
 const withMDX = createMDX();
 
-export default withMDX(nextConfig);
+export default withBundleAnalyzer(withMDX(nextConfig));

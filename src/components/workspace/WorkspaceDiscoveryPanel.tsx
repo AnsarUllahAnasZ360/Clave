@@ -10,13 +10,23 @@ import { Button } from "@/components/ui/button";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
+type OrganizationWorkspace = {
+	_id: Id<"workspaces">;
+	name: string;
+	slug: string;
+	description?: string;
+	visibility?: "public" | "private";
+	isMember: boolean;
+	memberCount: number;
+};
+
 export function WorkspaceDiscoveryPanel() {
 	const router = useRouter();
 	const currentOrg = useOrganizationOptional();
 	const orgWorkspaces = useQuery(
 		api.workspaces.listByOrganization,
 		currentOrg ? { organizationId: currentOrg.organizationId } : "skip",
-	);
+	) as OrganizationWorkspace[] | undefined;
 	const joinWorkspace = useMutation(api.workspaces.joinPublicWorkspace);
 	const [joiningId, setJoiningId] = useState<Id<"workspaces"> | null>(null);
 

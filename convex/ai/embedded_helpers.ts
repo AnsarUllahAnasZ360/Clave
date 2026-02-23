@@ -21,7 +21,10 @@ export const loadDocumentContext = internalQuery({
 	handler: async (ctx, { documentId }) => {
 		const doc = await ctx.db.get(documentId);
 		if (!doc || doc.deletedAt) return null;
-		return { title: doc.title, content: doc.content ?? undefined };
+		return {
+			title: doc.title,
+			content: doc.content ? extractPlainTextFromBody(doc.content) : undefined,
+		};
 	},
 });
 
@@ -44,7 +47,9 @@ export const loadIssueContext = internalQuery({
 		return {
 			identifier: issue.identifier,
 			title: issue.title,
-			description: issue.description ?? undefined,
+			description: issue.description
+				? extractPlainTextFromBody(issue.description)
+				: undefined,
 			status: issue.status,
 			priority: issue.priority,
 			type: issue.type,
@@ -82,7 +87,11 @@ export const loadProjectContext = internalQuery({
 		if (!project || project.deletedAt) return null;
 		return {
 			name: project.name,
-			description: project.description ?? undefined,
+			description: project.richDescription
+				? extractPlainTextFromBody(project.richDescription)
+				: project.description
+					? extractPlainTextFromBody(project.description)
+					: undefined,
 		};
 	},
 });
@@ -134,16 +143,25 @@ export const loadIssueComments = internalQuery({
 			.query("comments")
 			.withIndex("by_issue", (q) => q.eq("issueId", issueId))
 			.take(50);
-		const results: Array<{ author: string; body: string }> = [];
-		for (const c of comments) {
-			if (c.deletedAt) continue;
-			const user = await ctx.db.get(c.authorId);
-			results.push({
-				author: user?.name ?? "Unknown",
-				body: c.body,
-			});
-		}
-		return results;
+
+		const activeComments = comments.filter((comment) => !comment.deletedAt);
+		const authorIds = [
+			...new Set(activeComments.map((comment) => comment.authorId)),
+		];
+		const authorResults = await Promise.all(
+			authorIds.map((authorId) => ctx.db.get(authorId)),
+		);
+		const authorNameById = new Map(
+			authorIds.map((authorId, index) => [
+				authorId,
+				authorResults[index]?.name ?? "Unknown",
+			]),
+		);
+
+		return activeComments.map((comment) => ({
+			author: authorNameById.get(comment.authorId) ?? "Unknown",
+			body: comment.body,
+		}));
 	},
 });
 
@@ -164,6 +182,29 @@ export const loadProjectMilestones = internalQuery({
 			.query("sprints")
 			.withIndex("by_project", (q) => q.eq("projectId", projectId))
 			.collect();
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_project", (q) => q.eq("projectId", projectId))
+			.collect();
+
+		const sprintStats = new Map<
+			string,
+			{ issueCount: number; completedCount: number }
+		>();
+		for (const issue of issues) {
+			if (issue.deletedAt || !issue.sprintId) continue;
+			const key = String(issue.sprintId);
+			const current = sprintStats.get(key) ?? {
+				issueCount: 0,
+				completedCount: 0,
+			};
+			current.issueCount += 1;
+			if (issue.status === "done" || issue.status === "cancelled") {
+				current.completedCount += 1;
+			}
+			sprintStats.set(key, current);
+		}
+
 		const results: Array<{
 			name: string;
 			status: string;
@@ -173,24 +214,20 @@ export const loadProjectMilestones = internalQuery({
 			targetDate?: string;
 		}> = [];
 		for (const s of sprints.filter((s) => !s.deletedAt)) {
-			const issues = await ctx.db
-				.query("issues")
-				.withIndex("by_sprint", (q) => q.eq("sprintId", s._id))
-				.collect();
-			const active = issues.filter((i) => !i.deletedAt);
-			const completed = active.filter(
-				(i) => i.status === "done" || i.status === "cancelled",
-			);
+			const stats = sprintStats.get(String(s._id)) ?? {
+				issueCount: 0,
+				completedCount: 0,
+			};
 			const progress =
-				active.length > 0
-					? Math.round((completed.length / active.length) * 100)
+				stats.issueCount > 0
+					? Math.round((stats.completedCount / stats.issueCount) * 100)
 					: 0;
 			results.push({
 				name: s.name,
 				status: s.status,
 				progress,
-				issueCount: active.length,
-				completedCount: completed.length,
+				issueCount: stats.issueCount,
+				completedCount: stats.completedCount,
 				targetDate: s.targetDate
 					? new Date(s.targetDate).toISOString().split("T")[0]
 					: undefined,
@@ -218,22 +255,39 @@ export const loadSprintVelocity = internalQuery({
 		if (completedSprints.length === 0) {
 			return { completedSprints: 0, avgIssuesPerSprint: 0 };
 		}
+
+		const completedSprintIds = new Set(
+			completedSprints.map((sprint) => String(sprint._id)),
+		);
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_project", (q) => q.eq("projectId", projectId))
+			.collect();
+		const doneCountBySprintId = new Map<string, number>();
+		for (const issue of issues) {
+			if (
+				issue.deletedAt ||
+				!issue.sprintId ||
+				!completedSprintIds.has(String(issue.sprintId))
+			) {
+				continue;
+			}
+			if (issue.status !== "done" && issue.status !== "cancelled") continue;
+			const key = String(issue.sprintId);
+			doneCountBySprintId.set(key, (doneCountBySprintId.get(key) ?? 0) + 1);
+		}
+
 		let totalCompleted = 0;
 		let lastSprintCompleted: number | undefined;
+		let lastSprintEndDate: number | undefined;
 		for (const s of completedSprints) {
-			const issues = await ctx.db
-				.query("issues")
-				.withIndex("by_sprint", (q) => q.eq("sprintId", s._id))
-				.collect();
-			const done = issues.filter(
-				(i) =>
-					!i.deletedAt && (i.status === "done" || i.status === "cancelled"),
-			).length;
+			const done = doneCountBySprintId.get(String(s._id)) ?? 0;
 			totalCompleted += done;
 			if (
 				s.endDate &&
-				(!lastSprintCompleted || s.endDate > lastSprintCompleted)
+				(lastSprintEndDate === undefined || s.endDate > lastSprintEndDate)
 			) {
+				lastSprintEndDate = s.endDate;
 				lastSprintCompleted = done;
 			}
 		}
@@ -303,7 +357,8 @@ export const loadRecentNotifications = internalQuery({
 		}),
 	),
 	handler: async (ctx, { userId, workspaceId }) => {
-		const cutoff = Date.now() - 48 * 60 * 60 * 1000; // 48 hours
+		const now = Date.now();
+		const cutoff = now - 48 * 60 * 60 * 1000; // 48 hours
 		const raw = await ctx.db
 			.query("notifications")
 			.withIndex("by_user_workspace", (q) =>
@@ -311,6 +366,53 @@ export const loadRecentNotifications = internalQuery({
 			)
 			.order("desc")
 			.take(100);
+
+		const candidateNotifications: typeof raw = [];
+		for (const notification of raw) {
+			if (notification._creationTime < cutoff) break;
+			if (notification.deletedAt || notification.isArchived) continue;
+			if (notification.snoozedUntil && notification.snoozedUntil > now)
+				continue;
+			candidateNotifications.push(notification);
+			if (candidateNotifications.length >= 50) break;
+		}
+
+		const actorIds = [
+			...new Set(
+				candidateNotifications
+					.map((notification) => notification.actorId)
+					.filter((id): id is NonNullable<typeof id> => Boolean(id)),
+			),
+		];
+		const issueIds = [
+			...new Set(
+				candidateNotifications
+					.map((notification) => notification.issueId)
+					.filter((id): id is NonNullable<typeof id> => Boolean(id)),
+			),
+		];
+		const projectIds = [
+			...new Set(
+				candidateNotifications
+					.map((notification) => notification.projectId)
+					.filter((id): id is NonNullable<typeof id> => Boolean(id)),
+			),
+		];
+
+		const [actors, issues, projects] = await Promise.all([
+			Promise.all(actorIds.map((actorId) => ctx.db.get(actorId))),
+			Promise.all(issueIds.map((issueId) => ctx.db.get(issueId))),
+			Promise.all(projectIds.map((projectId) => ctx.db.get(projectId))),
+		]);
+		const actorById = new Map(
+			actorIds.map((actorId, index) => [actorId, actors[index]]),
+		);
+		const issueById = new Map(
+			issueIds.map((issueId, index) => [issueId, issues[index]]),
+		);
+		const projectById = new Map(
+			projectIds.map((projectId, index) => [projectId, projects[index]]),
+		);
 
 		const results: Array<{
 			type: string;
@@ -325,14 +427,10 @@ export const loadRecentNotifications = internalQuery({
 			actorName?: string;
 		}> = [];
 
-		for (const n of raw) {
-			if (n._creationTime < cutoff) break;
-			if (n.deletedAt || n.isArchived) continue;
-			if (n.snoozedUntil && n.snoozedUntil > Date.now()) continue;
-
-			const actor = n.actorId ? await ctx.db.get(n.actorId) : null;
-			const issue = n.issueId ? await ctx.db.get(n.issueId) : null;
-			const project = n.projectId ? await ctx.db.get(n.projectId) : null;
+		for (const n of candidateNotifications) {
+			const actor = n.actorId ? actorById.get(n.actorId) : null;
+			const issue = n.issueId ? issueById.get(n.issueId) : null;
+			const project = n.projectId ? projectById.get(n.projectId) : null;
 
 			results.push({
 				type: n.type,
@@ -367,14 +465,15 @@ export const loadUserOverdueIssues = internalQuery({
 		const now = Date.now();
 		const issues = await ctx.db
 			.query("issues")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+			.withIndex("by_workspace_assignee", (q) =>
+				q.eq("workspaceId", workspaceId).eq("assigneeId", userId),
+			)
 			.collect();
 
 		return issues
 			.filter(
 				(i) =>
 					!i.deletedAt &&
-					i.assigneeId === userId &&
 					i.status !== "done" &&
 					i.status !== "cancelled" &&
 					i.dueDate &&
@@ -466,25 +565,36 @@ export const loadCommentThread = internalQuery({
 	returns: v.array(v.object({ author: v.string(), body: v.string() })),
 	handler: async (ctx, { parentId, commentId }) => {
 		const threadRoot = parentId ?? commentId;
-		const comments = await ctx.db
-			.query("comments")
-			.filter((q) =>
-				q.or(
-					q.eq(q.field("_id"), threadRoot),
-					q.eq(q.field("parentId"), threadRoot),
-				),
-			)
-			.collect();
+		const [rootComment, replyComments] = await Promise.all([
+			ctx.db.get(threadRoot),
+			ctx.db
+				.query("comments")
+				.withIndex("by_parent", (q) => q.eq("parentId", threadRoot))
+				.collect(),
+		]);
 
-		const results: Array<{ author: string; body: string }> = [];
-		for (const c of comments.filter((c) => !c.deletedAt)) {
-			const user = await ctx.db.get(c.authorId);
-			results.push({
-				author: user?.name ?? "Unknown",
-				body: extractPlainTextFromBody(c.body),
-			});
-		}
-		return results;
+		const orderedThreadComments = [
+			...(rootComment ? [rootComment] : []),
+			...replyComments.sort((a, b) => a._creationTime - b._creationTime),
+		].filter((comment) => !comment.deletedAt);
+
+		const authorIds = [
+			...new Set(orderedThreadComments.map((comment) => comment.authorId)),
+		];
+		const authorResults = await Promise.all(
+			authorIds.map((authorId) => ctx.db.get(authorId)),
+		);
+		const authorNameById = new Map(
+			authorIds.map((authorId, index) => [
+				authorId,
+				authorResults[index]?.name ?? "Unknown",
+			]),
+		);
+
+		return orderedThreadComments.map((comment) => ({
+			author: authorNameById.get(comment.authorId) ?? "Unknown",
+			body: extractPlainTextFromBody(comment.body),
+		}));
 	},
 });
 
@@ -498,33 +608,65 @@ export const loadDocumentThreadComments = internalQuery({
 			.withIndex("by_thread", (q) => q.eq("threadId", threadId))
 			.collect();
 
-		const results: Array<{ author: string; body: string }> = [];
-		for (const c of comments.filter((c) => !c.deletedAt)) {
-			const user = await ctx.db.get(c.authorId);
-			results.push({
-				author: user?.name ?? "Unknown",
-				body: extractPlainTextFromBody(c.body),
-			});
-		}
-		return results;
+		const activeComments = comments.filter((comment) => !comment.deletedAt);
+		const authorIds = [
+			...new Set(activeComments.map((comment) => comment.authorId)),
+		];
+		const authorResults = await Promise.all(
+			authorIds.map((authorId) => ctx.db.get(authorId)),
+		);
+		const authorNameById = new Map(
+			authorIds.map((authorId, index) => [
+				authorId,
+				authorResults[index]?.name ?? "Unknown",
+			]),
+		);
+
+		return activeComments.map((comment) => ({
+			author: authorNameById.get(comment.authorId) ?? "Unknown",
+			body: extractPlainTextFromBody(comment.body),
+		}));
 	},
 });
 
-/** Extract plain text from TipTap JSON or plain body */
+/** Extract plain text from structured editor JSON or plain body. */
 export function extractPlainTextFromBody(body: string): string {
-	if (!body.startsWith("{")) return body;
+	const trimmed = body.trim();
+	if (!trimmed) return "";
+	if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return body;
+
 	try {
-		type TNode = { text?: string; content?: TNode[] };
-		const doc = JSON.parse(body) as TNode;
+		const doc = JSON.parse(trimmed) as unknown;
 		const texts: string[] = [];
-		function walk(node: TNode) {
-			if (node.text) texts.push(node.text);
-			if (node.content && Array.isArray(node.content)) {
-				for (const child of node.content) walk(child);
+
+		function walk(node: unknown) {
+			if (!node) return;
+			if (Array.isArray(node)) {
+				for (const child of node) walk(child);
+				return;
+			}
+			if (typeof node !== "object") return;
+
+			const current = node as {
+				text?: unknown;
+				content?: unknown;
+				children?: unknown;
+			};
+
+			if (typeof current.text === "string" && current.text.trim().length > 0) {
+				texts.push(current.text.trim());
+			}
+			if (Array.isArray(current.content)) {
+				for (const child of current.content) walk(child);
+			}
+			if (Array.isArray(current.children)) {
+				for (const child of current.children) walk(child);
 			}
 		}
+
 		walk(doc);
-		return texts.join(" ");
+		if (texts.length === 0) return body;
+		return texts.join(" ").replace(/\s+/g, " ").trim();
 	} catch {
 		return body;
 	}

@@ -65,7 +65,9 @@ while IFS= read -r file; do
   esac
 
   case "$file" in
-    tests/unit/*|*.unit.test.ts|*.unit.test.tsx|*.unit.spec.ts|*.unit.spec.tsx|*.unit.spec.js)
+    tests/integration/*|*.integration.test.ts|*.integration.test.tsx|*.integration.spec.ts|*.integration.spec.tsx|*.integration.spec.js|tests/e2e/*|*.e2e.ts|*.e2e.tsx|*.e2e.js)
+      ;;
+    tests/unit/*|*.unit.test.ts|*.unit.test.tsx|*.unit.spec.ts|*.unit.spec.tsx|*.unit.spec.js|*.test.ts|*.test.tsx|*.test.js|*.spec.ts|*.spec.tsx|*.spec.js)
       unit_changed=1
       ;;
   esac

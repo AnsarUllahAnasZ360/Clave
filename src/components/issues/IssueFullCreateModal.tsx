@@ -195,6 +195,7 @@ function IssueFullCreateModalContent({
 		() => parseAnyContentToSlate(formState.description) as Value | undefined,
 		[formState.description],
 	);
+	const aiPlugins = useMemo(() => [AIEditorPlugin], []);
 
 	const hasExistingDescription =
 		extractTextFromContent(formState.description).trim().length > 0;
@@ -457,7 +458,7 @@ function IssueFullCreateModalContent({
 									value={initialDescriptionValue}
 									onChange={handleDescriptionChange}
 									placeholder="Add a description..."
-									plugins={[AIEditorPlugin]}
+									plugins={aiPlugins}
 								>
 									<EditorAIBridge context={{ workspaceId }} />
 								</PlateEditor>

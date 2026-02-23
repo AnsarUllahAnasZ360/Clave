@@ -362,25 +362,25 @@ export async function getAccessibleProjectIds(
 ): Promise<Set<string> | null> {
 	if (memberRole === "admin") return null;
 
-	const ids = new Set<string>();
+	// Parallel fetch: workspace projects + user's project memberships
+	const [allProjects, memberships] = await Promise.all([
+		ctx.db
+			.query("projects")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+			.collect(),
+		ctx.db
+			.query("projectMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect(),
+	]);
 
-	// Projects created by user
-	const allProjects = await ctx.db
-		.query("projects")
-		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-		.collect();
+	const ids = new Set<string>();
 	for (const p of allProjects) {
 		if (p.deletedAt) continue;
 		if (p.createdBy === userId || p.leadId === userId) {
 			ids.add(p._id);
 		}
 	}
-
-	// Projects user is a member of
-	const memberships = await ctx.db
-		.query("projectMembers")
-		.withIndex("by_user", (q) => q.eq("userId", userId))
-		.collect();
 	for (const m of memberships) {
 		ids.add(m.projectId);
 	}

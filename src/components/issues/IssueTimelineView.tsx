@@ -17,6 +17,7 @@ import {
 	ZoomIn,
 	ZoomOut,
 } from "lucide-react";
+import Link from "next/link";
 import {
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
@@ -748,12 +749,13 @@ export function IssueTimelineView({ projectId }: IssueTimelineViewProps) {
 										<span className="text-xs font-mono text-muted-foreground">
 											{issue.identifier}
 										</span>
-										<a
+										<Link
 											href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
 											className="text-sm truncate hover:underline flex-1 min-w-0"
+											prefetch={false}
 										>
 											{issue.title}
-										</a>
+										</Link>
 										{member && (
 											<Avatar className="h-5 w-5">
 												<AvatarImage src={member.image} />
@@ -947,12 +949,13 @@ function IssueTimelineRow({
 				<span className="text-xs font-mono text-muted-foreground shrink-0">
 					{issue.identifier}
 				</span>
-				<a
+				<Link
 					href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
 					className="text-sm truncate hover:underline flex-1 min-w-0"
+					prefetch={false}
 				>
 					{issue.title}
-				</a>
+				</Link>
 				{member && (
 					<Avatar className="h-5 w-5 shrink-0">
 						<AvatarImage src={member.image} />

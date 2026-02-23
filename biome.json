@@ -36,6 +36,11 @@
 			},
 			"suspicious": {
 				"noExplicitAny": "warn"
+			},
+			"a11y": {
+				"noStaticElementInteractions": "warn",
+				"useKeyWithClickEvents": "warn",
+				"useSemanticElements": "warn"
 			}
 		}
 	},

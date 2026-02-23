@@ -63,7 +63,13 @@ export function WhatsNewPopup() {
 				)}
 			</div>
 
-			<div className="flex items-center justify-end gap-2 border-t px-4 py-2">
+			<div className="flex items-center justify-between gap-2 border-t px-4 py-2">
+				<a
+					href="/changelog"
+					className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+				>
+					View all changes
+				</a>
 				<Button variant="ghost" size="sm" onClick={handleDismiss}>
 					Dismiss
 				</Button>

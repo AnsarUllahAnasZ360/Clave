@@ -14,7 +14,7 @@ import { requireWorkspaceMember } from "../lib/auth";
 // ── Constants ──────────────────────────────────────────────────────────────
 
 /** Maximum length for the details field to avoid storing full prompts */
-const MAX_DETAILS_LENGTH = 200;
+const MAX_DETAILS_LENGTH = 1024;
 
 // ── Internal Mutation ──────────────────────────────────────────────────────
 

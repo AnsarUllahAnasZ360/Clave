@@ -3,6 +3,8 @@ import {
 	BUILT_IN_SLASH_COMMANDS,
 	buildSlashCommandRegistry,
 	filterCommands,
+	groupCommandsByCategory,
+	parseSlashInput,
 	SLASH_COMMANDS,
 } from "../../src/lib/ai/slash-commands";
 
@@ -54,5 +56,17 @@ describe("slash command registry", () => {
 		expect(commands.filter((command) => command.name === "help")).toHaveLength(
 			1,
 		);
+	});
+
+	it("parses slash command input with trailing args", () => {
+		const parsed = parseSlashInput("/search open bugs --issues");
+		expect(parsed?.command.name).toBe("search");
+		expect(parsed?.args).toBe("open bugs --issues");
+	});
+
+	it("groups commands by category", () => {
+		const groups = groupCommandsByCategory(BUILT_IN_SLASH_COMMANDS);
+		expect(groups.get("actions")?.length).toBeGreaterThan(0);
+		expect(groups.get("info")?.length).toBeGreaterThan(0);
 	});
 });

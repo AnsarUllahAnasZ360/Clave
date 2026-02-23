@@ -40,6 +40,10 @@ if (typeof window !== "undefined") {
 
 const SAVE_DEBOUNCE_MS = 300;
 const PROGRESSIVE_INSERT_DELAY_MS = 120;
+const RESTORE_SCENE_OPTIONS = {
+	repairBindings: true,
+	refreshDimensions: true,
+} as const;
 
 interface WhiteboardEditorProps {
 	whiteboardId: Id<"whiteboards">;
@@ -230,11 +234,13 @@ export default function WhiteboardEditor({
 			const api = excalidrawAPIRef.current;
 			if (!api) return;
 			const currentElements = api.getSceneElementsIncludingDeleted();
+			const normalizedScene = restoreElements(
+				[...currentElements, ...newElements] as OrderedExcalidrawElement[],
+				null,
+				RESTORE_SCENE_OPTIONS,
+			);
 			api.updateScene({
-				elements: [
-					...currentElements,
-					...newElements,
-				] as OrderedExcalidrawElement[],
+				elements: normalizedScene as OrderedExcalidrawElement[],
 				captureUpdate: CaptureUpdateAction.IMMEDIATELY,
 			});
 			focusGeneratedElements(newElements);
@@ -258,11 +264,13 @@ export default function WhiteboardEditor({
 			for (const batch of batches) {
 				if (options.signal.aborted) return;
 				const currentElements = api.getSceneElementsIncludingDeleted();
+				const normalizedScene = restoreElements(
+					[...currentElements, ...batch] as OrderedExcalidrawElement[],
+					null,
+					RESTORE_SCENE_OPTIONS,
+				);
 				api.updateScene({
-					elements: [
-						...currentElements,
-						...batch,
-					] as OrderedExcalidrawElement[],
+					elements: normalizedScene as OrderedExcalidrawElement[],
 					captureUpdate: CaptureUpdateAction.IMMEDIATELY,
 				});
 				inserted += batch.length;
@@ -466,7 +474,11 @@ export default function WhiteboardEditor({
 
 		try {
 			const rawRemote = JSON.parse(whiteboard.sceneData);
-			const restoredRemote = restoreElements(rawRemote, null);
+			const restoredRemote = restoreElements(
+				rawRemote,
+				null,
+				RESTORE_SCENE_OPTIONS,
+			);
 			const remoteHash = hashElementsVersion(restoredRemote);
 			const remoteTimestamp = whiteboard.updatedAt ?? 0;
 
@@ -567,7 +579,7 @@ export default function WhiteboardEditor({
 	try {
 		if (whiteboard.sceneData) {
 			const raw = JSON.parse(whiteboard.sceneData);
-			initialElements = restoreElements(raw, null);
+			initialElements = restoreElements(raw, null, RESTORE_SCENE_OPTIONS);
 			lastSavedHashRef.current = hashElementsVersion(initialElements);
 		}
 	} catch {

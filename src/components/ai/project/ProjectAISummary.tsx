@@ -233,9 +233,12 @@ export function ProjectAISummary({
 				<div className="flex items-center gap-2 mb-3">
 					<Loader2Icon className="h-4 w-4 animate-spin text-sienna-500 dark:text-sienna-400" />
 					<span className="text-sm font-medium text-foreground">
-						Analyzing project...
+						Generating summary with GPT 5.2...
 					</span>
 				</div>
+				<p className="mb-3 text-xs text-muted-foreground">
+					Reviewing issue health, progress, and current risks.
+				</p>
 				<div className="space-y-2">
 					<div className="h-3 w-3/4 rounded bg-muted" />
 					<div className="h-3 w-1/2 rounded bg-muted" />

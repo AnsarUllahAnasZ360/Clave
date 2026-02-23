@@ -85,24 +85,38 @@ export const listByWorkspace = query({
 			if (wb.createdBy) userIds.add(wb.createdBy);
 			if (wb.lastEditedBy) userIds.add(wb.lastEditedBy);
 		}
+		const userPromises = Array.from(userIds).map(async (uid) => {
+			const user = await ctx.db.get(uid as Id<"users">);
+			if (!user) return null;
+
+			let avatarUrl: string | undefined = user.image;
+			if (user.avatarStorageId) {
+				const url = await ctx.storage.getUrl(user.avatarStorageId);
+				if (url) avatarUrl = url;
+			}
+
+			return {
+				uid,
+				data: {
+					name: user.name,
+					image: user.image,
+					avatarUrl,
+				},
+			};
+		});
+		const userEntries = await Promise.all(userPromises);
+
 		const userMap = new Map<
 			string,
 			{ name?: string; image?: string; avatarUrl?: string }
 		>();
-		for (const uid of userIds) {
-			const user = await ctx.db.get(uid as Id<"users">);
-			if (user) {
-				let avatarUrl: string | undefined;
-				if (user.avatarStorageId) {
-					const url = await ctx.storage.getUrl(user.avatarStorageId);
-					if (url) avatarUrl = url;
-				}
-				userMap.set(uid, {
-					name: user.name,
-					image: user.image,
-					avatarUrl: avatarUrl ?? user.image,
-				});
-			}
+		for (const entry of userEntries) {
+			if (!entry) continue;
+			userMap.set(entry.uid, {
+				name: entry.data.name,
+				image: entry.data.image,
+				avatarUrl: entry.data.avatarUrl,
+			});
 		}
 
 		return filtered.map((wb) => {

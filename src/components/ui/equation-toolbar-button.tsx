@@ -17,8 +17,10 @@ export function InlineEquationToolbarButton(
 			{...props}
 			onClick={() => {
 				insertInlineEquation(editor);
+				editor.tf.focus();
 			}}
-			tooltip="Mark as equation"
+			onMouseDown={(event) => event.preventDefault()}
+			tooltip="Inline equation"
 		>
 			<RadicalIcon />
 		</ToolbarButton>

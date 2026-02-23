@@ -51,8 +51,8 @@ function getSupportedMimeType(): string | null {
 
 /** Timeslice for data collection (ms) — enables smooth progress tracking */
 const DATA_TIMESLICE_MS = 250;
-/** Duration tracking interval (ms) */
-const DURATION_INTERVAL_MS = 100;
+/** Duration tracking interval (ms) — 250ms reduces re-renders while keeping UI responsive */
+const DURATION_INTERVAL_MS = 250;
 /** Minimum recording duration in seconds — recordings shorter than this are discarded */
 export const MIN_RECORDING_SECONDS = 0.5;
 /** Maximum recording duration in seconds — recordings are auto-stopped at this limit */

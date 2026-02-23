@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { useParams, useRouter } from "next/navigation";
 import { OrganizationProvider } from "@/components/providers/organization-context";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "../../../convex/_generated/api";
 
 export default function OrgLayout({ children }: { children: React.ReactNode }) {
@@ -19,8 +20,19 @@ export default function OrgLayout({ children }: { children: React.ReactNode }) {
 	// Still loading
 	if (org === undefined) {
 		return (
-			<div className="flex min-h-screen items-center justify-center">
-				<div className="animate-pulse text-muted-foreground">Loading...</div>
+			<div className="flex min-h-screen">
+				<div className="w-64 shrink-0 border-r border-border p-4 space-y-4">
+					<Skeleton className="h-8 w-32" />
+					<Skeleton className="h-4 w-full" />
+					<Skeleton className="h-4 w-3/4" />
+					<Skeleton className="h-4 w-full" />
+					<Skeleton className="h-4 w-1/2" />
+				</div>
+				<div className="flex-1 p-6 space-y-4">
+					<Skeleton className="h-8 w-48" />
+					<Skeleton className="h-px w-full" />
+					<Skeleton className="h-64 w-full" />
+				</div>
 			</div>
 		);
 	}

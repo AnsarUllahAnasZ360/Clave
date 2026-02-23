@@ -14,7 +14,7 @@
  * Renders a floating recording indicator (portal) when active.
  */
 
-import { Loader2, Mic } from "lucide-react";
+import { Loader2, Pause } from "lucide-react";
 import { useEditorRef } from "platejs/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -44,6 +44,11 @@ function WaveformBars() {
 			))}
 		</div>
 	);
+}
+
+function getEditorRuntimeId(editor: { id?: unknown }): string | null {
+	if (editor.id === null || editor.id === undefined) return null;
+	return String(editor.id);
 }
 
 // ── Component ───────────────────────────────────────────────────────────────
@@ -97,15 +102,20 @@ export function DictationBridge({ workspaceId }: DictationBridgeProps) {
 	// Listen for global dictation toggle events, scoped to this editor
 	useEffect(() => {
 		if (!isSupported) return;
+		const currentEditorId = getEditorRuntimeId(editor);
 
-		function isOurEditor(): boolean {
+		function isOurEditor(editorId?: string): boolean {
+			if (editorId && currentEditorId) {
+				return editorId === currentEditorId;
+			}
 			const active = document.activeElement;
 			const slateEl = active?.closest("[data-slate-editor]");
 			return slateEl != null && slateEl === editorElRef.current;
 		}
 
-		function handleDictationToggle() {
-			if (!isOurEditor()) return;
+		function handleDictationToggle(event: Event) {
+			const detail = (event as CustomEvent<{ editorId?: string }>).detail;
+			if (!isOurEditor(detail?.editorId)) return;
 
 			if (state === "idle") {
 				startDictation();
@@ -128,6 +138,7 @@ export function DictationBridge({ workspaceId }: DictationBridgeProps) {
 	}, [
 		state,
 		isSupported,
+		editor.id,
 		canRetry,
 		discardRecording,
 		startDictation,
@@ -135,8 +146,11 @@ export function DictationBridge({ workspaceId }: DictationBridgeProps) {
 		retryTranscription,
 	]);
 
-	// Only render the floating indicator when recording or processing
-	const isActive = state === "recording" || state === "processing";
+	// Only render the floating indicator when recording/permission/processing
+	const isActive =
+		state === "requesting-permission" ||
+		state === "recording" ||
+		state === "processing";
 	if (!isActive || typeof document === "undefined") return null;
 
 	const indicator = (
@@ -156,16 +170,23 @@ export function DictationBridge({ workspaceId }: DictationBridgeProps) {
 							type="button"
 							onClick={stopDictation}
 							className="ml-1 rounded-full bg-red-500 p-1.5 text-white hover:bg-red-600 transition-colors"
-							aria-label="Stop recording"
+							aria-label="Pause and transcribe"
 						>
-							<Mic className="size-3.5" />
+							<Pause className="size-3.5" />
 						</button>
+					</>
+				) : state === "requesting-permission" ? (
+					<>
+						<Loader2 className="size-4 animate-spin text-muted-foreground" />
+						<span className="text-xs text-muted-foreground">
+							Requesting microphone...
+						</span>
 					</>
 				) : (
 					<>
 						<Loader2 className="size-4 animate-spin text-muted-foreground" />
 						<span className="text-xs text-muted-foreground">
-							Transcribing...
+							Transcribing recording...
 						</span>
 					</>
 				)}

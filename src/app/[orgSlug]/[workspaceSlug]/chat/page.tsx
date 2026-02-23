@@ -3,6 +3,7 @@
 import type { FileUIPart } from "ai";
 import { EyeOff, Search, SquarePen } from "lucide-react";
 import type { Route } from "next";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
 	useCallback,
@@ -20,8 +21,9 @@ import {
 import { ConnectionBanner } from "@/components/ai/ConnectionBanner";
 import { McpActionMenuItems } from "@/components/ai/McpConnectorPicker";
 import { MentionAutocomplete } from "@/components/ai/MentionAutocomplete";
+import { SkillsActionMenuItems } from "@/components/ai/SkillsActionMenuItems";
+import { SubAgentActionMenuItems } from "@/components/ai/SubAgentActionMenuItems";
 import { ChatHeader, ContextChip, ModelSelector } from "@/components/ai/shared";
-import { ThreadBrowserPopup } from "@/components/ai/ThreadBrowserPopup";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAIChat } from "@/hooks/use-ai-chat";
@@ -29,6 +31,16 @@ import { useAIContext } from "@/hooks/use-ai-context";
 import { useConnectionStatus } from "@/hooks/use-connection-status";
 import type { WorkspaceContext } from "@/lib/ai/slash-commands";
 import { cn } from "@/lib/utils";
+
+const ThreadBrowserPopup = dynamic(
+	() =>
+		import("@/components/ai/ThreadBrowserPopup").then(
+			(mod) => mod.ThreadBrowserPopup,
+		),
+	{
+		loading: () => null,
+	},
+);
 
 // ── Deferred suggestion chips ─────────────────────────────────────────────
 // Rendered below the input after the page hydrates, so they never block LCP.
@@ -72,40 +84,65 @@ export default function ChatPage() {
 	const prevContextKeyRef = useRef<string | null>(null);
 	const [threadBrowserOpen, setThreadBrowserOpen] = useState(false);
 	const hasNavigatedRef = useRef(false);
+	const prefetchedRoutesRef = useRef(new Set<string>());
 	const [, startNavigationTransition] = useTransition();
 
 	// Reset cleared state when route context changes
 	const contextKey = routeContext
 		? `${routeContext.type}:${routeContext.entityId}`
 		: null;
-	if (contextKey !== prevContextKeyRef.current) {
+	useEffect(() => {
+		if (contextKey === prevContextKeyRef.current) return;
 		prevContextKeyRef.current = contextKey;
-		if (contextCleared) setContextCleared(false);
-	}
+		setContextCleared(false);
+	}, [contextKey]);
 	const effectiveContext = contextCleared ? null : routeContext;
+	const prefetchThreadRoute = useCallback(
+		(threadId: string) => {
+			const targetRoute =
+				`/${orgSlug}/${workspaceSlug}/chat/${threadId}` as Route;
+			if (prefetchedRoutesRef.current.has(targetRoute)) return;
+			prefetchedRoutesRef.current.add(targetRoute);
+			router.prefetch(targetRoute);
+		},
+		[orgSlug, workspaceSlug, router],
+	);
+
+	// Warm the dynamic thread route chunk early to reduce first-send navigation lag.
+	useEffect(() => {
+		const seedThreadId = chat.threads[0]?.threadId;
+		if (!seedThreadId) return;
+		void prefetchThreadRoute(seedThreadId);
+	}, [chat.threads, prefetchThreadRoute]);
 
 	// Navigate to thread when activeThreadId becomes set (after first message)
 	useEffect(() => {
-		if (chat.activeThreadId && !hasNavigatedRef.current) {
-			hasNavigatedRef.current = true;
-			const targetRoute =
-				`/${orgSlug}/${workspaceSlug}/chat/${chat.activeThreadId}` as Route;
-			startNavigationTransition(() => {
-				router.replace(targetRoute);
-			});
-		}
-	}, [chat.activeThreadId, orgSlug, workspaceSlug, router]);
+		if (!chat.activeThreadId || hasNavigatedRef.current) return;
+		hasNavigatedRef.current = true;
+		const targetRoute =
+			`/${orgSlug}/${workspaceSlug}/chat/${chat.activeThreadId}` as Route;
+		prefetchThreadRoute(chat.activeThreadId);
+		startNavigationTransition(() => {
+			router.replace(targetRoute);
+		});
+	}, [
+		chat.activeThreadId,
+		orgSlug,
+		workspaceSlug,
+		router,
+		prefetchThreadRoute,
+	]);
 
 	const pageRef = useRef<HTMLDivElement>(null);
 
 	const handleSubmit = useCallback(
-		async (
+		(
 			text: string,
 			systemPromptSuffix?: string,
 			mentions?: import("@/hooks/use-mention-search").MentionReference[],
 			files?: Pick<FileUIPart, "filename" | "mediaType" | "url">[],
 		) => {
-			await chat.sendMessage(
+			chat.sendMessage(
 				text,
 				effectiveContext ?? undefined,
 				systemPromptSuffix,
@@ -258,11 +295,23 @@ export default function ChatPage() {
 							/>
 						}
 						actionMenuItems={
-							<McpActionMenuItems
-								servers={chat.mcpServers}
-								selectedIds={chat.selectedMcpServerIds}
-								onChange={chat.setThreadMcpServers}
-							/>
+							<>
+								<SkillsActionMenuItems
+									skills={chat.skills}
+									selectedIds={chat.selectedSkillIds}
+									onChange={chat.setSelectedSkillIds}
+								/>
+								<SubAgentActionMenuItems
+									subAgents={chat.subAgents}
+									selectedId={chat.selectedSubAgentId}
+									onChange={chat.setSelectedSubAgentId}
+								/>
+								<McpActionMenuItems
+									servers={chat.mcpServers}
+									selectedIds={chat.selectedMcpServerIds}
+									onChange={chat.setThreadMcpServers}
+								/>
+							</>
 						}
 					/>
 				</div>

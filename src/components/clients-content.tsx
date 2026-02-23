@@ -10,11 +10,10 @@ import {
 	Plus,
 } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ClientDetailsDrawer } from "@/components/clients/ClientDetailsDrawer";
-import { ClientWizard } from "@/components/clients/ClientWizard";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { useWorkspaceProjects } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -47,6 +46,24 @@ import {
 } from "@/components/ui/tooltip";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+
+const ClientDetailsDrawer = dynamic(
+	() =>
+		import("@/components/clients/ClientDetailsDrawer").then(
+			(mod) => mod.ClientDetailsDrawer,
+		),
+	{
+		loading: () => null,
+	},
+);
+
+const ClientWizard = dynamic(
+	() =>
+		import("@/components/clients/ClientWizard").then((mod) => mod.ClientWizard),
+	{
+		loading: () => null,
+	},
+);
 
 type ClientStatus =
 	| "prospect"
@@ -608,6 +625,7 @@ export function ClientsContent() {
 															<DropdownMenuItem asChild>
 																<Link
 																	href={`/${orgSlug}/${workspaceSlug}/clients/${clientId}`}
+																	prefetch={false}
 																>
 																	View full page
 																</Link>

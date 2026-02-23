@@ -4,6 +4,7 @@ import {
 	AlertCircle,
 	CheckCircle2,
 	ClipboardList,
+	Loader2,
 	MessageCircle,
 	RefreshCw,
 	SparklesIcon,
@@ -91,7 +92,6 @@ export function AIDigestCard() {
 
 	const fetchDigest = useCallback(async () => {
 		setHasError(false);
-		setDigestData(null);
 		try {
 			const result = await callEmbeddedAI({
 				type: "notification_digest",
@@ -137,9 +137,18 @@ export function AIDigestCard() {
 	if (isLoading && !digestData) {
 		return (
 			<div className="mx-2 mt-2 rounded-lg border border-sienna-200/40 bg-sienna-50/30 p-4 dark:border-sienna-800/40 dark:bg-sienna-950/20">
-				<div className="flex items-center gap-2 mb-3">
-					<Skeleton className="h-4 w-4 rounded" />
-					<Skeleton className="h-4 w-48" />
+				<div className="flex items-center gap-2 mb-2">
+					<Loader2 className="h-4 w-4 animate-spin text-sienna-500 dark:text-sienna-400" />
+					<span className="text-sm font-medium text-foreground">
+						Generating your AI digest...
+					</span>
+				</div>
+				<p className="mb-3 text-xs text-muted-foreground">
+					Reading recent notifications and overdue work.
+				</p>
+				<div className="flex items-center gap-2 mb-2">
+					<Skeleton className="h-2 w-2 rounded-full" />
+					<Skeleton className="h-3 w-40" />
 				</div>
 				<div className="space-y-2">
 					<Skeleton className="h-3 w-full" />
@@ -191,6 +200,12 @@ export function AIDigestCard() {
 					<span className="text-sm font-medium text-foreground">
 						{digestData.greeting ?? "Here's what matters today"}
 					</span>
+					{isLoading && (
+						<span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+							<Loader2 className="h-3 w-3 animate-spin" />
+							Refreshing
+						</span>
+					)}
 				</div>
 				<div className="flex items-center gap-1">
 					<Button
@@ -246,6 +261,7 @@ export function AIDigestCard() {
 												<Link
 													href={`/${orgSlug}/${workspaceSlug}/issues/${item.issueIdentifier}`}
 													className="hover:text-foreground hover:underline transition-colors"
+													prefetch={false}
 												>
 													<span className="font-mono text-muted-foreground/70 mr-1">
 														{item.issueIdentifier}

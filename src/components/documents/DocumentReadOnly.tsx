@@ -2,7 +2,7 @@ import { createSlateEditor, type Value } from "platejs";
 
 import { BaseEditorKit } from "@/components/editor/editor-base-kit";
 import { EditorStatic } from "@/components/ui/editor-static";
-import { prosemirrorToSlate } from "@/lib/content-converters";
+import { blockNoteToSlate, prosemirrorToSlate } from "@/lib/content-converters";
 
 interface DocumentReadOnlyProps {
 	content: string | undefined;
@@ -25,8 +25,7 @@ function parseContent(content: string): Value | null {
 			const first = parsed[0];
 			// BlockNote JSON has `props` and `content` keys — skip those
 			if (first.props !== undefined && first.content !== undefined) {
-				// TODO: STORY-017 will provide bnJsonToSlate() converter
-				return null;
+				return blockNoteToSlate(parsed) as Value;
 			}
 			return parsed as Value;
 		}

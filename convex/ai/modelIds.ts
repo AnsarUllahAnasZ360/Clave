@@ -10,7 +10,7 @@
 export const CHAT_MODEL_IDS = ["kimi-k2.5", "gpt-5.2"] as const;
 export type ChatModelId = (typeof CHAT_MODEL_IDS)[number];
 
-export const DEFAULT_CHAT_MODEL_ID: ChatModelId = "kimi-k2.5";
+export const DEFAULT_CHAT_MODEL_ID: ChatModelId = "gpt-5.2";
 
 const CHAT_MODEL_ID_SET = new Set<string>(CHAT_MODEL_IDS);
 

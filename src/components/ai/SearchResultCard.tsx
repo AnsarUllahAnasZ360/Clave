@@ -151,6 +151,7 @@ export const SearchResultCard = memo(function SearchResultCard({
 	return (
 		<Link
 			href={url as Route}
+			prefetch={false}
 			className={cn(
 				"flex items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2.5",
 				"transition-colors hover:bg-accent/50 hover:border-border",

@@ -886,6 +886,7 @@ export function ProjectPropertiesPanel({
 									// biome-ignore lint/suspicious/noExplicitAny: dynamic workspace routes
 									href={href as any}
 									className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-muted transition-colors"
+									prefetch={false}
 								>
 									<Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 									<span className="truncate">{item.title}</span>
@@ -928,6 +929,7 @@ export function ProjectPropertiesPanel({
 							<Link
 								href={`/${orgSlug}/${workspaceSlug}/clients/${client._id}`}
 								className="text-sm font-medium text-foreground hover:underline underline-offset-2"
+								prefetch={false}
 							>
 								{client.name}
 							</Link>

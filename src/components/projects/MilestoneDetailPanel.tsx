@@ -13,6 +13,7 @@ import {
 	Timer,
 	TriangleAlert,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspace } from "@/components/providers/workspace-context";
@@ -439,10 +440,11 @@ export function MilestoneDetailPanel({
 										const statusColor =
 											STATUS_COLORS[issue.status] ?? "text-muted-foreground";
 										return (
-											<a
+											<Link
 												key={issue._id}
 												href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
 												className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 transition-colors"
+												prefetch={false}
 											>
 												<StatusIconComponent
 													className={cn("h-4 w-4 shrink-0", statusColor)}
@@ -451,7 +453,7 @@ export function MilestoneDetailPanel({
 													{issue.identifier}
 												</span>
 												<span className="truncate">{issue.title}</span>
-											</a>
+											</Link>
 										);
 									})}
 								</div>

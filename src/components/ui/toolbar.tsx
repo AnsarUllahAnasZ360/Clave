@@ -304,6 +304,7 @@ function withTooltip<T extends React.ElementType>(Component: T) {
 		...props
 	}: TooltipProps<T>) {
 		const [mounted, setMounted] = React.useState(false);
+		const { isDropdown } = props as { isDropdown?: boolean };
 
 		React.useEffect(() => {
 			setMounted(true);
@@ -311,7 +312,7 @@ function withTooltip<T extends React.ElementType>(Component: T) {
 
 		const component = <Component {...(props as React.ComponentProps<T>)} />;
 
-		if (tooltip && mounted) {
+		if (tooltip && mounted && !isDropdown) {
 			return (
 				<Tooltip {...tooltipProps}>
 					<TooltipTrigger asChild {...tooltipTriggerProps}>

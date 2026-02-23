@@ -147,6 +147,8 @@ const DEFAULT_CHUNK_LINES = 100;
  * For other languages: splits by fixed line count (~100 lines).
  */
 export function chunkCodeFile(content: string, language: string): CodeChunk[] {
+	if (!content.trim()) return [];
+
 	const lines = content.split("\n");
 	if (lines.length === 0) return [];
 

@@ -30,6 +30,7 @@ type OrganizationWorkspaceOption = {
 	_id: string;
 	name: string;
 	slug: string;
+	logoUrl?: string | null;
 	isMember: boolean;
 };
 
@@ -49,7 +50,6 @@ export function WorkspaceSelector() {
 	);
 
 	const isCollapsed = state === "collapsed";
-	const hasOrgWorkspace = Boolean(currentOrg && currentWorkspace);
 
 	const triggerIcon = (
 		<Avatar
@@ -102,7 +102,7 @@ export function WorkspaceSelector() {
 		setQueuedOpen(false);
 	}, [isCollapsed, queuedOpen]);
 
-	if (!hasOrgWorkspace) {
+	if (!currentOrg || !currentWorkspace) {
 		return (
 			<div className="flex items-center gap-3 rounded-md p-1">
 				<div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-800 text-primary-foreground shadow-[inset_0_-5px_6.6px_0_rgba(0,0,0,0.25)]">
@@ -112,6 +112,8 @@ export function WorkspaceSelector() {
 			</div>
 		);
 	}
+	const organization = currentOrg;
+	const activeWorkspace = currentWorkspace;
 
 	return (
 		<>
@@ -129,10 +131,10 @@ export function WorkspaceSelector() {
 							{triggerIcon}
 							<div className={isCollapsed ? "hidden" : "min-w-0"}>
 								<p className="truncate text-sm font-semibold">
-									{currentWorkspace.workspaceName}
+									{activeWorkspace.workspaceName}
 								</p>
 								<p className="truncate text-xs text-muted-foreground">
-									{currentOrg.orgName}
+									{organization.orgName}
 								</p>
 							</div>
 						</div>
@@ -144,30 +146,40 @@ export function WorkspaceSelector() {
 					</button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="w-64">
-					<DropdownMenuLabel>{currentOrg.orgName}</DropdownMenuLabel>
+					<DropdownMenuLabel>{organization.orgName}</DropdownMenuLabel>
 					<DropdownMenuSeparator />
 					{(orgWorkspaces ?? []).map(
-						(workspace: OrganizationWorkspaceOption) => (
+						(workspaceOption: OrganizationWorkspaceOption) => (
 							<DropdownMenuItem
-								key={workspace._id}
+								key={workspaceOption._id}
 								className={
-									workspace.isMember
+									workspaceOption.isMember
 										? "cursor-pointer"
 										: "cursor-pointer opacity-50"
 								}
-								onSelect={() => handleSwitchWorkspace(workspace.slug)}
+								onSelect={() => handleSwitchWorkspace(workspaceOption.slug)}
 							>
-								<div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-800 text-xs font-bold text-white">
-									{workspace.name[0]?.toUpperCase()}
-								</div>
-								<span className="flex-1 truncate">{workspace.name}</span>
-								{!workspace.isMember && (
+								<Avatar className="h-6 w-6 rounded-full bg-blue-800">
+									{workspaceOption.logoUrl ? (
+										<AvatarImage
+											src={workspaceOption.logoUrl}
+											alt={workspaceOption.name}
+											className="object-cover"
+										/>
+									) : (
+										<AvatarFallback className="text-[11px] font-bold text-white">
+											{workspaceOption.name[0]?.toUpperCase()}
+										</AvatarFallback>
+									)}
+								</Avatar>
+								<span className="flex-1 truncate">{workspaceOption.name}</span>
+								{!workspaceOption.isMember && (
 									<span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
 										Join
 									</span>
 								)}
-								{workspace.isMember &&
-									currentWorkspace.workspaceId === workspace._id && (
+								{workspaceOption.isMember &&
+									activeWorkspace.workspaceId === workspaceOption._id && (
 										<Check className="h-4 w-4 text-primary" />
 									)}
 							</DropdownMenuItem>
@@ -202,7 +214,7 @@ export function WorkspaceSelector() {
 			<CreateWorkspaceDialog
 				open={createWsOpen}
 				onOpenChange={setCreateWsOpen}
-				organizationId={currentOrg.organizationId}
+				organizationId={organization.organizationId}
 			/>
 			<JoinOrDiscoverDialog open={joinWsOpen} onOpenChange={setJoinWsOpen} />
 		</>

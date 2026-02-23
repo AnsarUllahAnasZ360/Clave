@@ -452,39 +452,93 @@ export const listSnoozed = query({
 			.filter((n) => !n.deletedAt && !n.isArchived)
 			.slice(0, limit);
 
-		// Enrich
-		const enriched = await Promise.all(
-			snoozed.map(async (n) => {
-				const actor = n.actorId ? await ctx.db.get(n.actorId) : null;
-				const project = n.projectId ? await ctx.db.get(n.projectId) : null;
-				const issue = n.issueId ? await ctx.db.get(n.issueId) : null;
-				const comment = n.commentId ? await ctx.db.get(n.commentId) : null;
+		// Batch-fetch unique entity IDs
+		const actorIds = new Set<string>();
+		const projectIds = new Set<string>();
+		const issueIds = new Set<string>();
+		const commentIds = new Set<string>();
+		for (const n of snoozed) {
+			if (n.actorId) actorIds.add(n.actorId);
+			if (n.projectId) projectIds.add(n.projectId);
+			if (n.issueId) issueIds.add(n.issueId);
+			if (n.commentId) commentIds.add(n.commentId);
+		}
 
-				return {
-					...n,
-					displayType: toDisplayType(n.type as NotificationType),
-					actorName: actor?.name ?? null,
-					actorImage:
-						(actor?.avatarStorageId
-							? await ctx.storage.getUrl(actor.avatarStorageId)
-							: null) ??
-						actor?.image ??
-						null,
-					projectName: project?.name ?? null,
-					projectSlug: project?.slug ?? null,
-					issueIdentifier: issue?.identifier ?? null,
-					issueTitle: issue?.title ?? null,
-					issueStatus: issue?.status ?? null,
-					issuePriority: issue?.priority ?? null,
-					issueAssigneeId: issue?.assigneeId ?? null,
-					issueLabelIds: issue?.labelIds ?? null,
-					commentBody:
-						comment && !comment.deletedAt
-							? extractTextFromTipTap(comment.body)
-							: null,
-				};
-			}),
+		const [actorResults, projectResults, issueResults, commentResults] =
+			await Promise.all([
+				Promise.all([...actorIds].map((id) => ctx.db.get(id as Id<"users">))),
+				Promise.all(
+					[...projectIds].map((id) => ctx.db.get(id as Id<"projects">)),
+				),
+				Promise.all([...issueIds].map((id) => ctx.db.get(id as Id<"issues">))),
+				Promise.all(
+					[...commentIds].map((id) => ctx.db.get(id as Id<"comments">)),
+				),
+			]);
+
+		const actorMap = new Map(
+			[...actorIds].map((id, i) => [id, actorResults[i]]),
 		);
+		const projectMap = new Map(
+			[...projectIds].map((id, i) => [id, projectResults[i]]),
+		);
+		const issueMap = new Map(
+			[...issueIds].map((id, i) => [id, issueResults[i]]),
+		);
+		const commentMap = new Map(
+			[...commentIds].map((id, i) => [id, commentResults[i]]),
+		);
+
+		// Resolve avatar URLs in parallel
+		const avatarEntries = [...actorMap.entries()].filter(
+			(entry): entry is [string, NonNullable<(typeof actorResults)[number]>] =>
+				entry[1]?.avatarStorageId !== undefined,
+		);
+		const avatarUrlResults = await Promise.all(
+			avatarEntries.map(([, actor]) =>
+				actor.avatarStorageId
+					? ctx.storage.getUrl(actor.avatarStorageId)
+					: null,
+			),
+		);
+		const avatarUrls = new Map<string, string | null>();
+		for (let i = 0; i < avatarEntries.length; i++) {
+			avatarUrls.set(avatarEntries[i][0], avatarUrlResults[i]);
+		}
+
+		// Enrich using lookup maps
+		const enriched = snoozed.map((n) => {
+			const actor = n.actorId ? (actorMap.get(n.actorId) ?? null) : null;
+			const project = n.projectId
+				? (projectMap.get(n.projectId) ?? null)
+				: null;
+			const issue = n.issueId ? (issueMap.get(n.issueId) ?? null) : null;
+			const comment = n.commentId
+				? (commentMap.get(n.commentId) ?? null)
+				: null;
+
+			return {
+				...n,
+				displayType: toDisplayType(n.type as NotificationType),
+				actorName: actor?.name ?? null,
+				actorImage:
+					(n.actorId ? (avatarUrls.get(n.actorId) ?? null) : null) ??
+					actor?.image ??
+					null,
+				projectName: project?.name ?? null,
+				projectSlug: project?.slug ?? null,
+				issueIdentifier: issue?.identifier ?? null,
+				issueTitle: issue?.title ?? null,
+				issueStatus: issue?.status ?? null,
+				issuePriority: issue?.priority ?? null,
+				issueAssigneeId: issue?.assigneeId ?? null,
+				issueLabelIds: issue?.labelIds ?? null,
+				commentBody:
+					comment && !comment.deletedAt
+						? extractTextFromTipTap(comment.body)
+						: null,
+			};
+		});
 
 		return { notifications: enriched };
 	},
@@ -498,6 +552,7 @@ export const unreadCount = query({
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
 
+		// Cap at 500 to avoid unbounded reads — UI typically shows "99+" anyway
 		const unread = await ctx.db
 			.query("notifications")
 			.withIndex("by_user_workspace_unread", (q) =>
@@ -506,7 +561,7 @@ export const unreadCount = query({
 					.eq("workspaceId", args.workspaceId)
 					.eq("isRead", false),
 			)
-			.collect();
+			.take(500);
 
 		// Exclude archived, deleted, and snoozed from unread count
 		return unread.filter((n) => !n.isArchived && !n.deletedAt && !isSnoozed(n))
@@ -557,14 +612,10 @@ export const markAllRead = mutation({
 			.collect();
 
 		const now = Date.now();
-		for (const notification of unread) {
-			if (!notification.deletedAt && !isSnoozed(notification)) {
-				await ctx.db.patch(notification._id, {
-					isRead: true,
-					readAt: now,
-				});
-			}
-		}
+		const toPatch = unread.filter((n) => !n.deletedAt && !isSnoozed(n));
+		await Promise.all(
+			toPatch.map((n) => ctx.db.patch(n._id, { isRead: true, readAt: now })),
+		);
 	},
 });
 
@@ -763,75 +814,81 @@ export const sendDueDateReminders = internalMutation({
 		const staleThreshold = now - 7 * 24 * 60 * 60 * 1000;
 		const todayKey = new Date(now).toISOString().slice(0, 10);
 
-		// Get all workspaces to iterate through issues
+		// Get all active workspaces, then fetch issues in parallel
 		const workspaces = await ctx.db.query("workspaces").collect();
+		const activeWorkspaces = workspaces.filter((w) => !w.deletedAt);
+
+		const issueArrays = await Promise.all(
+			activeWorkspaces.map((workspace) =>
+				ctx.db
+					.query("issues")
+					.withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+					.collect(),
+			),
+		);
+
+		// Flatten and filter to actionable issues
+		const allIssues = issueArrays
+			.flat()
+			.filter(
+				(issue) =>
+					!issue.deletedAt &&
+					issue.assigneeId &&
+					issue.status !== "done" &&
+					issue.status !== "cancelled",
+			);
 
 		let count = 0;
-		for (const workspace of workspaces) {
-			const issues = await ctx.db
-				.query("issues")
-				.withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
-				.collect();
+		for (const issue of allIssues) {
+			// Due within next 24 hours and not already past.
+			if (issue.dueDate && issue.dueDate > now && issue.dueDate <= in24Hours) {
+				const dueDate = new Date(issue.dueDate).toLocaleDateString();
+				const created = await createNotification(ctx, {
+					userId: issue.assigneeId!,
+					workspaceId: issue.workspaceId,
+					type: "issue_due_soon",
+					title: "Issue due soon",
+					body: `'${issue.identifier}: ${issue.title}' is due on ${dueDate}`,
+					issueId: issue._id,
+					projectId: issue.projectId ?? undefined,
+					source: "cron",
+					dedupeKey: `issue_due_soon:${issue._id}:${issue.dueDate}`,
+				});
+				if (created) count++;
+			}
 
-			for (const issue of issues) {
-				if (issue.deletedAt) continue;
-				if (!issue.assigneeId) continue;
-				if (issue.status === "done" || issue.status === "cancelled") continue;
+			// Overdue notifications (at most once per day per issue).
+			if (issue.dueDate && issue.dueDate <= now) {
+				const created = await createNotification(ctx, {
+					userId: issue.assigneeId!,
+					workspaceId: issue.workspaceId,
+					type: "issue_overdue",
+					title: "Issue is overdue",
+					body: `'${issue.identifier}: ${issue.title}' missed its due date`,
+					issueId: issue._id,
+					projectId: issue.projectId ?? undefined,
+					source: "cron",
+					dedupeKey: `issue_overdue:${issue._id}:${todayKey}`,
+				});
+				if (created) count++;
+			}
 
-				// Due within next 24 hours and not already past.
-				if (
-					issue.dueDate &&
-					issue.dueDate > now &&
-					issue.dueDate <= in24Hours
-				) {
-					const dueDate = new Date(issue.dueDate).toLocaleDateString();
-					const created = await createNotification(ctx, {
-						userId: issue.assigneeId,
-						workspaceId: issue.workspaceId,
-						type: "issue_due_soon",
-						title: "Issue due soon",
-						body: `'${issue.identifier}: ${issue.title}' is due on ${dueDate}`,
-						issueId: issue._id,
-						projectId: issue.projectId ?? undefined,
-						source: "cron",
-						dedupeKey: `issue_due_soon:${issue._id}:${issue.dueDate}`,
-					});
-					if (created) count++;
-				}
-
-				// Overdue notifications (at most once per day per issue).
-				if (issue.dueDate && issue.dueDate <= now) {
-					const created = await createNotification(ctx, {
-						userId: issue.assigneeId,
-						workspaceId: issue.workspaceId,
-						type: "issue_overdue",
-						title: "Issue is overdue",
-						body: `'${issue.identifier}: ${issue.title}' missed its due date`,
-						issueId: issue._id,
-						projectId: issue.projectId ?? undefined,
-						source: "cron",
-						dedupeKey: `issue_overdue:${issue._id}:${todayKey}`,
-					});
-					if (created) count++;
-				}
-
-				// Out-of-date (stale) notifications for active assigned issues.
-				const issueUpdatedAt = issue.updatedAt ?? issue._creationTime;
-				if (issueUpdatedAt < staleThreshold) {
-					const staleBucket = Math.floor(now / (7 * 24 * 60 * 60 * 1000));
-					const created = await createNotification(ctx, {
-						userId: issue.assigneeId,
-						workspaceId: issue.workspaceId,
-						type: "issue_stale",
-						title: "Issue is out of date",
-						body: `'${issue.identifier}: ${issue.title}' has not been updated recently`,
-						issueId: issue._id,
-						projectId: issue.projectId ?? undefined,
-						source: "cron",
-						dedupeKey: `issue_stale:${issue._id}:${staleBucket}`,
-					});
-					if (created) count++;
-				}
+			// Out-of-date (stale) notifications for active assigned issues.
+			const issueUpdatedAt = issue.updatedAt ?? issue._creationTime;
+			if (issueUpdatedAt < staleThreshold) {
+				const staleBucket = Math.floor(now / (7 * 24 * 60 * 60 * 1000));
+				const created = await createNotification(ctx, {
+					userId: issue.assigneeId!,
+					workspaceId: issue.workspaceId,
+					type: "issue_stale",
+					title: "Issue is out of date",
+					body: `'${issue.identifier}: ${issue.title}' has not been updated recently`,
+					issueId: issue._id,
+					projectId: issue.projectId ?? undefined,
+					source: "cron",
+					dedupeKey: `issue_stale:${issue._id}:${staleBucket}`,
+				});
+				if (created) count++;
 			}
 		}
 

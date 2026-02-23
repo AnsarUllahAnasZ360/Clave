@@ -460,6 +460,7 @@ function IssuePreviewPanel({
 				<Link
 					href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
 					className="text-xs text-primary hover:underline"
+					prefetch={false}
 				>
 					Open full view
 				</Link>
@@ -771,6 +772,7 @@ function ProjectUpdatePreviewPanel({
 					<Link
 						href={`/${orgSlug}/${workspaceSlug}/projects/${notification.projectSlug}`}
 						className="text-xs text-primary hover:underline"
+						prefetch={false}
 					>
 						Open project
 					</Link>
@@ -834,6 +836,7 @@ function DocumentPreviewPanel({
 					<Link
 						href={`/${orgSlug}/${workspaceSlug}/docs/${notification.documentId}`}
 						className="text-xs text-primary hover:underline"
+						prefetch={false}
 					>
 						Open document
 					</Link>
@@ -897,6 +900,7 @@ function WhiteboardPreviewPanel({
 					<Link
 						href={`/${orgSlug}/${workspaceSlug}/boards/${notification.whiteboardId}`}
 						className="text-xs text-primary hover:underline"
+						prefetch={false}
 					>
 						Open whiteboard
 					</Link>

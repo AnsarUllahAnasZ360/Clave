@@ -9,13 +9,19 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { Copy, Ellipsis, Pencil, Share2, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { FilterChip } from "@/components/filter-chip";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { useWorkspaceProjects } from "@/components/providers/workspace-data-context";
-import { ShareDialog } from "@/components/share-dialog";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -60,6 +66,13 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+
+const ShareDialog = dynamic(
+	() => import("@/components/share-dialog").then((mod) => mod.ShareDialog),
+	{
+		loading: () => null,
+	},
+);
 
 type SortOption = "recent" | "title" | "project";
 type ViewMode = "cards" | "list";
@@ -285,49 +298,18 @@ export function BoardsContent() {
 
 	const isLoading = whiteboards === undefined || projects === undefined;
 
-	// Shared menu items renderer
-	const renderMenuItems = (
-		boardId: string,
-		boardTitle: string,
-		variant: "context" | "dropdown",
-	) => {
-		const MenuItem = variant === "context" ? ContextMenuItem : DropdownMenuItem;
-		const Separator =
-			variant === "context" ? ContextMenuSeparator : DropdownMenuSeparator;
-		return (
-			<>
-				<MenuItem onClick={() => handleRenameStart(boardId, boardTitle)}>
-					<Pencil className="h-4 w-4" />
-					Rename
-				</MenuItem>
-				<MenuItem onClick={() => handleCopyLink(boardId)}>
-					<Copy className="h-4 w-4" />
-					Copy link
-				</MenuItem>
-				<MenuItem onClick={() => setShareTarget(boardId as Id<"whiteboards">)}>
-					<Share2 className="h-4 w-4" />
-					Share
-				</MenuItem>
-				<MenuItem onClick={() => handleDuplicate(boardId as Id<"whiteboards">)}>
-					<Copy className="h-4 w-4" />
-					Duplicate
-				</MenuItem>
-				<Separator />
-				<MenuItem
-					variant="destructive"
-					onClick={() =>
-						setDeleteTarget({
-							id: boardId as Id<"whiteboards">,
-							title: boardTitle,
-						})
-					}
-				>
-					<Trash2 className="h-4 w-4" />
-					Delete
-				</MenuItem>
-			</>
-		);
-	};
+	// Stable actions object for memoized sub-components
+	const boardActions = useMemo<BoardActions>(
+		() => ({
+			onRename: handleRenameStart,
+			onCopyLink: handleCopyLink,
+			onShare: setShareTarget,
+			onDuplicate: handleDuplicate,
+			onDelete: (id: Id<"whiteboards">, title: string) =>
+				setDeleteTarget({ id, title }),
+		}),
+		[handleRenameStart, handleCopyLink, handleDuplicate],
+	);
 
 	return (
 		<div className="flex flex-1 flex-col bg-background mx-2 my-2 border border-border rounded-lg min-w-0 overflow-y-auto">
@@ -466,99 +448,21 @@ export function BoardsContent() {
 				) : view === "cards" ? (
 					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 						{sorted.map((board) => (
-							<ContextMenu key={board._id}>
-								<ContextMenuTrigger asChild>
-									{/* biome-ignore lint/a11y/useSemanticElements: card is keyboard-accessible and contains nested action button */}
-									<div
-										className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted/50 cursor-pointer"
-										onClick={() => handleBoardClick(board._id)}
-										onKeyDown={(e) =>
-											e.key === "Enter" && handleBoardClick(board._id)
-										}
-										role="button"
-										tabIndex={0}
-									>
-										<div className="flex items-start justify-between gap-2">
-											<div className="flex items-center gap-2 min-w-0">
-												{board.icon ? (
-													<span className="text-base leading-none shrink-0">
-														{board.icon}
-													</span>
-												) : (
-													<PenNib className="h-4 w-4 shrink-0 text-muted-foreground" />
-												)}
-												{renamingId === board._id ? (
-													<input
-														ref={renameInputRef}
-														value={renameValue}
-														onChange={(e) => setRenameValue(e.target.value)}
-														onBlur={handleRenameSave}
-														onKeyDown={(e) => {
-															if (e.key === "Enter") handleRenameSave();
-															if (e.key === "Escape") handleRenameCancel();
-															e.stopPropagation();
-														}}
-														onClick={(e) => e.stopPropagation()}
-														className="truncate text-sm font-medium bg-transparent border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring w-full"
-													/>
-												) : (
-													<span className="truncate text-sm font-medium">
-														{board.title}
-													</span>
-												)}
-											</div>
-											{/* Action button */}
-											<DropdownMenu>
-												<DropdownMenuTrigger asChild>
-													<button
-														type="button"
-														onClick={(e) => e.stopPropagation()}
-														className="opacity-0 group-hover:opacity-100 shrink-0 rounded-md p-1 hover:bg-muted transition-opacity"
-														aria-label="Board actions"
-													>
-														<Ellipsis className="h-4 w-4 text-muted-foreground" />
-													</button>
-												</DropdownMenuTrigger>
-												<DropdownMenuContent
-													align="end"
-													onClick={(e) => e.stopPropagation()}
-												>
-													{renderMenuItems(board._id, board.title, "dropdown")}
-												</DropdownMenuContent>
-											</DropdownMenu>
-										</div>
-										{board.projectId && projectMap.has(board.projectId) && (
-											<span className="self-start truncate max-w-[120px] rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-												{projectMap.get(board.projectId)}
-											</span>
-										)}
-										<div className="mt-auto border-t border-border/60" />
-										<div className="flex items-center justify-between text-xs text-muted-foreground">
-											<span className="truncate">
-												{board.lastEditorName
-													? `Edited by ${board.lastEditorName}`
-													: board.creatorName
-														? `Created by ${board.creatorName}`
-														: formatRelativeDate(
-																board.updatedAt ?? board._creationTime,
-															)}
-											</span>
-											<Avatar className="size-5 border border-border">
-												<AvatarImage
-													src={board.creatorImage ?? undefined}
-													alt={board.creatorName ?? "Creator"}
-												/>
-												<AvatarFallback className="text-[9px]">
-													{getInitials(board.creatorName)}
-												</AvatarFallback>
-											</Avatar>
-										</div>
-									</div>
-								</ContextMenuTrigger>
-								<ContextMenuContent>
-									{renderMenuItems(board._id, board.title, "context")}
-								</ContextMenuContent>
-							</ContextMenu>
+							<BoardCardItem
+								key={board._id}
+								board={board}
+								projectName={
+									board.projectId ? projectMap.get(board.projectId) : undefined
+								}
+								renamingId={renamingId}
+								renameValue={renameValue}
+								renameInputRef={renameInputRef}
+								onBoardClick={handleBoardClick}
+								onRenameChange={setRenameValue}
+								onRenameSave={handleRenameSave}
+								onRenameCancel={handleRenameCancel}
+								actions={boardActions}
+							/>
 						))}
 					</div>
 				) : (
@@ -576,131 +480,23 @@ export function BoardsContent() {
 							</thead>
 							<tbody>
 								{sorted.map((board) => (
-									<ContextMenu key={board._id}>
-										<ContextMenuTrigger asChild>
-											<tr
-												className="group border-b border-border/50 last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
-												onClick={() => handleBoardClick(board._id)}
-												onKeyDown={(e) =>
-													e.key === "Enter" && handleBoardClick(board._id)
-												}
-											>
-												<td className="px-3 py-2.5">
-													<div className="flex items-center gap-2">
-														{board.icon ? (
-															<span className="text-base leading-none shrink-0">
-																{board.icon}
-															</span>
-														) : (
-															<PenNib className="h-4 w-4 shrink-0 text-muted-foreground" />
-														)}
-														{renamingId === board._id ? (
-															<input
-																ref={renameInputRef}
-																value={renameValue}
-																onChange={(e) => setRenameValue(e.target.value)}
-																onBlur={handleRenameSave}
-																onKeyDown={(e) => {
-																	if (e.key === "Enter") handleRenameSave();
-																	if (e.key === "Escape") handleRenameCancel();
-																	e.stopPropagation();
-																}}
-																onClick={(e) => e.stopPropagation()}
-																className="truncate font-medium bg-transparent border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring w-full max-w-xs"
-															/>
-														) : (
-															<span className="truncate font-medium">
-																{board.title}
-															</span>
-														)}
-													</div>
-												</td>
-												<td className="px-3 py-2.5">
-													<div className="flex items-center gap-1.5 text-muted-foreground">
-														<Avatar className="size-5 border border-border">
-															<AvatarImage
-																src={board.creatorImage ?? undefined}
-																alt={board.creatorName ?? "Creator"}
-															/>
-															<AvatarFallback className="text-[9px]">
-																{getInitials(board.creatorName)}
-															</AvatarFallback>
-														</Avatar>
-														<span className="truncate">
-															{board.creatorName ?? "Unknown"}
-														</span>
-													</div>
-												</td>
-												<td className="px-3 py-2.5 text-muted-foreground">
-													{board.projectId
-														? (projectMap.get(board.projectId) ?? "\u2014")
-														: "\u2014"}
-												</td>
-												<td className="px-3 py-2.5">
-													<div className="flex items-center gap-1.5 text-muted-foreground">
-														{(board.lastEditorName || board.creatorName) && (
-															<Avatar className="size-5 border border-border">
-																<AvatarImage
-																	src={
-																		board.lastEditorImage ??
-																		board.creatorImage ??
-																		undefined
-																	}
-																	alt={
-																		board.lastEditorName ??
-																		board.creatorName ??
-																		"Editor"
-																	}
-																/>
-																<AvatarFallback className="text-[9px]">
-																	{getInitials(
-																		board.lastEditorName ?? board.creatorName,
-																	)}
-																</AvatarFallback>
-															</Avatar>
-														)}
-														<span className="truncate">
-															{board.lastEditorName ??
-																board.creatorName ??
-																"\u2014"}
-														</span>
-													</div>
-												</td>
-												<td className="px-3 py-2.5 text-muted-foreground">
-													{formatRelativeDate(
-														board.updatedAt ?? board._creationTime,
-													)}
-												</td>
-												<td className="px-3 py-2.5">
-													<DropdownMenu>
-														<DropdownMenuTrigger asChild>
-															<button
-																type="button"
-																onClick={(e) => e.stopPropagation()}
-																className="opacity-0 group-hover:opacity-100 rounded-md p-1 hover:bg-muted transition-opacity"
-																aria-label="Board actions"
-															>
-																<Ellipsis className="h-4 w-4 text-muted-foreground" />
-															</button>
-														</DropdownMenuTrigger>
-														<DropdownMenuContent
-															align="end"
-															onClick={(e) => e.stopPropagation()}
-														>
-															{renderMenuItems(
-																board._id,
-																board.title,
-																"dropdown",
-															)}
-														</DropdownMenuContent>
-													</DropdownMenu>
-												</td>
-											</tr>
-										</ContextMenuTrigger>
-										<ContextMenuContent>
-											{renderMenuItems(board._id, board.title, "context")}
-										</ContextMenuContent>
-									</ContextMenu>
+									<BoardRowItem
+										key={board._id}
+										board={board}
+										projectName={
+											board.projectId
+												? projectMap.get(board.projectId)
+												: undefined
+										}
+										renamingId={renamingId}
+										renameValue={renameValue}
+										renameInputRef={renameInputRef}
+										onBoardClick={handleBoardClick}
+										onRenameChange={setRenameValue}
+										onRenameSave={handleRenameSave}
+										onRenameCancel={handleRenameCancel}
+										actions={boardActions}
+									/>
 								))}
 							</tbody>
 						</table>
@@ -798,6 +594,333 @@ export function BoardsContent() {
 		</div>
 	);
 }
+
+// ── Extracted sub-components ────────────────────────────────────────────
+
+interface BoardActions {
+	onRename: (boardId: string, title: string) => void;
+	onCopyLink: (boardId: string) => void;
+	onShare: (boardId: Id<"whiteboards">) => void;
+	onDuplicate: (boardId: Id<"whiteboards">) => void;
+	onDelete: (boardId: Id<"whiteboards">, title: string) => void;
+}
+
+function BoardMenuItems({
+	boardId,
+	boardTitle,
+	variant,
+	actions,
+}: {
+	boardId: string;
+	boardTitle: string;
+	variant: "context" | "dropdown";
+	actions: BoardActions;
+}) {
+	const MenuItem = variant === "context" ? ContextMenuItem : DropdownMenuItem;
+	const Separator =
+		variant === "context" ? ContextMenuSeparator : DropdownMenuSeparator;
+	return (
+		<>
+			<MenuItem onClick={() => actions.onRename(boardId, boardTitle)}>
+				<Pencil className="h-4 w-4" />
+				Rename
+			</MenuItem>
+			<MenuItem onClick={() => actions.onCopyLink(boardId)}>
+				<Copy className="h-4 w-4" />
+				Copy link
+			</MenuItem>
+			<MenuItem onClick={() => actions.onShare(boardId as Id<"whiteboards">)}>
+				<Share2 className="h-4 w-4" />
+				Share
+			</MenuItem>
+			<MenuItem
+				onClick={() => actions.onDuplicate(boardId as Id<"whiteboards">)}
+			>
+				<Copy className="h-4 w-4" />
+				Duplicate
+			</MenuItem>
+			<Separator />
+			<MenuItem
+				variant="destructive"
+				onClick={() =>
+					actions.onDelete(boardId as Id<"whiteboards">, boardTitle)
+				}
+			>
+				<Trash2 className="h-4 w-4" />
+				Delete
+			</MenuItem>
+		</>
+	);
+}
+
+interface BoardItemProps {
+	board: {
+		_id: string;
+		_creationTime: number;
+		title: string;
+		icon?: string;
+		projectId?: string;
+		updatedAt?: number;
+		creatorName?: string;
+		creatorImage?: string;
+		lastEditorName?: string;
+		lastEditorImage?: string;
+	};
+	projectName: string | undefined;
+	renamingId: string | null;
+	renameValue: string;
+	renameInputRef: React.RefObject<HTMLInputElement | null>;
+	onBoardClick: (boardId: string) => void;
+	onRenameChange: (value: string) => void;
+	onRenameSave: () => void;
+	onRenameCancel: () => void;
+	actions: BoardActions;
+}
+
+const BoardCardItem = React.memo(function BoardCardItem({
+	board,
+	projectName,
+	renamingId,
+	renameValue,
+	renameInputRef,
+	onBoardClick,
+	onRenameChange,
+	onRenameSave,
+	onRenameCancel,
+	actions,
+}: BoardItemProps) {
+	const isRenaming = renamingId === board._id;
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild>
+				{/* biome-ignore lint/a11y/useSemanticElements: card is keyboard-accessible and contains nested action button */}
+				<div
+					className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted/50 cursor-pointer"
+					onClick={() => onBoardClick(board._id)}
+					onKeyDown={(e) => e.key === "Enter" && onBoardClick(board._id)}
+					role="button"
+					tabIndex={0}
+				>
+					<div className="flex items-start justify-between gap-2">
+						<div className="flex items-center gap-2 min-w-0">
+							{board.icon ? (
+								<span className="text-base leading-none shrink-0">
+									{board.icon}
+								</span>
+							) : (
+								<PenNib className="h-4 w-4 shrink-0 text-muted-foreground" />
+							)}
+							{isRenaming ? (
+								<input
+									ref={renameInputRef}
+									value={renameValue}
+									onChange={(e) => onRenameChange(e.target.value)}
+									onBlur={onRenameSave}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") onRenameSave();
+										if (e.key === "Escape") onRenameCancel();
+										e.stopPropagation();
+									}}
+									onClick={(e) => e.stopPropagation()}
+									className="truncate text-sm font-medium bg-transparent border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring w-full"
+								/>
+							) : (
+								<span className="truncate text-sm font-medium">
+									{board.title}
+								</span>
+							)}
+						</div>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									onClick={(e) => e.stopPropagation()}
+									className="opacity-0 group-hover:opacity-100 shrink-0 rounded-md p-1 hover:bg-muted transition-opacity"
+									aria-label="Board actions"
+								>
+									<Ellipsis className="h-4 w-4 text-muted-foreground" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="end"
+								onClick={(e) => e.stopPropagation()}
+							>
+								<BoardMenuItems
+									boardId={board._id}
+									boardTitle={board.title}
+									variant="dropdown"
+									actions={actions}
+								/>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+					{board.projectId && projectName && (
+						<span className="self-start truncate max-w-[120px] rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+							{projectName}
+						</span>
+					)}
+					<div className="mt-auto border-t border-border/60" />
+					<div className="flex items-center justify-between text-xs text-muted-foreground">
+						<span className="truncate">
+							{board.lastEditorName
+								? `Edited by ${board.lastEditorName}`
+								: board.creatorName
+									? `Created by ${board.creatorName}`
+									: formatRelativeDate(board.updatedAt ?? board._creationTime)}
+						</span>
+						<Avatar className="size-5 border border-border">
+							<AvatarImage
+								src={board.creatorImage ?? undefined}
+								alt={board.creatorName ?? "Creator"}
+							/>
+							<AvatarFallback className="text-[9px]">
+								{getInitials(board.creatorName)}
+							</AvatarFallback>
+						</Avatar>
+					</div>
+				</div>
+			</ContextMenuTrigger>
+			<ContextMenuContent>
+				<BoardMenuItems
+					boardId={board._id}
+					boardTitle={board.title}
+					variant="context"
+					actions={actions}
+				/>
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+});
+
+const BoardRowItem = React.memo(function BoardRowItem({
+	board,
+	projectName,
+	renamingId,
+	renameValue,
+	renameInputRef,
+	onBoardClick,
+	onRenameChange,
+	onRenameSave,
+	onRenameCancel,
+	actions,
+}: BoardItemProps) {
+	const isRenaming = renamingId === board._id;
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild>
+				<tr
+					className="group border-b border-border/50 last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
+					onClick={() => onBoardClick(board._id)}
+					onKeyDown={(e) => e.key === "Enter" && onBoardClick(board._id)}
+				>
+					<td className="px-3 py-2.5">
+						<div className="flex items-center gap-2">
+							{board.icon ? (
+								<span className="text-base leading-none shrink-0">
+									{board.icon}
+								</span>
+							) : (
+								<PenNib className="h-4 w-4 shrink-0 text-muted-foreground" />
+							)}
+							{isRenaming ? (
+								<input
+									ref={renameInputRef}
+									value={renameValue}
+									onChange={(e) => onRenameChange(e.target.value)}
+									onBlur={onRenameSave}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") onRenameSave();
+										if (e.key === "Escape") onRenameCancel();
+										e.stopPropagation();
+									}}
+									onClick={(e) => e.stopPropagation()}
+									className="truncate font-medium bg-transparent border border-border rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-ring w-full max-w-xs"
+								/>
+							) : (
+								<span className="truncate font-medium">{board.title}</span>
+							)}
+						</div>
+					</td>
+					<td className="px-3 py-2.5">
+						<div className="flex items-center gap-1.5 text-muted-foreground">
+							<Avatar className="size-5 border border-border">
+								<AvatarImage
+									src={board.creatorImage ?? undefined}
+									alt={board.creatorName ?? "Creator"}
+								/>
+								<AvatarFallback className="text-[9px]">
+									{getInitials(board.creatorName)}
+								</AvatarFallback>
+							</Avatar>
+							<span className="truncate">{board.creatorName ?? "Unknown"}</span>
+						</div>
+					</td>
+					<td className="px-3 py-2.5 text-muted-foreground">
+						{projectName ?? "\u2014"}
+					</td>
+					<td className="px-3 py-2.5">
+						<div className="flex items-center gap-1.5 text-muted-foreground">
+							{(board.lastEditorName || board.creatorName) && (
+								<Avatar className="size-5 border border-border">
+									<AvatarImage
+										src={
+											board.lastEditorImage ?? board.creatorImage ?? undefined
+										}
+										alt={board.lastEditorName ?? board.creatorName ?? "Editor"}
+									/>
+									<AvatarFallback className="text-[9px]">
+										{getInitials(board.lastEditorName ?? board.creatorName)}
+									</AvatarFallback>
+								</Avatar>
+							)}
+							<span className="truncate">
+								{board.lastEditorName ?? board.creatorName ?? "\u2014"}
+							</span>
+						</div>
+					</td>
+					<td className="px-3 py-2.5 text-muted-foreground">
+						{formatRelativeDate(board.updatedAt ?? board._creationTime)}
+					</td>
+					<td className="px-3 py-2.5">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									onClick={(e) => e.stopPropagation()}
+									className="opacity-0 group-hover:opacity-100 rounded-md p-1 hover:bg-muted transition-opacity"
+									aria-label="Board actions"
+								>
+									<Ellipsis className="h-4 w-4 text-muted-foreground" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="end"
+								onClick={(e) => e.stopPropagation()}
+							>
+								<BoardMenuItems
+									boardId={board._id}
+									boardTitle={board.title}
+									variant="dropdown"
+									actions={actions}
+								/>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</td>
+				</tr>
+			</ContextMenuTrigger>
+			<ContextMenuContent>
+				<BoardMenuItems
+					boardId={board._id}
+					boardTitle={board.title}
+					variant="context"
+					actions={actions}
+				/>
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+});
+
+// ── Utility functions ──────────────────────────────────────────────────
 
 function formatRelativeDate(timestamp: number): string {
 	const diff = Date.now() - timestamp;

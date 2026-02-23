@@ -20,6 +20,8 @@ import { ConnectionBanner } from "@/components/ai/ConnectionBanner";
 import { McpActionMenuItems } from "@/components/ai/McpConnectorPicker";
 import { MentionAutocomplete } from "@/components/ai/MentionAutocomplete";
 import { RateLimitBanner } from "@/components/ai/RateLimitBanner";
+import { SkillsActionMenuItems } from "@/components/ai/SkillsActionMenuItems";
+import { SubAgentActionMenuItems } from "@/components/ai/SubAgentActionMenuItems";
 import { ChatHeader, ContextChip, ModelSelector } from "@/components/ai/shared";
 import { ThreadBrowserPopup } from "@/components/ai/ThreadBrowserPopup";
 import { useWorkspace } from "@/components/providers/workspace-context";
@@ -267,6 +269,11 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 		const thread = threads.find((t) => t.threadId === activeThreadId);
 		return thread?.title || "New conversation";
 	}, [activeThreadId, threads]);
+	const activeModelStatusLabel = useMemo(() => {
+		if (selectedModel === "gpt-5.2") return "GPT 5.2";
+		if (selectedModel === "kimi-k2.5") return "Kimi K2.5";
+		return selectedModel;
+	}, [selectedModel]);
 
 	const handleSubmit = useCallback(
 		(
@@ -547,6 +554,19 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 					</p>
 				</div>
 			)}
+			{(isSending || isStreaming) && (
+				<div className="px-3 pb-2">
+					<div className="inline-flex items-center gap-2 rounded-md border border-sienna-500/20 bg-sienna-500/5 px-2.5 py-1 text-xs text-muted-foreground">
+						<span className="size-1.5 rounded-full bg-sienna-500 animate-pulse" />
+						<span>
+							{isStreaming ? "Generating response..." : "Preparing response..."}
+						</span>
+						<span className="text-[10px] text-sienna-600 dark:text-sienna-400">
+							{activeModelStatusLabel}
+						</span>
+					</div>
+				</div>
+			)}
 
 			{/* Input area */}
 			<MentionAutocomplete
@@ -570,11 +590,23 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 					/>
 				}
 				actionMenuItems={
-					<McpActionMenuItems
-						servers={chat.mcpServers}
-						selectedIds={chat.selectedMcpServerIds}
-						onChange={chat.setThreadMcpServers}
-					/>
+					<>
+						<SkillsActionMenuItems
+							skills={chat.skills}
+							selectedIds={chat.selectedSkillIds}
+							onChange={chat.setSelectedSkillIds}
+						/>
+						<SubAgentActionMenuItems
+							subAgents={chat.subAgents}
+							selectedId={chat.selectedSubAgentId}
+							onChange={chat.setSelectedSubAgentId}
+						/>
+						<McpActionMenuItems
+							servers={chat.mcpServers}
+							selectedIds={chat.selectedMcpServerIds}
+							onChange={chat.setThreadMcpServers}
+						/>
+					</>
 				}
 			/>
 
@@ -598,7 +630,7 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 
 const SIDEBAR_CHAT_WIDTH = 400;
 const SIDEBAR_EXPANDED_WIDTH = 820;
-const ARTIFACT_DEFAULT_WIDTH = 420;
+const ARTIFACT_DEFAULT_WIDTH = Math.round(SIDEBAR_EXPANDED_WIDTH * 0.4);
 const ARTIFACT_MIN_WIDTH = 300;
 const ARTIFACT_MAX_RATIO = 0.6;
 

@@ -145,13 +145,14 @@ export function VoiceButton({
 			} catch (error) {
 				const message =
 					error instanceof Error ? error.message : "Voice transcription failed";
+				const failedRecordingId = recordingId;
 
 				toast.error(message, {
-					action: recordingId
+					action: failedRecordingId
 						? {
 								label: "Delete recording",
 								onClick: () => {
-									deleteRecording({ id: recordingId })
+									deleteRecording({ id: failedRecordingId })
 										.then(() => {
 											toast.success("Recording deleted");
 										})

@@ -1,6 +1,5 @@
 "use node";
 
-import { saveMessages } from "@convex-dev/agent";
 import type { ModelMessage } from "ai";
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
@@ -92,6 +91,24 @@ type ClassifiedError = {
 };
 
 const ENABLE_CHAT_TIMINGS = process.env.AI_CHAT_DEBUG_TIMING === "true";
+const ENABLE_CHAT_AUDIT_LOGS = process.env.AI_CHAT_DEBUG_TIMING === "true";
+
+function makeDebugRequestId(override?: string) {
+	const fallback = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+	if (!override) return fallback;
+	const sanitized = override.trim();
+	return sanitized.length > 0 ? sanitized : fallback;
+}
+
+function logChatStage(
+	traceId: string,
+	stage: string,
+	deltaMs: number,
+	extra?: Record<string, unknown>,
+) {
+	if (!ENABLE_CHAT_TIMINGS) return;
+	console.info(`[chat:trace] ${traceId} ${stage}`, deltaMs, extra ?? {});
+}
 
 function logChatTiming(step: string, startedAtMs: number) {
 	if (!ENABLE_CHAT_TIMINGS) return;
@@ -231,6 +248,8 @@ export const sendMessage = action({
 		),
 		/** Optional system prompt suffix appended for slash commands (e.g. /summarize). */
 		systemPromptSuffix: v.optional(v.string()),
+		/** Optional skill IDs to load into the system prompt (on-demand). */
+		selectedSkillIds: v.optional(v.array(v.id("skills"))),
 		/** Optional AI teammate ID to apply custom persona config. */
 		aiTeammateId: v.optional(v.id("aiTeammates")),
 		/** Optional @mentions to resolve into entity context for the agent. */
@@ -247,11 +266,23 @@ export const sendMessage = action({
 				}),
 			),
 		),
+		debugRequestId: v.optional(v.string()),
 	},
 	returns: v.object({
 		threadId: v.string(),
 		resolvedModelId: v.string(),
 		modelWarning: v.optional(v.string()),
+		requestId: v.string(),
+		timings: v.optional(
+			v.object({
+				authMs: v.number(),
+				modelMs: v.number(),
+				threadMs: v.number(),
+				setupMs: v.number(),
+				streamMs: v.number(),
+				totalMs: v.number(),
+			}),
+		),
 		errorInfo: v.optional(
 			v.object({
 				type: v.string(),
@@ -271,11 +302,41 @@ export const sendMessage = action({
 			selectedMcpServerIds,
 			pageContext,
 			systemPromptSuffix,
+			selectedSkillIds,
 			aiTeammateId,
 			mentions,
+			debugRequestId,
 		},
 	) => {
+		const t0 = performance.now();
 		const startedAt = Date.now();
+		const traceId = makeDebugRequestId(debugRequestId);
+		const timingMarks: Record<string, number> = {};
+		const mark = (label: string) => {
+			timingMarks[label] = Math.round(performance.now() - t0);
+		};
+		mark("action_start");
+		const stageTimings = {
+			authMs: 0,
+			modelMs: 0,
+			threadMs: 0,
+			setupMs: 0,
+			streamMs: 0,
+			totalMs: 0,
+		};
+		let streamStartedAt: number | null = null;
+		let mcpResult: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
+
+		logChatStage(traceId, "request:start", 0, {
+			workspaceId,
+			threadHint: threadId ? "existing" : "new",
+			hasContext: Boolean(pageContext),
+			selectedMcpServerIds: selectedMcpServerIds?.length ?? 0,
+			mentionCount: mentions?.length ?? 0,
+			hasAttachments: (attachments?.length ?? 0) > 0,
+		});
+
+		const authStart = Date.now();
 		const promptInput = buildPromptWithAttachments(
 			prompt,
 			attachments as IncomingAttachment[] | undefined,
@@ -300,20 +361,26 @@ export const sendMessage = action({
 		} = await ctx.runQuery(internal.ai.chatQueries.getAuthAndContext, {
 			workspaceId,
 		});
+		stageTimings.authMs = Date.now() - authStart;
+		mark("after_auth_context");
 
+		const modelResolveStart = Date.now();
 		let {
 			resolvedModelId: modelIdForRequest,
 			model: modelForRequest,
 			fallbackReason,
 		} = resolveChatModel(modelId);
+		stageTimings.modelMs = Date.now() - modelResolveStart;
+		mark("after_model_resolve");
 
 		// Resolve or create thread
+		const threadResolveStart = Date.now();
 		let resolvedThreadId: string;
 		let isNewThread = false;
 		if (threadId) {
 			resolvedThreadId = threadId;
-			// Fire-and-forget model sync — don't block the streaming API call
-			void ctx.scheduler.runAfter(0, internal.ai.threads.syncThreadModel, {
+			// Keep thread metadata in sync before continuing.
+			await ctx.scheduler.runAfter(0, internal.ai.threads.syncThreadModel, {
 				threadId: resolvedThreadId,
 				model: modelIdForRequest,
 			});
@@ -334,22 +401,8 @@ export const sendMessage = action({
 				...(selectedMcpServerIds !== undefined ? { selectedMcpServerIds } : {}),
 			});
 		}
-
-		// ── Fetch AI teammate config (if thread is linked to one) ────────
-		const teammateConfig = await ctx.runQuery(
-			internal.ai.chatQueries.getTeammateForThread,
-			{ threadId: resolvedThreadId },
-		);
-
-		// If a teammate has a model override, prefer it over the user-selected model
-		// (unless the user explicitly chose a model via modelId arg)
-		if (teammateConfig?.model && !modelId) {
-			const teammateResolution = resolveChatModel(teammateConfig.model);
-			if (!teammateResolution.fallbackReason) {
-				modelIdForRequest = teammateResolution.resolvedModelId;
-				modelForRequest = teammateResolution.model;
-			}
-		}
+		stageTimings.threadMs = Date.now() - threadResolveStart;
+		mark("after_thread_resolve");
 
 		let contextSuffix = `\n\nWorkspace: ${workspaceName}\nUser: ${userName}`;
 
@@ -387,16 +440,11 @@ export const sendMessage = action({
 			typeof claveAgent.options.instructions === "string"
 				? claveAgent.options.instructions
 				: "";
-		const baseInstructions = teammateConfig
-			? teammateConfig.systemPrompt
-			: defaultInstructions;
 		// Kick off expensive setup steps in parallel so first-token latency is lower.
-		const composedPromptPromise = getComposedPrompt(ctx, {
-			workspaceId,
-			baseInstructions,
-		});
+		const setupStart = Date.now();
 		const mcpToolsPromise = loadMcpTools(ctx, workspaceId, {
 			selectedServerIds: selectedMcpServerIds ?? [],
+			pageContext: pageContext?.type,
 		});
 		const richContextPromise = pageContext
 			? buildContextPrompt(ctx, pageContext as PageContext).catch((error) => {
@@ -422,29 +470,61 @@ export const sendMessage = action({
 						return null;
 					})
 				: Promise.resolve(null);
+		const teammatePromise = ctx.runQuery(
+			internal.ai.chatQueries.getTeammateForThread,
+			{ threadId: resolvedThreadId },
+		);
+		mark("parallel_setup_start");
 		logChatTiming("parallel setup started", startedAt);
-		let mcpResult: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
 
 		try {
+			if (ENABLE_CHAT_TIMINGS) {
+				logChatStage(traceId, "setup:parallel-start", Date.now() - setupStart);
+			}
 			const [
-				composedBaseResult,
+				teammateResult,
 				loadedMcpResult,
 				richContextResult,
 				resolvedMentionsResult,
 			] = await Promise.allSettled([
-				composedPromptPromise,
+				teammatePromise,
 				mcpToolsPromise,
 				richContextPromise,
 				mentionResolutionPromise,
 			]);
+			mark("after_parallel_group");
+			if (teammateResult.status === "rejected") {
+				throw teammateResult.reason;
+			}
+			const teammateConfig = teammateResult.value;
+
+			// If a teammate has a model override, prefer it over the user-selected model
+			// (unless the user explicitly chose a model via modelId arg)
+			if (teammateConfig?.model && !modelId) {
+				const teammateResolution = resolveChatModel(teammateConfig.model);
+				if (!teammateResolution.fallbackReason) {
+					modelIdForRequest = teammateResolution.resolvedModelId;
+					modelForRequest = teammateResolution.model;
+				}
+			}
+			const baseInstructions = teammateConfig
+				? teammateConfig.systemPrompt
+				: defaultInstructions;
+			const composedBase = await getComposedPrompt(ctx, {
+				workspaceId,
+				baseInstructions,
+				selectedSkillIds,
+			});
+			mark("after_composed_prompt");
 			if (loadedMcpResult.status === "fulfilled") {
 				mcpResult = loadedMcpResult.value;
-			}
-			if (composedBaseResult.status === "rejected") {
-				throw composedBaseResult.reason;
-			}
-			if (loadedMcpResult.status === "rejected") {
-				throw loadedMcpResult.reason;
+			} else {
+				console.warn(
+					"[chat:sendMessage] MCP setup failed, continuing without MCP tools:",
+					loadedMcpResult.reason instanceof Error
+						? loadedMcpResult.reason.message
+						: loadedMcpResult.reason,
+				);
 			}
 			if (richContextResult.status === "rejected") {
 				throw richContextResult.reason;
@@ -453,7 +533,6 @@ export const sendMessage = action({
 				throw resolvedMentionsResult.reason;
 			}
 
-			const composedBase = composedBaseResult.value;
 			const richContext = richContextResult.value;
 			const resolvedMentions = resolvedMentionsResult.value;
 			if (richContext) {
@@ -465,11 +544,18 @@ export const sendMessage = action({
 			if (mentionBlock) {
 				contextSuffix += mentionBlock;
 			}
-			if (!mcpResult) {
-				throw new Error("[chat:sendMessage] MCP setup failed unexpectedly.");
-			}
+			mcpResult ??= {
+				tools: {},
+				clients: [],
+				timing: { totalMs: 0, queryMs: 0, servers: [], fastPath: true },
+			};
 			const hasMcpTools = Object.keys(mcpResult.tools).length > 0;
+			// Returning immediately dramatically improves perceived latency, but
+			// MCP-backed tools require live client connections for the full stream.
+			// Keep the blocking behavior only when MCP tools are involved.
+			const shouldReturnImmediately = !hasMcpTools;
 			logChatTiming("parallel setup complete", startedAt);
+			stageTimings.setupMs = Date.now() - setupStart;
 
 			// Stream the response with delta persistence.
 			// saveStreamDeltas persists each token to the DB as it arrives,
@@ -478,7 +564,8 @@ export const sendMessage = action({
 			const systemPrompt = composedBase + contextSuffix;
 			const reasoningOptions = getReasoningProviderOptions(modelIdForRequest);
 			const supportsTemperature = supportsTemperatureSetting(modelIdForRequest);
-			const streamStartedAt = Date.now();
+			mark("before_stream");
+			streamStartedAt = Date.now();
 			const result = await claveAgent.streamText(
 				ctx,
 				{ threadId: resolvedThreadId, userId },
@@ -486,7 +573,8 @@ export const sendMessage = action({
 					prompt: promptInput,
 					system: systemPrompt,
 					model: modelForRequest,
-					maxOutputTokens: 4096,
+					// Keep responses tighter to improve first-token and completion latency.
+					maxOutputTokens: 2048,
 					// Apply teammate temperature override if set
 					...(supportsTemperature &&
 						teammateConfig?.temperature !== undefined && {
@@ -498,21 +586,52 @@ export const sendMessage = action({
 					...(hasMcpTools && {
 						tools: { ...allTools, ...mcpResult.tools },
 					}),
+					experimental_telemetry: {
+						isEnabled: true,
+						metadata: {
+							threadId: resolvedThreadId,
+							modelId: modelIdForRequest,
+							hasMcpTools: Object.keys(mcpResult?.tools ?? {}).length > 0,
+						},
+					},
 				},
 				{
-					saveStreamDeltas: { chunking: "word", throttleMs: 16 },
+					saveStreamDeltas: {
+						chunking: "word",
+						// Reduce write amplification during long streams.
+						throttleMs: 40,
+						...(shouldReturnImmediately ? { returnImmediately: true } : {}),
+					},
 					contextOptions: {
+						// 20 recent messages gives good conversational context while the
+						// contextHandler trims long assistant responses in older turns.
 						recentMessages: 20,
 					},
 				},
 			);
+			mark("after_stream_start");
+			logChatStage(traceId, "stream:start", streamStartedAt - startedAt, {
+				hasMcpTools,
+				threadId: resolvedThreadId,
+				modelId: modelIdForRequest,
+			});
 
-			// Consume the stream to completion so the action waits for all deltas.
-			await result.consumeStream();
-			logChatTiming(
-				`stream complete model=${modelIdForRequest} (stream=${Date.now() - streamStartedAt}ms)`,
-				startedAt,
-			);
+			if (!shouldReturnImmediately) {
+				// For MCP-backed runs, keep the action alive until completion so we
+				// can close MCP client connections deterministically in finally.
+				await result.consumeStream();
+				stageTimings.streamMs = Date.now() - streamStartedAt;
+				logChatTiming(
+					`stream complete model=${modelIdForRequest} (stream=${Date.now() - streamStartedAt}ms)`,
+					startedAt,
+				);
+			} else {
+				stageTimings.streamMs = Date.now() - streamStartedAt;
+				logChatTiming(
+					`stream started model=${modelIdForRequest} (returnImmediately, setup=${Date.now() - streamStartedAt}ms)`,
+					startedAt,
+				);
+			}
 		} catch (error) {
 			// Log the actual error for debugging
 			console.error(
@@ -532,13 +651,10 @@ export const sendMessage = action({
 					retryAfter: classified.retryAfter,
 				}),
 			};
+			stageTimings.streamMs = streamStartedAt
+				? Date.now() - streamStartedAt
+				: 0;
 
-			await saveMessages(ctx, components.agent, {
-				threadId: resolvedThreadId,
-				userId,
-				agentName: teammateConfig?.name ?? "Clave AI",
-				messages: [{ role: "assistant", content: classified.message }],
-			});
 			logChatTiming(
 				`stream failed model=${modelIdForRequest} (${classified.type})`,
 				startedAt,
@@ -548,10 +664,13 @@ export const sendMessage = action({
 			if (mcpResult?.clients.length) {
 				await closeMcpClients(mcpResult.clients);
 			}
+			mark("action_end");
+			console.info("[chat-timing]", JSON.stringify(timingMarks));
 		}
 
+		stageTimings.totalMs = Date.now() - startedAt;
 		// Touch aiThreads.updatedAt so thread sorts to top of list
-		await ctx.runMutation(internal.ai.threads.touchThread, {
+		await ctx.scheduler.runAfter(0, internal.ai.threads.touchThread, {
 			threadId: resolvedThreadId,
 		});
 
@@ -565,10 +684,27 @@ export const sendMessage = action({
 			});
 		}
 
+		if (ENABLE_CHAT_AUDIT_LOGS) {
+			await ctx.runMutation(internal.ai.auditLog.logAction, {
+				workspaceId,
+				userId,
+				action: "chat.sendMessage",
+				threadId: resolvedThreadId,
+				details: [
+					`id:${traceId}`,
+					`model:${modelIdForRequest}`,
+					`mcp:${mcpResult ? Object.keys(mcpResult.tools).length : 0}`,
+					`timings:${JSON.stringify(stageTimings)}`,
+				].join(" | "),
+			});
+		}
+
 		return {
 			threadId: resolvedThreadId,
 			resolvedModelId: modelIdForRequest,
 			modelWarning: fallbackReason,
+			requestId: traceId,
+			timings: stageTimings,
 			errorInfo,
 		};
 	},

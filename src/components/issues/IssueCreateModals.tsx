@@ -1,8 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useIssueCreate } from "./IssueCreateContext";
-import { IssueFullCreateModal } from "./IssueFullCreateModal";
-import { IssueQuickCreateModal } from "./IssueQuickCreateModal";
+
+const IssueFullCreateModal = dynamic(
+	() =>
+		import("./IssueFullCreateModal").then((mod) => mod.IssueFullCreateModal),
+	{ ssr: false },
+);
+
+const IssueQuickCreateModal = dynamic(
+	() =>
+		import("./IssueQuickCreateModal").then((mod) => mod.IssueQuickCreateModal),
+	{ ssr: false },
+);
 
 /**
  * Renders the quick and full-screen issue creation modals.

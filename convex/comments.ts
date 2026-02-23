@@ -180,47 +180,88 @@ export const listByIssue = query({
 			(a, b) => a._creationTime - b._creationTime,
 		);
 
-		return Promise.all(
-			allComments.map(async (comment) => {
-				const author = await ctx.db.get(comment.authorId);
-				let avatarUrl: string | undefined;
-				if (author?.avatarStorageId) {
-					const url = await ctx.storage.getUrl(author.avatarStorageId);
-					if (url) avatarUrl = url;
-				}
-				// Resolve attachment file data
-				const rawAttachments = comment.attachmentIds
-					? await Promise.all(
-							comment.attachmentIds.map(async (fileId) => {
-								const file = await ctx.db.get(fileId);
-								if (!file || file.deletedAt) return null;
-								const url = file.storageId
-									? await ctx.storage.getUrl(file.storageId)
-									: (file.externalUrl ?? null);
-								return {
-									_id: file._id,
-									name: file.name,
-									mimeType: file.mimeType,
-									url,
-								};
-							}),
-						)
-					: [];
-				const attachments = rawAttachments.filter(
-					(a): a is NonNullable<typeof a> => a !== null,
-				);
-				return {
-					...comment,
-					author: author
-						? {
-								name: author.name ?? "Unknown",
-								image: avatarUrl ?? author.image,
-							}
-						: { name: "Unknown", image: undefined },
-					attachments: attachments.filter(Boolean),
-				};
-			}),
+		// Batch-fetch unique authors
+		const authorIds = new Set<string>();
+		const fileIds = new Set<string>();
+		for (const c of allComments) {
+			authorIds.add(c.authorId);
+			if (c.attachmentIds) {
+				for (const fid of c.attachmentIds) fileIds.add(fid);
+			}
+		}
+
+		const [authorResults, fileResults] = await Promise.all([
+			Promise.all([...authorIds].map((id) => ctx.db.get(id as Id<"users">))),
+			Promise.all([...fileIds].map((id) => ctx.db.get(id as Id<"files">))),
+		]);
+
+		const authorMap = new Map(
+			[...authorIds].map((id, i) => [id, authorResults[i]]),
 		);
+		const fileMap = new Map([...fileIds].map((id, i) => [id, fileResults[i]]));
+
+		// Batch-fetch avatar URLs for authors with custom avatars
+		const authorsWithAvatars = [...authorMap.entries()].filter(
+			(entry): entry is [string, NonNullable<(typeof authorResults)[number]>] =>
+				entry[1]?.avatarStorageId !== undefined,
+		);
+		const avatarUrlResults = await Promise.all(
+			authorsWithAvatars.map(([, author]) =>
+				author.avatarStorageId
+					? ctx.storage.getUrl(author.avatarStorageId)
+					: null,
+			),
+		);
+		const avatarUrlMap = new Map<string, string | null>();
+		for (let i = 0; i < authorsWithAvatars.length; i++) {
+			avatarUrlMap.set(authorsWithAvatars[i][0], avatarUrlResults[i]);
+		}
+
+		// Batch-fetch storage URLs for file attachments
+		const filesWithStorage = [...fileMap.entries()].filter(
+			(entry): entry is [string, NonNullable<(typeof fileResults)[number]>] =>
+				entry[1] !== null && !entry[1].deletedAt && !!entry[1].storageId,
+		);
+		const fileUrlResults = await Promise.all(
+			filesWithStorage.map(([, file]) => ctx.storage.getUrl(file.storageId!)),
+		);
+		const fileUrlMap = new Map<string, string | null>();
+		for (let i = 0; i < filesWithStorage.length; i++) {
+			fileUrlMap.set(filesWithStorage[i][0], fileUrlResults[i]);
+		}
+
+		// Enrich comments using lookup maps
+		return allComments.map((comment) => {
+			const author = authorMap.get(comment.authorId) ?? null;
+			const avatarUrl = avatarUrlMap.get(comment.authorId) ?? undefined;
+
+			const attachments = (comment.attachmentIds ?? [])
+				.map((fileId) => {
+					const file = fileMap.get(fileId);
+					if (!file || file.deletedAt) return null;
+					const url = file.storageId
+						? (fileUrlMap.get(fileId) ?? null)
+						: (file.externalUrl ?? null);
+					return {
+						_id: file._id,
+						name: file.name,
+						mimeType: file.mimeType,
+						url,
+					};
+				})
+				.filter((a): a is NonNullable<typeof a> => a !== null);
+
+			return {
+				...comment,
+				author: author
+					? {
+							name: author.name ?? "Unknown",
+							image: avatarUrl ?? author.image,
+						}
+					: { name: "Unknown", image: undefined },
+				attachments,
+			};
+		});
 	},
 });
 
@@ -261,26 +302,45 @@ export const listByTask = query({
 			(a, b) => a._creationTime - b._creationTime,
 		);
 
-		// Join author data
-		return Promise.all(
-			allComments.map(async (comment) => {
-				const author = await ctx.db.get(comment.authorId);
-				let avatarUrl: string | undefined;
-				if (author?.avatarStorageId) {
-					const url = await ctx.storage.getUrl(author.avatarStorageId);
-					if (url) avatarUrl = url;
-				}
-				return {
-					...comment,
-					author: author
-						? {
-								name: author.name ?? "Unknown",
-								image: avatarUrl ?? author.image,
-							}
-						: { name: "Unknown", image: undefined },
-				};
-			}),
+		// Batch-fetch unique authors
+		const authorIds = [
+			...new Set(allComments.map((c) => c.authorId as string)),
+		];
+		const authorResults = await Promise.all(
+			authorIds.map((id) => ctx.db.get(id as Id<"users">)),
 		);
+		const authorMap = new Map(authorIds.map((id, i) => [id, authorResults[i]]));
+
+		// Batch-fetch avatar URLs
+		const authorsWithAvatars = [...authorMap.entries()].filter(
+			(entry): entry is [string, NonNullable<(typeof authorResults)[number]>] =>
+				entry[1]?.avatarStorageId !== undefined,
+		);
+		const avatarUrlResults = await Promise.all(
+			authorsWithAvatars.map(([, author]) =>
+				author.avatarStorageId
+					? ctx.storage.getUrl(author.avatarStorageId)
+					: null,
+			),
+		);
+		const avatarUrlMap = new Map<string, string | null>();
+		for (let i = 0; i < authorsWithAvatars.length; i++) {
+			avatarUrlMap.set(authorsWithAvatars[i][0], avatarUrlResults[i]);
+		}
+
+		return allComments.map((comment) => {
+			const author = authorMap.get(comment.authorId) ?? null;
+			const avatarUrl = avatarUrlMap.get(comment.authorId) ?? undefined;
+			return {
+				...comment,
+				author: author
+					? {
+							name: author.name ?? "Unknown",
+							image: avatarUrl ?? author.image,
+						}
+					: { name: "Unknown", image: undefined },
+			};
+		});
 	},
 });
 
@@ -317,25 +377,45 @@ export const listByStory = query({
 			(a, b) => a._creationTime - b._creationTime,
 		);
 
-		return Promise.all(
-			allComments.map(async (comment) => {
-				const author = await ctx.db.get(comment.authorId);
-				let avatarUrl: string | undefined;
-				if (author?.avatarStorageId) {
-					const url = await ctx.storage.getUrl(author.avatarStorageId);
-					if (url) avatarUrl = url;
-				}
-				return {
-					...comment,
-					author: author
-						? {
-								name: author.name ?? "Unknown",
-								image: avatarUrl ?? author.image,
-							}
-						: { name: "Unknown", image: undefined },
-				};
-			}),
+		// Batch-fetch unique authors
+		const authorIds = [
+			...new Set(allComments.map((c) => c.authorId as string)),
+		];
+		const authorResults = await Promise.all(
+			authorIds.map((id) => ctx.db.get(id as Id<"users">)),
 		);
+		const authorMap = new Map(authorIds.map((id, i) => [id, authorResults[i]]));
+
+		// Batch-fetch avatar URLs
+		const authorsWithAvatars = [...authorMap.entries()].filter(
+			(entry): entry is [string, NonNullable<(typeof authorResults)[number]>] =>
+				entry[1]?.avatarStorageId !== undefined,
+		);
+		const avatarUrlResults = await Promise.all(
+			authorsWithAvatars.map(([, author]) =>
+				author.avatarStorageId
+					? ctx.storage.getUrl(author.avatarStorageId)
+					: null,
+			),
+		);
+		const avatarUrlMap = new Map<string, string | null>();
+		for (let i = 0; i < authorsWithAvatars.length; i++) {
+			avatarUrlMap.set(authorsWithAvatars[i][0], avatarUrlResults[i]);
+		}
+
+		return allComments.map((comment) => {
+			const author = authorMap.get(comment.authorId) ?? null;
+			const avatarUrl = avatarUrlMap.get(comment.authorId) ?? undefined;
+			return {
+				...comment,
+				author: author
+					? {
+							name: author.name ?? "Unknown",
+							image: avatarUrl ?? author.image,
+						}
+					: { name: "Unknown", image: undefined },
+			};
+		});
 	},
 });
 

@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery } from "convex/react";
 import dynamic from "next/dynamic";
-import { useParams, useRouter } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { useParams, usePathname, useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AIActionMenuDialog } from "@/components/ai/AIActionMenuDialog";
 import {
 	AIChatPanelProvider,
@@ -25,6 +25,7 @@ import { WorkspaceProvider } from "@/components/providers/workspace-context";
 import { WorkspaceDataProvider } from "@/components/providers/workspace-data-context";
 import { ShortcutsHelpOverlay } from "@/components/shortcuts-help-overlay";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AIActionMenuProvider } from "@/hooks/use-ai-keyboard-shortcuts";
 import { RightPanelProvider, useRightPanel } from "@/hooks/use-right-panel";
 import { ShortcutProvider } from "@/hooks/use-shortcuts";
@@ -61,6 +62,7 @@ export default function WorkspaceLayout({
 	const router = useRouter();
 	const slug = params.workspaceSlug as string;
 	const { orgSlug, organizationId } = useOrganization();
+	const pathname = usePathname();
 
 	const workspace = useQuery(api.workspaces.getBySlug, { slug });
 	const user = useQuery(api.users.current);
@@ -73,6 +75,10 @@ export default function WorkspaceLayout({
 	const isAuthenticated = user !== undefined && user !== null;
 	const workspaceId = workspace?._id;
 	const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
+	const chatRouteBase = `/${orgSlug}/${slug}/chat`;
+	const isChatRoute = pathname
+		? pathname === chatRouteBase || pathname.startsWith(`${chatRouteBase}/`)
+		: false;
 
 	useEffect(() => {
 		if (user === undefined || user === null) return;
@@ -96,11 +102,34 @@ export default function WorkspaceLayout({
 		};
 	}, [isAuthenticated, workspaceId, organizationId, setActiveContext]);
 
+	const workspaceContextValue = useMemo(
+		() => ({
+			workspaceId: workspace?._id ?? ("" as any),
+			workspaceSlug: workspace?.slug ?? "",
+			workspaceName: workspace?.name ?? "",
+			orgSlug,
+			logoUrl: logoUrl ?? null,
+		}),
+		[workspace?._id, workspace?.slug, workspace?.name, orgSlug, logoUrl],
+	);
+
 	// Still loading
 	if (workspace === undefined || user === undefined) {
 		return (
-			<div className="flex min-h-screen items-center justify-center">
-				<div className="animate-pulse text-muted-foreground">Loading...</div>
+			<div className="flex min-h-screen">
+				<div className="w-64 shrink-0 border-r border-border p-4 space-y-4">
+					<Skeleton className="h-8 w-32" />
+					<Skeleton className="h-4 w-full" />
+					<Skeleton className="h-4 w-3/4" />
+					<Skeleton className="h-4 w-full" />
+					<Skeleton className="h-4 w-1/2" />
+				</div>
+				<div className="flex-1 p-6 space-y-4">
+					<Skeleton className="h-8 w-48" />
+					<Skeleton className="h-px w-full" />
+					<Skeleton className="h-64 w-full" />
+					<Skeleton className="h-32 w-full" />
+				</div>
 			</div>
 		);
 	}
@@ -132,15 +161,7 @@ export default function WorkspaceLayout({
 	}
 
 	return (
-		<WorkspaceProvider
-			value={{
-				workspaceId: workspace._id,
-				workspaceSlug: workspace.slug,
-				workspaceName: workspace.name,
-				orgSlug,
-				logoUrl: logoUrl ?? null,
-			}}
-		>
+		<WorkspaceProvider value={workspaceContextValue}>
 			<WorkspaceDataProvider>
 				<ShortcutProvider>
 					<IssueCreateProvider>
@@ -158,12 +179,27 @@ export default function WorkspaceLayout({
 											<AppSidebar />
 											<SidebarInset>
 												<div className="relative flex flex-1 flex-col min-h-0">
-													<Suspense fallback={null}>{children}</Suspense>
-													<AIChatTrigger />
-													<BrandingWordmark />
+													<Suspense
+														fallback={
+															<div className="flex flex-1 flex-col gap-4 p-6">
+																<Skeleton className="h-8 w-48" />
+																<Skeleton className="h-px w-full" />
+																<Skeleton className="h-64 w-full" />
+																<Skeleton className="h-32 w-full" />
+															</div>
+														}
+													>
+														{children}
+													</Suspense>
+													{!isChatRoute ? (
+														<>
+															<AIChatTrigger />
+															<BrandingWordmark />
+														</>
+													) : null}
 												</div>
 											</SidebarInset>
-											<AIChatSidebar />
+											{!isChatRoute ? <AIChatSidebar /> : null}
 											<WhatsNewPopup />
 										</SidebarProvider>
 									</RightPanelProvider>
