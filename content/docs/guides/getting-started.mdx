@@ -1,0 +1,100 @@
+---
+title: Getting Started
+description: Set up your development environment and get Clave running locally.
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- [Bun](https://bun.sh) (v1.1+) — fast JavaScript runtime and package manager
+- [Node.js](https://nodejs.org) (v20+) — required by some tooling
+- A [Convex](https://convex.dev) account — for the real-time backend
+- A Google OAuth app — for authentication
+
+## Clone and install
+
+```bash
+git clone https://github.com/your-org/clave.git
+cd clave
+bun install
+```
+
+## Configure environment
+
+Copy the example environment file and fill in your credentials:
+
+```bash
+cp .env.example .env.local
+```
+
+### Required variables
+
+| Variable | Description |
+|---|---|
+| `CONVEX_DEPLOYMENT` | Your Convex deployment URL |
+| `NEXT_PUBLIC_CONVEX_URL` | Public Convex URL for the client |
+| `AUTH_GOOGLE_ID` | Google OAuth client ID |
+| `AUTH_GOOGLE_SECRET` | Google OAuth client secret |
+
+### Optional variables
+
+| Variable | Description |
+|---|---|
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | For bug report → GitHub Issues integration |
+| `GITHUB_REPO_OWNER` | GitHub repository owner |
+| `GITHUB_REPO_NAME` | GitHub repository name |
+
+## Start the development server
+
+Run the full-stack development server:
+
+```bash
+bun run dev
+```
+
+This starts both the Convex backend and Next.js frontend. The app will be available at [http://localhost:4000](http://localhost:4000).
+
+### Split-terminal mode
+
+For independent control over each process:
+
+```bash
+# Terminal 1 — Convex backend
+bun run dev:convex
+
+# Terminal 2 — Next.js frontend
+bun run dev:next
+```
+
+## First-time setup
+
+1. Open [http://localhost:4000](http://localhost:4000)
+2. Sign in with your Google account
+3. Create a new workspace — choose a name and slug
+4. You're ready to start creating projects, issues, and documents
+
+## Troubleshooting
+
+### Port already in use
+
+If you see `EADDRINUSE` on port 4000:
+
+```bash
+bun run clean
+```
+
+### Stale processes
+
+If the dev server behaves unexpectedly:
+
+```bash
+bun run clean
+bun run dev
+```
+
+## Next steps
+
+- Try the [Quick Start](/docs/guides/quickstart) for a rapid feature tour
+- Learn about [keyboard shortcuts](/docs/guides/keyboard-shortcuts) to navigate faster
+- Read the [Architecture overview](/docs/documentation/architecture) for technical details

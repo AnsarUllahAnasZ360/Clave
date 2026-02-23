@@ -40,15 +40,38 @@ yarn-debug.log*
 yarn-error.log*
 
 # Claude / AI
-.claude/
+/.claude/
 .mcp.json
 .ralph-tui
 
 # GitHub
 .github/
 
+# Internal docs & planning (not code)
+/.scratchpad/
+/.agents/
+/.source/
+/docs/
+/content/*
+
+# Keep app docs route and Fumadocs content deployable
+!/src/app/docs/
+!/src/app/docs/**
+!/content/docs/
+!/content/docs/**
+
+# Lock file (project uses bun)
+package-lock.json
+
 # Misc
 *.tsbuildinfo
 .vercel/
 .turbo/
 .vercel
+
+# Dev bootstrap runtime files
+.dev/
+
+# Dev-only test pages
+src/app/test/
+src/app/test-primitives/

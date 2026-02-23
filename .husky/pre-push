@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -eu
+
+echo "[hooks] Enforcing feature test policy..."
+bun run test:policy
+
+echo "[hooks] Running fast quality + test gate..."
+bun run test:gate
