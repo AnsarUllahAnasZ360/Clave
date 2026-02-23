@@ -178,19 +178,23 @@ bun run changeset    # Add changeset before merging user-facing changes
 
 ## CI/CD
 
+### Architecture
+
+- **One GitHub Actions workflow** (`ci.yml`) — lint, typecheck, tests, changesets/releases
+- **Vercel Git integration** handles all deployments (preview + production) — no deploy workflows needed
+- **Convex deploys inside Vercel build** — build command: `npx convex deploy --cmd 'next build'`
+- **Scoped deploy keys** — Vercel has two `CONVEX_DEPLOY_KEY` env vars: Production-scoped (prod key) and Preview-scoped (preview key)
+
 ### PR flow
 
-1. `ci.yml` — format check → lint → typecheck → feature test policy gate → `test:gate` → build (blocks merge on failure)
-2. `preview.yml` — deploys Convex preview (`pr-<N>`) + Vercel preview → posts URLs as PR comment
-3. `preview-cleanup.yml` — tears down Convex preview on PR close
+1. `ci.yml` — lint → typecheck → unit tests → integration tests (blocks merge on failure)
+2. Vercel auto-deploys preview (via Git integration) — runs `npx convex deploy --cmd 'next build'` with preview deploy key
+3. Convex preview deployments auto-expire after 5 days
 
 ### Production flow (push to `main`)
 
-1. CI gate passes
-2. `production.yml` triggers:
-   - Convex deployed first: `npx convex deploy`
-   - Vercel deployed after: `vercel deploy --prod` (with `NEXT_PUBLIC_APP_VERSION` injected)
-   - Release job: pending changesets → create "Version Packages" PR; no changesets → git tag `v{version}` + GitHub release
+1. `ci.yml` — same checks, plus release job (changesets → version PR or git tag + GitHub release)
+2. Vercel auto-deploys production (via Git integration) — runs `npx convex deploy --cmd 'next build'` with production deploy key
 
 ### Changesets
 
