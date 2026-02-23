@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import type React from "react";
 
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
@@ -25,6 +26,28 @@ export default function Icon() {
 	const cellH = (availH - gapPx * (rows - 1)) / rows;
 	const sienna = "#C26A3A";
 
+	const pixels: React.ReactElement[] = [];
+	for (let ry = 0; ry < C_GRID.length; ry++) {
+		const row = C_GRID[ry];
+		for (let cx = 0; cx < row.length; cx++) {
+			if (!row[cx]) continue;
+			pixels.push(
+				<div
+					key={`${ry}-${cx}`}
+					style={{
+						position: "absolute",
+						left: padding + cx * (cellW + gapPx),
+						top: padding + ry * (cellH + gapPx),
+						width: cellW,
+						height: cellH,
+						borderRadius: 1,
+						backgroundColor: sienna,
+					}}
+				/>,
+			);
+		}
+	}
+
 	return new ImageResponse(
 		<div
 			style={{
@@ -36,26 +59,7 @@ export default function Icon() {
 				backgroundColor: "transparent",
 			}}
 		>
-			{C_GRID.flatMap((row, ry) =>
-				row.map((on, cx) => {
-					if (!on) return null;
-					return (
-						<div
-							// biome-ignore lint/suspicious/noArrayIndexKey: static pixel grid
-							key={`${ry}-${cx}`}
-							style={{
-								position: "absolute",
-								left: padding + cx * (cellW + gapPx),
-								top: padding + ry * (cellH + gapPx),
-								width: cellW,
-								height: cellH,
-								borderRadius: 1,
-								backgroundColor: sienna,
-							}}
-						/>
-					);
-				}),
-			)}
+			{pixels}
 		</div>,
 		{ ...size },
 	);
