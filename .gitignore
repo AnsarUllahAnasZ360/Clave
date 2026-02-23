@@ -44,8 +44,9 @@ yarn-error.log*
 .mcp.json
 .ralph-tui
 
-# GitHub
-.github/
+# GitHub (keep workflows tracked for CI/CD)
+.github/*
+!.github/workflows/
 
 # Internal docs & planning (not code)
 /.scratchpad/
