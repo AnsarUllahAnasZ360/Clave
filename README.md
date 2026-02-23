@@ -1,27 +1,42 @@
-# Millhouse Web
+# Clave
 
-> Everything's coming up Millhouse
+> Build in sync.
 
-Real-time collaborative productivity platform with boards, notes, and todos.
+AI-native project management and collaboration platform. Combines Linear-style issue tracking, Notion-style documents, real-time whiteboards, and a deeply integrated AI agent layer — all in one workspace.
 
-## Tech Stack
+## What is Clave?
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | Next.js 16, React 19, TypeScript |
-| UI | Tailwind CSS 4, shadcn/ui |
-| Backend | Convex |
-| Auth | Convex Auth (Google OAuth) |
-| Hosting | Vercel |
-| Runtime | Bun |
+Clave is a thinking workspace. AI operates as a first-class teammate — aware of your projects, issues, docs, and conversations. Every surface has context-aware AI built in, not bolted on.
 
 ## Features
 
-- **Boards** - Real-time whiteboarding with Excalidraw
-- **Notes** - Block-based editor with BlockNote
-- **Todos** - Personal task management with drag-and-drop
-- **Workspaces** - Team collaboration with roles
-- **Real-time Sync** - Live collaboration
+- **Projects** — milestones, sprints, backlog, team members, project updates
+- **Issues** — kanban, list, and timeline views; sub-issues; relations; labels; auto-triage
+- **Whiteboards** — real-time Excalidraw with AI diagram generation and comment pins
+- **Documents** — rich Plate.js editor with real-time collaboration (Yjs), threaded comments, AI slash commands
+- **Notes** — lightweight block editor per workspace
+- **Tasks** — personal task management with kanban view
+- **Clients** — lightweight CRM with contacts, linked to projects
+- **Files** — file storage and management
+- **Inbox** — unified notifications, @mentions, AI smart digest
+- **AI Chat** — streaming chat with 21+ workspace tools, sub-agents, skills, RAG, and voice input
+- **GitHub Integration** — repo indexing, issue sync, webhooks
+- **Analytics** — workspace performance metrics
+
+## Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16, React 19, TypeScript |
+| Backend | Convex (real-time, serverless) |
+| AI | Vercel AI SDK v4, `@convex-dev/agent`, `@convex-dev/rag`, `@convex-dev/workflow` |
+| Editors | Plate.js (docs), Excalidraw (boards), BlockNote (notes) |
+| UI | Tailwind CSS 4, shadcn/ui, Radix UI |
+| Auth | Convex Auth + Google OAuth |
+| Files | UploadThing |
+| Billing | Stripe |
+| Hosting | Vercel + Convex Cloud |
+| Runtime | Bun |
 
 ## Getting Started
 
@@ -35,30 +50,24 @@ Real-time collaborative productivity platform with boards, notes, and todos.
 ### Installation
 
 ```bash
-# Clone repository
 git clone https://github.com/AnsarUllahAnasZ360/millhouse-web.git
 cd millhouse-web
-
-# Install dependencies
 bun install
-
-# Setup Convex
 npx convex dev
-
-# Start development server
 bun run dev
 ```
 
-### Environment Variables
+### Environment
 
-Copy `.env.example` to `.env.local` and configure:
+Copy `.env.example` to `.env.local`:
 
 ```
 CONVEX_DEPLOYMENT=dev:your-deployment
 NEXT_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
 ```
 
-Set Convex environment variables:
+Set auth credentials:
+
 ```bash
 npx convex env set AUTH_GOOGLE_ID <your-google-client-id>
 npx convex env set AUTH_GOOGLE_SECRET <your-google-client-secret>
@@ -66,47 +75,54 @@ npx convex env set AUTH_GOOGLE_SECRET <your-google-client-secret>
 
 ## Development
 
-| Command | Description |
-|---------|-------------|
-| `bun run dev` | Start development server |
-| `bun run build` | Build for production |
-| `bun run lint` | Run linter |
-| `bun run typecheck` | Type check |
-| `bun run test` | Run unit tests |
-| `bun run test:e2e` | Run E2E tests |
-| `npx convex dev` | Start Convex dev server |
+```bash
+bun run dev          # Start dev server (Convex + Next.js) on port 4000
+bun run dev:next     # Next.js only (split-terminal mode)
+bun run dev:convex   # Convex only (split-terminal mode)
+bun run build        # Production build
+bun run lint         # Biome linter
+bun run typecheck    # TypeScript check
+bun run test         # Vitest unit tests
+bun run test:e2e     # Playwright E2E tests
+bun run clean        # Kill stale processes and clear cache
+```
+
+**Port**: defaults to `4000`. Override with `DEV_PORT=<n> bun run dev`.
+
+**Troubleshooting**: `EADDRINUSE`, zombie processes, or stale cache → `bun run clean`.
 
 ## Architecture
 
 ```
 src/
-├── app/              # Next.js App Router
-├── components/       # React components
-│   └── ui/          # shadcn/ui components
-├── hooks/           # Custom hooks
-└── lib/             # Utilities
+├── app/[orgSlug]/[workspaceSlug]/   # Main app (projects, issues, boards, docs, chat…)
+├── components/
+│   ├── ai/                          # AI chat, sidebar, artifacts, inline AI
+│   ├── issues/                      # Issue tracking UI
+│   ├── projects/                    # Project management UI
+│   ├── documents/                   # Rich document editor
+│   ├── whiteboards/                 # Whiteboard editor
+│   └── ui/                          # shadcn/ui components
+└── hooks/ lib/
 
-convex/              # Backend functions
-├── schema.ts        # Database schema
-└── auth.ts          # Authentication
-
-tests/
-├── unit/            # Unit tests
-├── integration/     # Integration tests
-└── e2e/             # E2E tests
+convex/
+├── ai/                              # Chat, agents, RAG, tools, workflows
+├── schema.ts                        # Database schema
+└── *.ts                             # Domain functions
 ```
 
-## Documentation
+## Deployment
 
-- [Project Charter](./docs/01-PROJECT_CHARTER.md)
-- [Tech Stack](./docs/02-TECH_STACK.md)
-- [Architecture](./docs/03-ARCHITECTURE.md)
-- [Claude Configuration](./docs/05-CLAUDE_INIT.md)
+Pull requests get automatic preview deployments (Convex + Vercel) with URLs posted as a PR comment.
 
-## Contributing
+Merges to `main` trigger production deployment: Convex first, then Vercel, then a GitHub release via [Changesets](https://github.com/changesets/changesets).
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md)
+Add a changeset before merging user-facing changes:
+
+```bash
+bun run changeset
+```
 
 ## License
 
-[MIT](./LICENSE)
+MIT

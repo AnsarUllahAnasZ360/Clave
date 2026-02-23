@@ -1,5 +1,10 @@
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { ConvexProvider } from "@/components/providers/convex-provider";
+import { ThemeProvider } from "@/components/theme-provider";
+import { WebVitalsReporter } from "@/components/web-vitals-reporter";
 import "./globals.css";
 
 const inter = Inter({
@@ -8,8 +13,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-	title: "Millhouse",
-	description: "Real-time collaborative productivity platform",
+	title: "Clave — Build in sync.",
+	description:
+		"The AI-native workspace for teams that ship. Combine Linear-style project management, collaborative docs, and autonomous AI agents in one platform.",
 };
 
 export default function RootLayout({
@@ -18,9 +24,23 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en">
-			<body className={`${inter.variable} font-sans antialiased`}>
-				{children}
+		<html lang="en" suppressHydrationWarning>
+			<body
+				className={`${inter.variable} ${GeistPixelSquare.variable} font-sans antialiased`}
+			>
+				<ConvexAuthNextjsServerProvider>
+					<ConvexProvider>
+						<WebVitalsReporter />
+						<ThemeProvider
+							attribute="class"
+							defaultTheme="system"
+							enableSystem
+							disableTransitionOnChange
+						>
+							{children}
+						</ThemeProvider>
+					</ConvexProvider>
+				</ConvexAuthNextjsServerProvider>
 			</body>
 		</html>
 	);

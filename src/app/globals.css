@@ -1,8 +1,15 @@
 @import "tailwindcss";
+@import "fumadocs-ui/css/vitepress.css";
+@import "fumadocs-ui/css/preset.css";
+
+@source "../node_modules/streamdown/dist/*.js";
+
+@plugin "tailwind-scrollbar-hide";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+	--font-pixel: var(--font-geist-pixel-square);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
@@ -41,6 +48,20 @@
 	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-ring: var(--sidebar-ring);
+	--color-highlight: var(--highlight);
+
+	/* Sienna — brand accent for AI features */
+	--color-sienna-50: oklch(0.97 0.02 52);
+	--color-sienna-100: oklch(0.93 0.04 52);
+	--color-sienna-200: oklch(0.87 0.08 52);
+	--color-sienna-300: oklch(0.78 0.11 52);
+	--color-sienna-400: oklch(0.68 0.14 52);
+	--color-sienna-500: oklch(0.58 0.14 52);
+	--color-sienna-600: oklch(0.5 0.13 52);
+	--color-sienna-700: oklch(0.43 0.11 52);
+	--color-sienna-800: oklch(0.36 0.09 52);
+	--color-sienna-900: oklch(0.28 0.07 52);
+	--color-sienna-950: oklch(0.2 0.04 52);
 }
 
 :root {
@@ -76,6 +97,7 @@
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.922 0 0);
 	--sidebar-ring: oklch(0.708 0 0);
+	--highlight: oklch(0.852 0.199 91.936);
 }
 
 .dark {
@@ -110,6 +132,7 @@
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
 	--sidebar-ring: oklch(0.556 0 0);
+	--highlight: oklch(0.852 0.199 91.936);
 }
 
 @layer base {
@@ -119,4 +142,84 @@
 	body {
 		@apply bg-background text-foreground;
 	}
+}
+
+/* Chat message fade+slide entrance */
+@keyframes fadeSlideUp {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Transient hint — fades out after delay */
+@keyframes fadeOut {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+		visibility: hidden;
+	}
+}
+
+/* AI sparkle — gentle breathing */
+@keyframes ai-sparkle-breathe {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	50% {
+		transform: scale(0.92);
+		opacity: 0.7;
+	}
+}
+
+/* Voice recording — pulse animation for the mic button */
+@keyframes voice-pulse {
+	0%,
+	100% {
+		transform: scale(1);
+	}
+	50% {
+		transform: scale(1.15);
+	}
+}
+
+/* Voice recording — waveform bar opacity animation */
+@keyframes voice-waveform {
+	0%,
+	100% {
+		opacity: 0.3;
+		height: 30%;
+	}
+	50% {
+		opacity: 1;
+		height: 100%;
+	}
+}
+
+@keyframes cursor-blink {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0;
+	}
+}
+
+/* Kanban board: hide native scrollbar, use custom DOM scrollbar instead.
+ * Native scrollbar CSS is unreliable on macOS overlay-scrollbar mode. */
+.kanban-scrollbar {
+	scrollbar-width: none;
+}
+
+.kanban-scrollbar::-webkit-scrollbar {
+	display: none;
 }

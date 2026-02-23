@@ -1,0 +1,132 @@
+---
+title: Contributing guide
+description: Development workflow, coding standards, and PR process for contributing to Clave.
+---
+
+## Development setup
+
+1. Fork and clone the repository
+2. Install dependencies with `bun install`
+3. Set up your `.env.local` from `.env.example`
+4. Start the Convex backend: `npx convex dev`
+5. Start the dev server: `bun run dev`
+
+## Development workflow
+
+### Branch naming
+
+Use descriptive branch names with a prefix:
+
+```
+feat/add-sprint-view
+fix/task-assignment-bug
+chore/update-dependencies
+docs/architecture-overview
+```
+
+### Commit messages
+
+Follow the conventional commit format:
+
+```
+feat|fix|chore|docs|test|refactor: description
+
+- Author Name
+```
+
+Examples:
+
+```
+feat: add sprint board view with drag-and-drop
+
+- Ansar
+```
+
+```
+fix: resolve task assignment not updating in real-time
+
+- Ansar
+```
+
+## Code standards
+
+### TypeScript
+
+- Strict mode is enabled -- no `any` types
+- Use explicit return types for exported functions
+- Prefer `interface` over `type` for object shapes
+
+### React components
+
+- Server Components by default -- only add `"use client"` when the component needs interactivity, hooks, or browser APIs
+- Use Geist Sans for all UI text, Geist Mono for code
+- Dark mode first -- design for dark, ensure light works
+
+### Styling
+
+- Use Tailwind CSS utility classes
+- Follow the 4px spacing grid: 4, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96
+- Surface radius: 6px (base/small), 12px (medium/large)
+- Use `cn()` from `@/lib/utils` for conditional class composition
+
+### Convex backend
+
+- All mutations must check auth: `await getAuthUserId(ctx)`
+- All list queries must be workspace-scoped
+- Use soft deletes (`deletedAt`) instead of hard deletes
+- Never modify files in `convex/_generated/`
+
+## Quality checks
+
+Run these commands before submitting a PR:
+
+```bash
+# Type checking
+bun run typecheck
+
+# Linting
+bun run lint
+
+# Auto-fix lint issues
+bun run lint:fix
+
+# Unit tests
+bun run test
+
+# E2E tests
+bun run test:e2e
+```
+
+## Pull request process
+
+1. Create a feature branch from `main`
+2. Make your changes with clear, focused commits
+3. Ensure all quality checks pass
+4. Open a PR with a descriptive title and summary
+5. Request review from a maintainer
+6. Address feedback and merge when approved
+
+### PR template
+
+```markdown
+## Summary
+Brief description of the changes.
+
+## Changes
+- List of specific changes made
+
+## Testing
+- How the changes were verified
+```
+
+## Project conventions
+
+| Convention | Value |
+|---|---|
+| Issue prefix | `CLV` (e.g., CLV-123) |
+| Domain | `goclave.app` |
+| Font | Geist Sans (UI), Geist Mono (code) |
+| Accent color | Sienna (#C26A3A) |
+| Theme | Dark mode first |
+| Icons | Phosphor Icons |
+| Package manager | Bun |

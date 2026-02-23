@@ -1,0 +1,267 @@
+"use client";
+
+import { sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
+import type {
+	ExcalidrawImperativeAPI,
+	Zoom,
+} from "@excalidraw/excalidraw/types";
+import { useCallback, useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
+
+export type WhiteboardThread = {
+	_id: string;
+	canvasX?: number;
+	canvasY?: number;
+	resolved?: boolean;
+	body: string;
+	authorId: string;
+	author: { name: string; image?: string };
+	replies: Array<{
+		_id: string;
+		body: string;
+		authorId: string;
+		author: { name: string; image?: string };
+		_creationTime: number;
+	}>;
+	_creationTime: number;
+};
+
+type CommentPinsOverlayProps = {
+	threads: WhiteboardThread[];
+	excalidrawAPI: ExcalidrawImperativeAPI | null;
+	commentMode: boolean;
+	placingPin: boolean;
+	activeThreadId: string | null;
+	onPinClick: (threadId: string) => void;
+	onCanvasClick: (canvasX: number, canvasY: number) => void;
+};
+
+export function CommentPinsOverlay({
+	threads,
+	excalidrawAPI,
+	commentMode,
+	placingPin,
+	activeThreadId,
+	onPinClick,
+	onCanvasClick,
+}: CommentPinsOverlayProps) {
+	const overlayRef = useRef<HTMLDivElement>(null);
+	const pinRefsMap = useRef<Map<string, HTMLButtonElement>>(new Map());
+	const rafIdRef = useRef<number>(0);
+	// Track last known viewport to skip no-op position updates
+	const lastViewportRef = useRef({
+		scrollX: 0,
+		scrollY: 0,
+		zoom: 0,
+		offsetLeft: 0,
+		offsetTop: 0,
+	});
+	// Freeze position updates while a pin interaction is in progress
+	const interactingRef = useRef(false);
+
+	// Use ref-based viewport tracking with rAF for smooth pin updates
+	useEffect(() => {
+		if (!excalidrawAPI) return;
+
+		function updatePinPositions(force?: boolean) {
+			if (!excalidrawAPI) return;
+
+			// Skip updates during pin interaction to prevent flickering
+			if (interactingRef.current && !force) return;
+
+			const appState = excalidrawAPI.getAppState();
+			const viewport = {
+				scrollX: appState.scrollX,
+				scrollY: appState.scrollY,
+				zoom: appState.zoom,
+				offsetLeft: appState.offsetLeft,
+				offsetTop: appState.offsetTop,
+			};
+
+			// Skip if viewport hasn't changed (avoid unnecessary DOM writes)
+			const prev = lastViewportRef.current;
+			if (
+				!force &&
+				prev.scrollX === viewport.scrollX &&
+				prev.scrollY === viewport.scrollY &&
+				prev.zoom === viewport.zoom.value &&
+				prev.offsetLeft === viewport.offsetLeft &&
+				prev.offsetTop === viewport.offsetTop
+			) {
+				return;
+			}
+			lastViewportRef.current = {
+				scrollX: viewport.scrollX,
+				scrollY: viewport.scrollY,
+				zoom: viewport.zoom.value,
+				offsetLeft: viewport.offsetLeft,
+				offsetTop: viewport.offsetTop,
+			};
+
+			for (const thread of threads) {
+				if (thread.canvasX === undefined || thread.canvasY === undefined)
+					continue;
+				const el = pinRefsMap.current.get(thread._id);
+				if (!el) continue;
+
+				const { x, y } = sceneCoordsToViewportCoords(
+					{ sceneX: thread.canvasX, sceneY: thread.canvasY },
+					viewport,
+				);
+				el.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+			}
+		}
+
+		// Initial position update (forced)
+		updatePinPositions(true);
+
+		const unsubScroll = excalidrawAPI.onScrollChange(() => {
+			cancelAnimationFrame(rafIdRef.current);
+			rafIdRef.current = requestAnimationFrame(() => updatePinPositions(false));
+		});
+
+		// Only subscribe to onChange for zoom changes — not every state change
+		const unsubChange = excalidrawAPI.onChange(() => {
+			// onChange fires on every Excalidraw state mutation (tool switches,
+			// selection changes, etc.). The viewport-comparison inside
+			// updatePinPositions already no-ops when scroll/zoom/offset haven't
+			// changed, so this is cheap to call.
+			cancelAnimationFrame(rafIdRef.current);
+			rafIdRef.current = requestAnimationFrame(() => updatePinPositions(false));
+		});
+
+		return () => {
+			unsubScroll();
+			unsubChange();
+			cancelAnimationFrame(rafIdRef.current);
+		};
+	}, [excalidrawAPI, threads]);
+
+	const handleOverlayClick = useCallback(
+		(e: React.MouseEvent<HTMLDivElement>) => {
+			if (!placingPin || !excalidrawAPI || !overlayRef.current) return;
+
+			// Only handle clicks directly on the overlay (not on pins)
+			if (e.target !== overlayRef.current) return;
+
+			const clientX = e.clientX;
+			const clientY = e.clientY;
+
+			const appState = excalidrawAPI.getAppState();
+			const { x, y } = viewportToScene(clientX, clientY, appState);
+
+			onCanvasClick(x, y);
+		},
+		[placingPin, excalidrawAPI, onCanvasClick],
+	);
+
+	return (
+		<div
+			ref={overlayRef}
+			className={cn(
+				"absolute inset-0 z-[5]",
+				placingPin
+					? "pointer-events-auto cursor-crosshair"
+					: "pointer-events-none",
+			)}
+			onClick={handleOverlayClick}
+		>
+			{threads.map((thread, index) => {
+				if (thread.canvasX === undefined || thread.canvasY === undefined)
+					return null;
+
+				const isActive = activeThreadId === thread._id;
+				const isResolved = thread.resolved;
+
+				return (
+					<button
+						type="button"
+						key={thread._id}
+						ref={(el) => {
+							if (el) {
+								pinRefsMap.current.set(thread._id, el);
+							} else {
+								pinRefsMap.current.delete(thread._id);
+							}
+						}}
+						className={cn(
+							"absolute flex items-center justify-center rounded-full border-2 pointer-events-auto cursor-pointer",
+							"shadow-sm hover:shadow-md",
+							"transition-[colors,box-shadow] duration-150",
+							isActive
+								? "h-8 w-8 bg-sienna-9 border-sienna-9 text-white z-20 scale-110"
+								: isResolved
+									? "h-6 w-6 bg-muted/60 border-border/40 text-muted-foreground z-10 opacity-60"
+									: "h-7 w-7 bg-sienna-9/90 border-sienna-9 text-white z-10 hover:scale-110",
+						)}
+						style={{
+							left: 0,
+							top: 0,
+							willChange: "transform",
+						}}
+						onPointerDown={(e) => {
+							// Freeze position updates while the user is clicking a pin
+							interactingRef.current = true;
+							// Capture pointer so the click completes even if the pin
+							// moves slightly from a position update
+							e.currentTarget.setPointerCapture(e.pointerId);
+							// Stop Excalidraw from intercepting as a canvas drag/pan
+							e.stopPropagation();
+							// Prevent default browser behaviour so Excalidraw doesn't
+							// receive a synthetic pointer event and select elements under the pin
+							e.preventDefault();
+						}}
+						onPointerUp={(e) => {
+							e.stopPropagation();
+							e.preventDefault();
+							e.currentTarget.releasePointerCapture(e.pointerId);
+							// Fire onPinClick directly from pointerup since
+							// preventDefault on pointerdown suppresses the click event
+							onPinClick(thread._id);
+							// Release the interaction freeze after a microtask
+							requestAnimationFrame(() => {
+								interactingRef.current = false;
+							});
+						}}
+						onMouseDown={(e) => {
+							e.stopPropagation();
+						}}
+						onClick={(e) => {
+							e.stopPropagation();
+						}}
+						title={`Comment by ${thread.author.name}`}
+					>
+						<span
+							className={cn(
+								"font-mono font-semibold leading-none",
+								isActive ? "text-xs" : "text-[10px]",
+							)}
+						>
+							{index + 1}
+						</span>
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+/** Convert viewport (client) coordinates to scene coordinates */
+function viewportToScene(
+	clientX: number,
+	clientY: number,
+	appState: {
+		scrollX: number;
+		scrollY: number;
+		zoom: Zoom;
+		offsetLeft: number;
+		offsetTop: number;
+	},
+) {
+	// Manual conversion: sceneX = (clientX - offsetLeft) / zoom - scrollX
+	const x =
+		(clientX - appState.offsetLeft) / appState.zoom.value - appState.scrollX;
+	const y =
+		(clientY - appState.offsetTop) / appState.zoom.value - appState.scrollY;
+	return { x, y };
+}

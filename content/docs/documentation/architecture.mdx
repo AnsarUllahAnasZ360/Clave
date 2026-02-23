@@ -1,0 +1,106 @@
+---
+title: Architecture overview
+description: Technical architecture, tech stack, and data flow in Clave.
+---
+
+## Tech stack
+
+Clave is built on a modern, performance-focused stack:
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 16 (App Router), React 19, TypeScript 5.9+ |
+| **Styling** | Tailwind CSS 4, shadcn/ui (new-york variant) |
+| **Backend** | Convex (queries, mutations, actions, real-time subscriptions) |
+| **Auth** | Convex Auth with Google OAuth |
+| **Icons** | Phosphor Icons |
+| **Fonts** | Geist Sans (UI), Geist Mono (code) |
+| **Package manager** | Bun |
+
+## Project structure
+
+```
+src/
+  app/                   # Next.js App Router pages and layouts
+    (app)/               # Authenticated app routes
+    (auth)/              # Authentication pages
+    [workspaceSlug]/     # Workspace-scoped routes
+    docs/                # Documentation (Fumadocs)
+  components/
+    ui/                  # shadcn/ui primitives
+    tasks/               # Task-related components
+    projects/            # Project-related components
+    settings/            # Settings components
+    clients/             # Client CRM components
+  hooks/                 # Custom React hooks
+  lib/                   # Utilities and helpers
+
+convex/
+  schema.ts              # Database schema
+  auth.ts                # Auth configuration
+  projects.ts            # Project queries and mutations
+  tasks.ts               # Task queries and mutations
+  workspaces.ts          # Workspace management
+  notifications.ts       # Notification system
+  _generated/            # Auto-generated types (do not modify)
+
+content/
+  docs/                  # Documentation content (MDX)
+```
+
+## Data model
+
+Clave uses Convex as its backend database with the following core entities:
+
+### Hierarchy
+
+```
+Workspace
+  -> Projects
+       -> Sprints
+            -> Stories (issues)
+                 -> Sub-issues
+  -> Clients
+  -> Notes
+```
+
+### Key concepts
+
+- **Workspaces** are the top-level organizational unit. Each workspace has members, settings, and its own data
+- **Projects** contain sprints, stories, and configuration. They support three views: cards, board, and timeline
+- **Sprints** are time-boxed cycles within a project
+- **Stories** are the primary work items (equivalent to issues). Stories can have sub-issues for breaking down work
+- **Clients** are managed separately and can be linked to projects
+
+## Real-time architecture
+
+Convex provides automatic real-time subscriptions. When data changes on the server, all connected clients receive updates instantly without polling or manual WebSocket management.
+
+```
+Client A (writes) -> Convex Mutation -> Database Update
+                                           |
+                                    Subscription Push
+                                           |
+                              Client B, C, D (auto-update)
+```
+
+## Authentication flow
+
+1. User visits the app and is redirected to `/sign-in`
+2. User authenticates via Google OAuth or Magic Link
+3. On first login, user creates or joins a workspace
+4. Authenticated routes are protected by middleware
+5. All mutations verify the user session via `getAuthUserId(ctx)`
+
+## Routing
+
+The app uses Next.js App Router with workspace-scoped routes:
+
+- `/` -- landing page (public)
+- `/sign-in` -- authentication (public)
+- `/docs` -- documentation (public)
+- `/[workspaceSlug]/projects` -- projects list
+- `/[workspaceSlug]/tasks` -- task board
+- `/[workspaceSlug]/clients` -- client CRM
+- `/[workspaceSlug]/inbox` -- notifications
+- `/[workspaceSlug]/settings` -- workspace settings
