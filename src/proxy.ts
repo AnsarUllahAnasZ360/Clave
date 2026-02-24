@@ -17,6 +17,7 @@ export default convexAuthNextjsMiddleware(async (request) => {
 		pathname === "/sign-in" ||
 		pathname === "/dev-login" ||
 		pathname === "/boot" ||
+		pathname === "/onboarding" ||
 		pathname.startsWith("/icon") ||
 		pathname === "/favicon.ico" ||
 		pathname.startsWith("/brand") ||

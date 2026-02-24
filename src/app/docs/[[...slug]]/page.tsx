@@ -1,4 +1,5 @@
 import { getBreadcrumbItems } from "fumadocs-core/breadcrumb";
+import defaultMdxComponents from "fumadocs-ui/mdx";
 import {
 	DocsBody,
 	DocsDescription,
@@ -25,7 +26,7 @@ export default async function Page(props: PageProps) {
 
 	// fumadocs-mdx virtual module provides body/toc/full at build time
 	const pageData = page.data as unknown as Record<string, unknown>;
-	const MDX = pageData.body as React.ComponentType;
+	const MDX = pageData.body as React.ComponentType<{ components?: Record<string, React.ComponentType> }>;
 	const breadcrumbs = getBreadcrumbItems(page.url, source.pageTree, {
 		includeRoot: false,
 		includePage: false,
@@ -68,7 +69,7 @@ export default async function Page(props: PageProps) {
 			<DocsTitle>{page.data.title}</DocsTitle>
 			<DocsDescription>{page.data.description}</DocsDescription>
 			<DocsBody>
-				<MDX />
+				<MDX components={defaultMdxComponents} />
 			</DocsBody>
 		</DocsPage>
 	);

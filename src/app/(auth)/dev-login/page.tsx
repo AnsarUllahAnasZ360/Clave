@@ -63,7 +63,8 @@ function shouldRetryWithSignUp(error: unknown): boolean {
 		normalized.includes("user not found") ||
 		normalized.includes("no user") ||
 		normalized.includes("account not found") ||
-		normalized.includes("user does not exist")
+		normalized.includes("user does not exist") ||
+		normalized.includes("invalidaccountid")
 	);
 }
 
