@@ -3,6 +3,22 @@ import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAuth, requireWorkspaceMember } from "./lib/auth";
 
+export const PRESENCE_TOUCH_FRESH_MS = 8000;
+
+export function isPresenceTouchFresh(
+	lastActiveAt: number,
+	now: number,
+): boolean {
+	return now - lastActiveAt < PRESENCE_TOUCH_FRESH_MS;
+}
+
+export function isWhiteboardCursorUnchanged(
+	existing: { cursorX?: number; cursorY?: number },
+	next: { cursorX?: number; cursorY?: number },
+): boolean {
+	return existing.cursorX === next.cursorX && existing.cursorY === next.cursorY;
+}
+
 /** Look up a whiteboard and return its workspaceId, throwing if not found or deleted */
 async function getWhiteboardWorkspaceId(
 	ctx: { db: { get: (id: Id<"whiteboards">) => Promise<unknown> } },
@@ -27,6 +43,7 @@ export const upsert = mutation({
 	handler: async (ctx, args) => {
 		const workspaceId = await getWhiteboardWorkspaceId(ctx, args.whiteboardId);
 		const { userId } = await requireWorkspaceMember(ctx, workspaceId);
+		const now = Date.now();
 
 		const existing = await ctx.db
 			.query("whiteboardPresence")
@@ -36,10 +53,16 @@ export const upsert = mutation({
 			.unique();
 
 		if (existing) {
+			if (
+				isWhiteboardCursorUnchanged(existing, args) &&
+				isPresenceTouchFresh(existing.lastActiveAt, now)
+			) {
+				return;
+			}
 			await ctx.db.patch(existing._id, {
 				cursorX: args.cursorX,
 				cursorY: args.cursorY,
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		} else {
 			await ctx.db.insert("whiteboardPresence", {
@@ -47,7 +70,7 @@ export const upsert = mutation({
 				userId,
 				cursorX: args.cursorX,
 				cursorY: args.cursorY,
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		}
 	},
@@ -61,6 +84,7 @@ export const heartbeat = mutation({
 	handler: async (ctx, args) => {
 		const workspaceId = await getWhiteboardWorkspaceId(ctx, args.whiteboardId);
 		const { userId } = await requireWorkspaceMember(ctx, workspaceId);
+		const now = Date.now();
 
 		const existing = await ctx.db
 			.query("whiteboardPresence")
@@ -69,9 +93,9 @@ export const heartbeat = mutation({
 			)
 			.unique();
 
-		if (existing) {
+		if (existing && !isPresenceTouchFresh(existing.lastActiveAt, now)) {
 			await ctx.db.patch(existing._id, {
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		}
 	},
@@ -143,7 +167,10 @@ export const cleanupStale = internalMutation({
 	args: {},
 	handler: async (ctx) => {
 		const cutoff = Date.now() - 60000; // 60 seconds
-		const allRecords = await ctx.db.query("whiteboardPresence").collect();
+		const allRecords = await ctx.db
+			.query("whiteboardPresence")
+			.withIndex("by_whiteboard")
+			.collect();
 
 		for (const record of allRecords) {
 			if (record.lastActiveAt < cutoff) {

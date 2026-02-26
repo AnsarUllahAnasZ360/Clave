@@ -17,7 +17,6 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
-	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -31,6 +30,7 @@ type OrganizationWorkspaceOption = {
 	name: string;
 	slug: string;
 	logoUrl?: string | null;
+	isDemo?: boolean;
 	isMember: boolean;
 };
 
@@ -51,7 +51,17 @@ export function WorkspaceSelector() {
 
 	const isCollapsed = state === "collapsed";
 
-	const triggerIcon = (
+	const isDemoWorkspace = currentWorkspace?.isDemo;
+
+	const triggerIcon = isDemoWorkspace ? (
+		<div
+			className={`${
+				isCollapsed ? "h-7 w-7 text-base" : "h-8 w-8 text-lg"
+			} shrink-0 rounded-full bg-gradient-to-br from-sienna-500 to-sienna-700 flex items-center justify-center shadow-[inset_0_-5px_6.6px_0_rgba(0,0,0,0.25)]`}
+		>
+			🚀
+		</div>
+	) : (
 		<Avatar
 			className={
 				isCollapsed
@@ -133,9 +143,6 @@ export function WorkspaceSelector() {
 								<p className="truncate text-sm font-semibold">
 									{activeWorkspace.workspaceName}
 								</p>
-								<p className="truncate text-xs text-muted-foreground">
-									{organization.orgName}
-								</p>
 							</div>
 						</div>
 						<CaretUpDown
@@ -146,8 +153,6 @@ export function WorkspaceSelector() {
 					</button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="w-64">
-					<DropdownMenuLabel>{organization.orgName}</DropdownMenuLabel>
-					<DropdownMenuSeparator />
 					{(orgWorkspaces ?? []).map(
 						(workspaceOption: OrganizationWorkspaceOption) => (
 							<DropdownMenuItem
@@ -159,19 +164,25 @@ export function WorkspaceSelector() {
 								}
 								onSelect={() => handleSwitchWorkspace(workspaceOption.slug)}
 							>
-								<Avatar className="h-6 w-6 rounded-full bg-blue-800">
-									{workspaceOption.logoUrl ? (
-										<AvatarImage
-											src={workspaceOption.logoUrl}
-											alt={workspaceOption.name}
-											className="object-cover"
-										/>
-									) : (
-										<AvatarFallback className="text-[11px] font-bold text-white">
-											{workspaceOption.name[0]?.toUpperCase()}
-										</AvatarFallback>
-									)}
-								</Avatar>
+								{workspaceOption.isDemo ? (
+									<div className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-sienna-500 to-sienna-700 flex items-center justify-center text-xs">
+										🚀
+									</div>
+								) : (
+									<Avatar className="h-6 w-6 rounded-full bg-blue-800">
+										{workspaceOption.logoUrl ? (
+											<AvatarImage
+												src={workspaceOption.logoUrl}
+												alt={workspaceOption.name}
+												className="object-cover"
+											/>
+										) : (
+											<AvatarFallback className="text-[11px] font-bold text-white">
+												{workspaceOption.name[0]?.toUpperCase()}
+											</AvatarFallback>
+										)}
+									</Avatar>
+								)}
 								<span className="flex-1 truncate">{workspaceOption.name}</span>
 								{!workspaceOption.isMember && (
 									<span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">

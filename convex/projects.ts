@@ -262,47 +262,84 @@ export const getWorkspaceProjectSummaries = query({
 			member.role,
 		);
 
-		// Get all issues in workspace (top-level only, not sub-issues)
-		const allIssues = await ctx.db
-			.query("issues")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
+		const accessibleProjects =
+			accessible === null
+				? (
+						await ctx.db
+							.query("projects")
+							.withIndex("by_workspace", (q) =>
+								q.eq("workspaceId", args.workspaceId),
+							)
+							.collect()
+					).filter((p) => !p.deletedAt)
+				: await (async () => {
+						if (accessible.size === 0) return [];
+						const fetched = await Promise.all(
+							[...accessible].map((id) => ctx.db.get(id as Id<"projects">)),
+						);
+						const projects: Exclude<(typeof fetched)[number], null>[] = [];
+						for (const project of fetched) {
+							if (
+								!project ||
+								project.deletedAt ||
+								project.workspaceId !== args.workspaceId
+							) {
+								continue;
+							}
+							projects.push(project);
+						}
+						return projects;
+					})();
+		if (accessibleProjects.length === 0) return {};
 
-		const activeIssues = allIssues.filter((i) => !i.deletedAt && !i.parentId);
 		const issueCountsByProject = new Map<
 			string,
 			{ issueCount: number; doneCount: number }
 		>();
 
-		for (const issue of activeIssues) {
-			if (!issue.projectId) continue;
-			const projectId = issue.projectId;
-			const current = issueCountsByProject.get(projectId);
-			const isDone = issue.status === "done" || issue.status === "cancelled";
-
-			if (current) {
-				current.issueCount += 1;
-				if (isDone) current.doneCount += 1;
-			} else {
-				issueCountsByProject.set(projectId, {
-					issueCount: 1,
-					doneCount: isDone ? 1 : 0,
-				});
+		const addIssueCounts = (
+			issues: Array<{
+				projectId?: string;
+				parentId?: string;
+				deletedAt?: number;
+				status: string;
+			}>,
+		) => {
+			for (const issue of issues) {
+				if (issue.deletedAt || issue.parentId || !issue.projectId) continue;
+				const current = issueCountsByProject.get(issue.projectId);
+				const isDone = issue.status === "done" || issue.status === "cancelled";
+				if (current) {
+					current.issueCount += 1;
+					if (isDone) current.doneCount += 1;
+				} else {
+					issueCountsByProject.set(issue.projectId, {
+						issueCount: 1,
+						doneCount: isDone ? 1 : 0,
+					});
+				}
 			}
+		};
+
+		if (accessible === null) {
+			// Admins can see everything: keep a single workspace scan.
+			const allIssues = await ctx.db
+				.query("issues")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+				.collect();
+			addIssueCounts(allIssues);
+		} else {
+			// Members: only scan issue rows for projects they can access.
+			const issueArrays = await Promise.all(
+				accessibleProjects.map((project) =>
+					ctx.db
+						.query("issues")
+						.withIndex("by_project", (q) => q.eq("projectId", project._id))
+						.collect(),
+				),
+			);
+			for (const issues of issueArrays) addIssueCounts(issues);
 		}
-
-		// Get all projects
-		const projects = await ctx.db
-			.query("projects")
-			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-			.collect();
-
-		// Filter to accessible projects
-		const accessibleProjects = projects.filter((p) => {
-			if (p.deletedAt) return false;
-			if (accessible !== null && !accessible.has(p._id)) return false;
-			return true;
-		});
 
 		// Batch-fetch all projectMembers for all projects in parallel
 		const allMembersArrays = await Promise.all(
@@ -323,9 +360,12 @@ export const getWorkspaceProjectSummaries = query({
 		}
 
 		// Batch-fetch all users in parallel
-		const userResults = await Promise.all(
-			[...uniqueUserIds].map((id) => ctx.db.get(id as Id<"users">)),
-		);
+		const userResults =
+			uniqueUserIds.size > 0
+				? await Promise.all(
+						[...uniqueUserIds].map((id) => ctx.db.get(id as Id<"users">)),
+					)
+				: [];
 		const userMap = new Map(
 			[...uniqueUserIds].map((id, i) => [id, userResults[i]]),
 		);

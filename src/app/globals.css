@@ -215,7 +215,8 @@
 }
 
 /* Kanban board: hide native scrollbar, use custom DOM scrollbar instead.
- * Native scrollbar CSS is unreliable on macOS overlay-scrollbar mode. */
+ * Native scrollbar is hidden because macOS overlay scrollbar mode
+ * makes them invisible by default — the DOM scrollbar is always visible. */
 .kanban-scrollbar {
 	scrollbar-width: none;
 }

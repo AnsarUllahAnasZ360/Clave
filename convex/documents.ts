@@ -290,7 +290,7 @@ export const create = mutation({
 			createdBy: userId,
 			lastEditedBy: userId,
 			updatedAt: Date.now(),
-			syncVersion: "v2",
+			syncVersion: "v3",
 		});
 
 		await logActivity(ctx, {
@@ -416,6 +416,7 @@ export const updateContent = mutation({
 		documentId: v.id("documents"),
 		content: v.string(),
 		syncVersion: v.optional(v.string()),
+		forceIndex: v.optional(v.boolean()),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -426,9 +427,10 @@ export const updateContent = mutation({
 		const { userId, canWrite } = await checkDocumentWriteAccess(ctx, document);
 		if (!canWrite) throw new ConvexError("No write access");
 
+		const now = Date.now();
 		const updates: Record<string, unknown> = {
 			content: args.content,
-			updatedAt: Date.now(),
+			updatedAt: now,
 		};
 		if (userId) {
 			updates.lastEditedBy = userId;
@@ -439,12 +441,18 @@ export const updateContent = mutation({
 
 		await ctx.db.patch(args.documentId, updates);
 
-		// Schedule RAG indexing (async, non-blocking)
-		await ctx.scheduler.runAfter(
-			0,
-			internal.ai.indexing.documentIndexer.indexDocument,
-			{ documentId: args.documentId },
-		);
+		// Throttle indexing to reduce background action churn during active typing.
+		const shouldIndex =
+			args.forceIndex === true ||
+			!document.updatedAt ||
+			now - document.updatedAt > 30_000;
+		if (shouldIndex) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.ai.indexing.documentIndexer.indexDocument,
+				{ documentId: args.documentId },
+			);
+		}
 	},
 });
 
@@ -470,7 +478,7 @@ export const duplicate = mutation({
 			createdBy: userId,
 			lastEditedBy: userId,
 			updatedAt: Date.now(),
-			syncVersion: "v2",
+			syncVersion: "v3",
 		});
 
 		await logActivity(ctx, {

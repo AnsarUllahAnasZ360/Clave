@@ -1,0 +1,13 @@
+{
+	"title": "AI",
+	"pages": [
+		"overview",
+		"chat",
+		"tools-and-actions",
+		"sub-agents",
+		"skills",
+		"inline-ai",
+		"issue-ai",
+		"voice"
+	]
+}

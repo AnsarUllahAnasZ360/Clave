@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-// ── Types ───────────────────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────
 
 export type RecordingState =
 	| "idle"
@@ -14,11 +14,13 @@ export interface AudioRecorderResult {
 	/** Current recording state */
 	state: RecordingState;
 	/** Start recording audio from the microphone */
-	startRecording: () => void;
+	startRecording: (options?: { chunkDurationMs?: number }) => void;
 	/** Stop the current recording */
 	stopRecording: () => void;
 	/** The recorded audio blob (available after stopping) */
 	audioBlob: Blob | null;
+	/** Individual MediaRecorder chunks emitted during recording */
+	audioChunks: Blob[];
 	/** MIME type of the recorded audio (e.g. "audio/webm;codecs=opus") */
 	audioMimeType: string | null;
 	/** Recording duration in seconds */
@@ -63,6 +65,7 @@ export const MAX_RECORDING_SECONDS = 20 * 60;
 export function useAudioRecorder(): AudioRecorderResult {
 	const [state, setState] = React.useState<RecordingState>("idle");
 	const [audioBlob, setAudioBlob] = React.useState<Blob | null>(null);
+	const [audioChunks, setAudioChunks] = React.useState<Blob[]>([]);
 	const [audioMimeType, setAudioMimeType] = React.useState<string | null>(null);
 	const [duration, setDuration] = React.useState(0);
 	const [error, setError] = React.useState<string | null>(null);
@@ -97,100 +100,107 @@ export function useAudioRecorder(): AudioRecorderResult {
 	}, []);
 
 	// Start recording
-	const startRecording = React.useCallback(() => {
-		if (state === "recording" || state === "requesting-permission") return;
+	const startRecording = React.useCallback(
+		({ chunkDurationMs }: { chunkDurationMs?: number } = {}) => {
+			if (state === "recording" || state === "requesting-permission") return;
 
-		// Reset previous state
-		setError(null);
-		setAudioBlob(null);
-		setAudioMimeType(null);
-		setDuration(0);
-		setAutoStoppedAtLimit(false);
-		tooShortRef.current = false;
-		chunksRef.current = [];
+			// Reset previous state
+			setError(null);
+			setAudioBlob(null);
+			setAudioChunks([]);
+			setAudioMimeType(null);
+			setDuration(0);
+			setAutoStoppedAtLimit(false);
+			tooShortRef.current = false;
+			chunksRef.current = [];
 
-		const mimeType = getSupportedMimeType();
-		if (!mimeType) {
-			setError("Audio recording is not supported in this browser.");
-			return;
-		}
+			const mimeType = getSupportedMimeType();
+			if (!mimeType) {
+				setError("Audio recording is not supported in this browser.");
+				return;
+			}
 
-		setState("requesting-permission");
+			setState("requesting-permission");
 
-		navigator.mediaDevices
-			.getUserMedia({ audio: true })
-			.then((stream) => {
-				mediaStreamRef.current = stream;
+			navigator.mediaDevices
+				.getUserMedia({ audio: true })
+				.then((stream) => {
+					mediaStreamRef.current = stream;
 
-				const recorder = new MediaRecorder(stream, { mimeType });
-				mediaRecorderRef.current = recorder;
+					const recorder = new MediaRecorder(stream, { mimeType });
+					mediaRecorderRef.current = recorder;
 
-				recorder.ondataavailable = (event) => {
-					if (event.data.size > 0) {
-						chunksRef.current.push(event.data);
-					}
-				};
+					recorder.ondataavailable = (event) => {
+						if (event.data.size > 0) {
+							chunksRef.current.push(event.data);
+						}
+					};
 
-				recorder.onstop = () => {
-					// Discard blob if the recording was too short
-					if (tooShortRef.current) {
-						tooShortRef.current = false;
+					recorder.onstop = () => {
+						// Discard blob if the recording was too short
+						if (tooShortRef.current) {
+							tooShortRef.current = false;
+							cleanupStream();
+							return;
+						}
+
+						const blob = new Blob(chunksRef.current, { type: mimeType });
+						setAudioBlob(blob);
+						setAudioChunks([...chunksRef.current]);
+						setAudioMimeType(mimeType);
 						cleanupStream();
-						return;
-					}
-					const blob = new Blob(chunksRef.current, { type: mimeType });
-					setAudioBlob(blob);
-					setAudioMimeType(mimeType);
-					cleanupStream();
-					cleanupTimer();
-				};
-
-				recorder.onerror = () => {
-					setError("Recording failed unexpectedly.");
-					setState("idle");
-					cleanupStream();
-					cleanupTimer();
-				};
-
-				// Start recording with timeslice for chunked data collection
-				recorder.start(DATA_TIMESLICE_MS);
-				setState("recording");
-
-				// Track duration and enforce maximum length
-				startTimeRef.current = Date.now();
-				durationIntervalRef.current = setInterval(() => {
-					const elapsed = (Date.now() - startTimeRef.current) / 1000;
-					setDuration(elapsed);
-
-					// Auto-stop at maximum recording length
-					if (
-						elapsed >= MAX_RECORDING_SECONDS &&
-						mediaRecorderRef.current?.state === "recording"
-					) {
 						cleanupTimer();
-						mediaRecorderRef.current.stop();
-						setState("stopped");
-						setAutoStoppedAtLimit(true);
+					};
+
+					recorder.onerror = () => {
+						setError("Recording failed unexpectedly.");
+						setState("idle");
+						cleanupStream();
+						cleanupTimer();
+					};
+
+					// Start recording with the configured timeslice for chunked data collection.
+					const timeslice = chunkDurationMs ?? DATA_TIMESLICE_MS;
+					recorder.start(timeslice);
+					setState("recording");
+
+					// Track duration and enforce maximum length
+					startTimeRef.current = Date.now();
+					durationIntervalRef.current = setInterval(() => {
+						const elapsed = (Date.now() - startTimeRef.current) / 1000;
+						setDuration(elapsed);
+
+						// Auto-stop at maximum recording length
+						if (
+							elapsed >= MAX_RECORDING_SECONDS &&
+							mediaRecorderRef.current?.state === "recording"
+						) {
+							cleanupTimer();
+							mediaRecorderRef.current.stop();
+							setState("stopped");
+							setAutoStoppedAtLimit(true);
+						}
+					}, DURATION_INTERVAL_MS);
+				})
+				.catch((err: DOMException) => {
+					cleanupStream();
+					if (
+						err.name === "NotAllowedError" ||
+						err.name === "PermissionDeniedError"
+					) {
+						setError(
+							"Microphone access was denied. Please allow microphone access and try again.",
+						);
+					} else if (err.name === "NotFoundError") {
+						setError("No microphone found. Please connect a microphone.");
+					} else {
+						setError(`Microphone error: ${err.message}`);
 					}
-				}, DURATION_INTERVAL_MS);
-			})
-			.catch((err: DOMException) => {
-				cleanupStream();
-				if (
-					err.name === "NotAllowedError" ||
-					err.name === "PermissionDeniedError"
-				) {
-					setError(
-						"Microphone access was denied. Please allow microphone access and try again.",
-					);
-				} else if (err.name === "NotFoundError") {
-					setError("No microphone found. Please connect a microphone.");
-				} else {
-					setError(`Microphone error: ${err.message}`);
-				}
-				setState("idle");
-			});
-	}, [state, cleanupStream, cleanupTimer]);
+					setState("idle");
+				});
+		},
+		[state, cleanupStream, cleanupTimer],
+	);
 
 	// Stop recording
 	const stopRecording = React.useCallback(() => {
@@ -233,6 +243,7 @@ export function useAudioRecorder(): AudioRecorderResult {
 
 		setState("idle");
 		setAudioBlob(null);
+		setAudioChunks([]);
 		setAudioMimeType(null);
 		setDuration(0);
 		setError(null);
@@ -258,6 +269,7 @@ export function useAudioRecorder(): AudioRecorderResult {
 		startRecording,
 		stopRecording,
 		audioBlob,
+		audioChunks,
 		audioMimeType,
 		duration,
 		error,

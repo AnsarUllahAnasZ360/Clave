@@ -5,49 +5,68 @@ import * as Y from "yjs";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
-/**
- * Options passed to ConvexYjsProvider via the `options` field
- * of `ProviderConstructorProps`.
- */
 export interface ConvexYjsProviderOptions {
-	/** The Convex React client instance */
 	client: ConvexReactClient;
-	/** The document ID in the documents table */
 	documentId: Id<"documents">;
-	/** User info for awareness (name, color) */
-	user?: { name: string; color: string };
+	clientSessionId?: string;
+	user?: { name: string; color: string; isGuest?: boolean };
 }
 
 const AWARENESS_DEBOUNCE_MS = 250;
 const HEARTBEAT_INTERVAL_MS = 10_000;
 const UPDATE_DEBOUNCE_MS = 150;
 const MAX_RETRY_INTERVAL_MS = 5_000;
+const yjsApi = api.yjsV3;
+const yjsPresenceApi = api.yjsPresenceV3;
 
-/**
- * Convert a Uint8Array to a standalone ArrayBuffer.
- * Handles the case where the Uint8Array is a view into a larger buffer.
- */
+const FUNCTION_NOT_FOUND_PATTERNS = [
+	/function not found/i,
+	/could not find (?:public |internal )?function/i,
+	/unknown function/i,
+	/no function .*registered/i,
+];
+
 function toArrayBuffer(data: Uint8Array): ArrayBuffer {
-	// Use slice to create a standalone ArrayBuffer (handles views into larger buffers)
-	const buf = data.buffer as ArrayBuffer;
-	if (data.byteOffset === 0 && data.byteLength === buf.byteLength) {
-		return buf;
+	const buffer = data.buffer as ArrayBuffer;
+	if (data.byteOffset === 0 && data.byteLength === buffer.byteLength) {
+		return buffer;
 	}
-	return buf.slice(data.byteOffset, data.byteOffset + data.byteLength);
+	return buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
 }
 
-/**
- * Custom Yjs provider that syncs a Y.Doc with Convex via
- * mutations (writes) and reactive query subscriptions (reads).
- *
- * Implements the UnifiedProvider interface required by @platejs/yjs.
- *
- * Features:
- * - Debounced update batching (150ms) to reduce mutation frequency
- * - Update buffering during disconnection with automatic retry
- * - Awareness protocol for cursor/selection sharing
- * - Automatic compaction on the server after 50 updates
- */
+function toError(error: unknown): Error {
+	return error instanceof Error ? error : new Error(String(error));
+}
+
+function toErrorSearchText(error: unknown): string {
+	const parts: string[] = [];
+	if (error instanceof Error) {
+		parts.push(error.message);
+		const data = (error as { data?: unknown }).data;
+		if (data !== undefined) {
+			try {
+				parts.push(JSON.stringify(data));
+			} catch {
+				parts.push(String(data));
+			}
+		}
+	} else if (typeof error === "string") {
+		parts.push(error);
+	} else {
+		try {
+			parts.push(JSON.stringify(error));
+		} catch {
+			parts.push(String(error));
+		}
+	}
+	return parts.join(" ");
+}
+
+function isFunctionNotFoundError(error: unknown): boolean {
+	const haystack = toErrorSearchText(error);
+	return FUNCTION_NOT_FOUND_PATTERNS.some((pattern) => pattern.test(haystack));
+}
+
 export class ConvexYjsProvider implements UnifiedProvider {
 	readonly type = "convex";
 
@@ -55,27 +74,24 @@ export class ConvexYjsProvider implements UnifiedProvider {
 	private _awareness: Awareness;
 	private _isConnected = false;
 	private _isSynced = false;
+	private _isDestroyed = false;
 
 	private readonly client: ConvexReactClient;
 	private readonly documentId: Id<"documents">;
-	private readonly user?: { name: string; color: string };
+	private readonly clientSessionId: string;
+	private readonly user?: { name: string; color: string; isGuest?: boolean };
 
-	// Event handlers from Plate's YjsPlugin
 	private readonly onConnect?: () => void;
 	private readonly onDisconnect?: () => void;
 	private readonly onError?: (error: Error) => void;
 	private readonly onSyncChange?: (isSynced: boolean) => void;
 
-	// Subscription unsubscribe handles
 	private unsubscribeDocument: (() => void) | null = null;
-	private unsubscribeAwareness: (() => void) | null = null;
+	private unsubscribePresence: (() => void) | null = null;
 
-	// Y.Doc update handler reference
 	private docUpdateHandler:
 		| ((update: Uint8Array, origin: unknown) => void)
 		| null = null;
-
-	// Awareness change handler reference
 	private awarenessChangeHandler:
 		| ((
 				changes: {
@@ -87,21 +103,23 @@ export class ConvexYjsProvider implements UnifiedProvider {
 		  ) => void)
 		| null = null;
 
-	// Timers
 	private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 	private awarenessDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private updateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Update buffering for debounce + reconnection
 	private updateBuffer: Uint8Array[] = [];
 	private isFlushing = false;
 	private consecutiveFailures = 0;
+	private lastPresenceState = "";
+	private lastPresenceSentAt = 0;
+	private lastQueuedPresenceState = "";
 
-	// Track which updates we've already applied to avoid re-processing
 	private lastAppliedSnapshotVersion = -1;
-	private lastAppliedUpdateCount = 0;
+	private appliedUpdateIds = new Set<string>();
 	private initialSyncDone = false;
+	private lastFailedRemoteSignature = "";
+	private backendContractUnavailable = false;
 
 	constructor({
 		options,
@@ -118,6 +136,8 @@ export class ConvexYjsProvider implements UnifiedProvider {
 
 		this._document = doc ?? new Y.Doc();
 		this._awareness = awareness ?? new Awareness(this._document);
+		this.clientSessionId =
+			options.clientSessionId ?? `client-${this._document.clientID}`;
 
 		this.onConnect = onConnect;
 		this.onDisconnect = onDisconnect;
@@ -143,22 +163,26 @@ export class ConvexYjsProvider implements UnifiedProvider {
 
 	connect(): void {
 		if (this._isConnected) return;
+		if (this.backendContractUnavailable || this._isDestroyed) return;
 
 		this._isConnected = true;
 		this.onConnect?.();
 
 		this.startDocumentSync();
-		this.startAwarenessSync();
+		if (this.backendContractUnavailable || this._isDestroyed) {
+			return;
+		}
+		this.startPresenceSync();
 	}
 
 	disconnect(): void {
 		if (!this._isConnected) return;
 
-		// Flush any pending updates before disconnecting
 		this.flushUpdateBufferSync();
-
 		this.stopDocumentSync();
-		this.stopAwarenessSync();
+		this.stopPresenceSync({
+			skipLeavePresence: this.backendContractUnavailable,
+		});
 
 		this._isConnected = false;
 		this.setSynced(false);
@@ -166,31 +190,61 @@ export class ConvexYjsProvider implements UnifiedProvider {
 	}
 
 	destroy(): void {
+		if (this._isDestroyed) return;
+		this._isDestroyed = true;
 		this.disconnect();
 	}
 
-	// ── Document Sync ────────────────────────────────────────────────────
-
 	private startDocumentSync(): void {
-		// Listen to local Y.Doc changes and buffer for debounced push
+		if (this.backendContractUnavailable || this._isDestroyed) {
+			return;
+		}
 		this.docUpdateHandler = (update: Uint8Array, origin: unknown) => {
 			if (origin === "remote") return;
 			this.bufferLocalUpdate(update);
 		};
 		this._document.on("update", this.docUpdateHandler);
 
-		// Subscribe to remote document state via Convex reactive query
-		const watch = this.client.watchQuery(api.yjsSync.getDocument, {
-			documentId: this.documentId,
-		});
-
-		const unsubWatch = watch.onUpdate(() => {
-			const result = watch.localQueryResult();
-			if (result === undefined) return;
-			this.handleRemoteDocumentState(result);
-		});
-
-		this.unsubscribeDocument = unsubWatch;
+		try {
+			const watch = this.client.watchQuery(yjsApi.getState, {
+				documentId: this.documentId,
+			});
+			const unsubscribe = watch.onUpdate(() => {
+				if (this.backendContractUnavailable || this._isDestroyed) return;
+				let result:
+					| {
+							snapshot?: ArrayBuffer;
+							snapshotVersion: number;
+							updates: Array<{
+								_id: Id<"yjsUpdatesV3">;
+								update: ArrayBuffer;
+								clientSessionId: string;
+								createdAt: number;
+							}>;
+					  }
+					| null
+					| undefined;
+				try {
+					result = watch.localQueryResult();
+				} catch (error) {
+					if (isFunctionNotFoundError(error)) {
+						this.tripBackendContractCircuit(error, "yjsV3.getState");
+						return;
+					}
+					this.onError?.(toError(error));
+					return;
+				}
+				if (result === undefined) return;
+				this.handleRemoteDocumentState(result);
+			});
+			this.unsubscribeDocument = unsubscribe;
+		} catch (error) {
+			if (isFunctionNotFoundError(error)) {
+				this.tripBackendContractCircuit(error, "yjsV3.getState");
+				return;
+			}
+			this.onError?.(toError(error));
+		}
 	}
 
 	private stopDocumentSync(): void {
@@ -212,13 +266,15 @@ export class ConvexYjsProvider implements UnifiedProvider {
 		}
 	}
 
-	/**
-	 * Buffer a local update and schedule a debounced flush.
-	 * Updates are merged using Y.mergeUpdates before pushing.
-	 */
 	private bufferLocalUpdate(update: Uint8Array): void {
+		if (
+			this.backendContractUnavailable ||
+			!this._isConnected ||
+			this._isDestroyed
+		) {
+			return;
+		}
 		this.updateBuffer.push(update);
-
 		if (this.updateDebounceTimer) {
 			clearTimeout(this.updateDebounceTimer);
 		}
@@ -227,71 +283,79 @@ export class ConvexYjsProvider implements UnifiedProvider {
 		}, UPDATE_DEBOUNCE_MS);
 	}
 
-	/**
-	 * Merge and push all buffered updates to Convex.
-	 * On failure, updates remain in the buffer for retry.
-	 */
 	private async flushUpdateBuffer(): Promise<void> {
-		if (this.isFlushing || this.updateBuffer.length === 0) return;
+		if (
+			this.isFlushing ||
+			this.updateBuffer.length === 0 ||
+			this.backendContractUnavailable ||
+			!this._isConnected ||
+			this._isDestroyed
+		) {
+			return;
+		}
 
 		this.isFlushing = true;
-		const updates = this.updateBuffer.splice(0);
+		const pending = this.updateBuffer.splice(0);
 
 		try {
 			const merged =
-				updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-
-			await this.client.mutation(api.yjsSync.pushUpdate, {
+				pending.length === 1 ? pending[0] : Y.mergeUpdates(pending);
+			await this.client.mutation(yjsApi.pushUpdate, {
 				documentId: this.documentId,
 				update: toArrayBuffer(merged),
+				clientSessionId: this.clientSessionId,
 			});
-
-			// Success — reset failure counter
 			this.consecutiveFailures = 0;
 		} catch (error) {
-			// Put updates back for retry (prepend to buffer in case new ones arrived)
-			this.updateBuffer.unshift(...updates);
-			this.consecutiveFailures++;
-
-			this.onError?.(error instanceof Error ? error : new Error(String(error)));
-
-			// Schedule retry with exponential backoff (capped)
+			if (isFunctionNotFoundError(error)) {
+				this.tripBackendContractCircuit(error, "yjsV3.pushUpdate");
+				return;
+			}
+			this.updateBuffer.unshift(...pending);
+			this.consecutiveFailures += 1;
+			this.onError?.(toError(error));
 			this.scheduleRetry();
 		} finally {
 			this.isFlushing = false;
 		}
 	}
 
-	/**
-	 * Synchronously attempt to flush — used during disconnect.
-	 * Fire-and-forget; errors are silently ignored.
-	 */
 	private flushUpdateBufferSync(): void {
 		if (this.updateBuffer.length === 0) return;
+		if (this.backendContractUnavailable || this._isDestroyed) {
+			this.updateBuffer = [];
+			return;
+		}
 
-		const updates = this.updateBuffer.splice(0);
+		const pending = this.updateBuffer.splice(0);
 		try {
 			const merged =
-				updates.length === 1 ? updates[0] : Y.mergeUpdates(updates);
-
+				pending.length === 1 ? pending[0] : Y.mergeUpdates(pending);
 			this.client
-				.mutation(api.yjsSync.pushUpdate, {
+				.mutation(yjsApi.pushUpdate, {
 					documentId: this.documentId,
 					update: toArrayBuffer(merged),
+					clientSessionId: this.clientSessionId,
 				})
-				.catch(() => {
-					// Best-effort on disconnect
+				.catch((error) => {
+					if (isFunctionNotFoundError(error)) {
+						this.tripBackendContractCircuit(error, "yjsV3.pushUpdate");
+					}
 				});
 		} catch {
-			// Ignore sync flush errors
+			// Ignore disconnect flush failures.
 		}
 	}
 
-	/**
-	 * Schedule a retry with exponential backoff.
-	 */
 	private scheduleRetry(): void {
-		if (this.retryTimer) return;
+		if (
+			this.retryTimer ||
+			this.backendContractUnavailable ||
+			!this._isConnected ||
+			this._isDestroyed
+		) {
+			return;
+		}
 
 		const delay = Math.min(
 			1000 * 2 ** (this.consecutiveFailures - 1),
@@ -299,135 +363,182 @@ export class ConvexYjsProvider implements UnifiedProvider {
 		);
 		this.retryTimer = setTimeout(() => {
 			this.retryTimer = null;
-			this.flushUpdateBuffer();
+			if (
+				this.backendContractUnavailable ||
+				!this._isConnected ||
+				this._isDestroyed
+			) {
+				return;
+			}
+			void this.flushUpdateBuffer();
 		}, delay);
 	}
 
 	private handleRemoteDocumentState(
 		data: {
 			snapshot?: ArrayBuffer;
-			updates: ArrayBuffer[];
 			snapshotVersion: number;
+			updates: Array<{
+				_id: Id<"yjsUpdatesV3">;
+				update: ArrayBuffer;
+				clientSessionId: string;
+				createdAt: number;
+			}>;
 		} | null,
 	): void {
-		if (!data) return;
+		if (!data) {
+			this.setSynced(false);
+			return;
+		}
 
-		const safeApplyUpdate = (
-			update: ArrayBuffer,
-			source: string,
-			index?: number,
-		) => {
+		const remoteSignature = `${data.snapshotVersion}:${
+			data.snapshot?.byteLength ?? 0
+		}:${data.updates.length}`;
+		if (remoteSignature === this.lastFailedRemoteSignature) {
+			return;
+		}
+
+		let failed = false;
+		const apply = (update: ArrayBuffer, context: string) => {
 			try {
 				Y.applyUpdate(this._document, new Uint8Array(update), "remote");
 				return true;
 			} catch (error) {
-				const err = error instanceof Error ? error : new Error(String(error));
-				const context = index === undefined ? source : `${source}[${index}]`;
-				this.onError?.(
-					new Error(`Failed to apply Yjs ${context}: ${err.message}`),
-				);
-				if (process.env.NODE_ENV === "development") {
-					console.error(
-						`[ConvexYjsProvider] Failed applying Yjs remote ${context}`,
-						err,
-					);
-				}
+				failed = true;
+				const message =
+					error instanceof Error ? error.message : "Unknown Yjs apply error";
+				this.onError?.(new Error(`Failed to apply ${context}: ${message}`));
 				return false;
 			}
 		};
 
-		let remoteApplyFailed = false;
-
-		const { snapshot, updates, snapshotVersion } = data;
-
-		// If snapshot version changed, a compaction happened — re-sync from snapshot
-		if (snapshotVersion !== this.lastAppliedSnapshotVersion) {
-			if (snapshot) {
-				remoteApplyFailed ||= !safeApplyUpdate(snapshot, "snapshot");
+		if (data.snapshotVersion !== this.lastAppliedSnapshotVersion) {
+			this.appliedUpdateIds.clear();
+			if (data.snapshot) {
+				apply(data.snapshot, "snapshot");
 			}
-			for (const update of updates) {
-				remoteApplyFailed ||= !safeApplyUpdate(update, "incremental");
-			}
-			this.lastAppliedSnapshotVersion = snapshotVersion;
-			this.lastAppliedUpdateCount = updates.length;
-		} else if (updates.length > this.lastAppliedUpdateCount) {
-			// Apply only new incremental updates
-			const newUpdates = updates.slice(this.lastAppliedUpdateCount);
-			newUpdates.forEach((update, index) => {
-				const applied = safeApplyUpdate(update, "incremental", index);
-				remoteApplyFailed ||= !applied;
-			});
-			this.lastAppliedUpdateCount = updates.length;
 		}
 
-		if (remoteApplyFailed) {
+		for (const entry of data.updates) {
+			const updateId = String(entry._id);
+			if (this.appliedUpdateIds.has(updateId)) continue;
+			const applied = apply(entry.update, `update:${updateId}`);
+			if (applied) {
+				this.appliedUpdateIds.add(updateId);
+			}
+		}
+
+		if (failed) {
+			this.lastFailedRemoteSignature = remoteSignature;
 			this.setSynced(false);
+			return;
+		}
+
+		this.lastFailedRemoteSignature = "";
+		this.lastAppliedSnapshotVersion = data.snapshotVersion;
+
+		// Trim applied ID memory when compaction reduces update list.
+		if (this.appliedUpdateIds.size > data.updates.length + 32) {
+			const activeIds = new Set(data.updates.map((u) => String(u._id)));
+			for (const seenId of this.appliedUpdateIds) {
+				if (!activeIds.has(seenId)) {
+					this.appliedUpdateIds.delete(seenId);
+				}
+			}
 		}
 
 		if (!this.initialSyncDone) {
 			this.initialSyncDone = true;
-			if (!remoteApplyFailed) {
-				this.setSynced(true);
-			}
 		}
+		this.setSynced(true);
 
-		// Remote data arriving means connection is alive — try flushing any pending updates
 		if (this.updateBuffer.length > 0 && !this.isFlushing) {
-			this.flushUpdateBuffer();
+			void this.flushUpdateBuffer();
 		}
 	}
 
-	// ── Awareness Sync ───────────────────────────────────────────────────
-
-	private startAwarenessSync(): void {
-		// Set local awareness state
+	private startPresenceSync(): void {
+		if (this.backendContractUnavailable || this._isDestroyed) {
+			return;
+		}
 		if (this.user) {
 			this._awareness.setLocalStateField("user", this.user);
 		}
 
-		// Listen to local awareness changes and push to Convex (debounced)
 		this.awarenessChangeHandler = ({ added, updated, removed }, origin) => {
 			if (origin === "remote") return;
 
 			const localClientId = this._document.clientID;
-			const changedClients = [...added, ...updated, ...removed];
-
-			if (changedClients.includes(localClientId)) {
-				this.debouncedPushAwareness();
+			const changed = [...added, ...updated, ...removed];
+			if (changed.includes(localClientId)) {
+				this.debouncedPushPresence();
 			}
 		};
 		this._awareness.on("change", this.awarenessChangeHandler);
 
-		// Subscribe to remote awareness states
-		const watch = this.client.watchQuery(api.yjsAwareness.listAwareness, {
-			documentId: this.documentId,
-		});
+		try {
+			const watch = this.client.watchQuery(yjsPresenceApi.listPresence, {
+				documentId: this.documentId,
+			});
+			const unsubscribe = watch.onUpdate(() => {
+				if (this.backendContractUnavailable || this._isDestroyed) return;
+				let result:
+					| Array<{
+							clientId: number;
+							clientSessionId: string;
+							displayName: string;
+							color: string;
+							isGuest: boolean;
+							awarenessState: string;
+					  }>
+					| undefined;
+				try {
+					result = watch.localQueryResult();
+				} catch (error) {
+					if (isFunctionNotFoundError(error)) {
+						this.tripBackendContractCircuit(
+							error,
+							"yjsPresenceV3.listPresence",
+						);
+						return;
+					}
+					this.onError?.(toError(error));
+					return;
+				}
+				if (result === undefined) return;
+				this.handleRemotePresence(result);
+			});
+			this.unsubscribePresence = unsubscribe;
+		} catch (error) {
+			if (isFunctionNotFoundError(error)) {
+				this.tripBackendContractCircuit(error, "yjsPresenceV3.listPresence");
+				return;
+			}
+			this.onError?.(toError(error));
+		}
 
-		const unsubWatch = watch.onUpdate(() => {
-			const result = watch.localQueryResult();
-			if (result === undefined) return;
-			this.handleRemoteAwareness(result);
-		});
-
-		this.unsubscribeAwareness = unsubWatch;
-
-		// Heartbeat to keep awareness alive
 		this.heartbeatTimer = setInterval(() => {
-			this.pushAwarenessState();
+			if (
+				this.backendContractUnavailable ||
+				!this._isConnected ||
+				this._isDestroyed
+			) {
+				return;
+			}
+			void this.pushPresenceState();
 		}, HEARTBEAT_INTERVAL_MS);
 
-		// Push initial awareness state
-		this.pushAwarenessState();
+		void this.pushPresenceState();
 	}
 
-	private stopAwarenessSync(): void {
+	private stopPresenceSync(options?: { skipLeavePresence?: boolean }): void {
 		if (this.awarenessChangeHandler) {
 			this._awareness.off("change", this.awarenessChangeHandler);
 			this.awarenessChangeHandler = null;
 		}
-		if (this.unsubscribeAwareness) {
-			this.unsubscribeAwareness();
-			this.unsubscribeAwareness = null;
+		if (this.unsubscribePresence) {
+			this.unsubscribePresence();
+			this.unsubscribePresence = null;
 		}
 		if (this.heartbeatTimer) {
 			clearInterval(this.heartbeatTimer);
@@ -437,75 +548,159 @@ export class ConvexYjsProvider implements UnifiedProvider {
 			clearTimeout(this.awarenessDebounceTimer);
 			this.awarenessDebounceTimer = null;
 		}
+		this.lastPresenceState = "";
+		this.lastPresenceSentAt = 0;
+		this.lastQueuedPresenceState = "";
 
-		// Notify server we're leaving
+		if (options?.skipLeavePresence || this.backendContractUnavailable) {
+			return;
+		}
+
 		this.client
-			.mutation(api.yjsAwareness.leaveAwareness, {
+			.mutation(yjsPresenceApi.leavePresence, {
 				documentId: this.documentId,
-				clientId: this._document.clientID,
+				clientSessionId: this.clientSessionId,
 			})
-			.catch(() => {
-				// Best-effort cleanup, ignore errors on disconnect
+			.catch((error) => {
+				if (isFunctionNotFoundError(error)) {
+					this.tripBackendContractCircuit(error, "yjsPresenceV3.leavePresence");
+				}
 			});
 	}
 
-	private debouncedPushAwareness(): void {
+	private debouncedPushPresence(): void {
+		if (
+			this.backendContractUnavailable ||
+			!this._isConnected ||
+			this._isDestroyed
+		) {
+			return;
+		}
+		const payload = this.getPresencePayload();
+		if (!payload) return;
+		if (
+			this.awarenessDebounceTimer &&
+			payload.awarenessState === this.lastQueuedPresenceState
+		) {
+			return;
+		}
 		if (this.awarenessDebounceTimer) {
 			clearTimeout(this.awarenessDebounceTimer);
 		}
+		this.lastQueuedPresenceState = payload.awarenessState;
 		this.awarenessDebounceTimer = setTimeout(() => {
-			this.pushAwarenessState();
+			this.awarenessDebounceTimer = null;
+			void this.pushPresenceState();
 		}, AWARENESS_DEBOUNCE_MS);
 	}
 
-	private async pushAwarenessState(): Promise<void> {
+	private getPresencePayload(): {
+		awarenessState: string;
+	} | null {
 		const localState = this._awareness.getLocalState();
-		if (!localState) return;
+		if (!localState) return null;
+
+		const awarenessState = JSON.stringify(localState);
+		return {
+			awarenessState,
+		};
+	}
+
+	private async pushPresenceState(): Promise<void> {
+		if (
+			this.backendContractUnavailable ||
+			!this._isConnected ||
+			this._isDestroyed
+		) {
+			return;
+		}
+		const payload = this.getPresencePayload();
+		if (!payload) return;
+
+		const now = Date.now();
+		const isUnchanged = payload.awarenessState === this.lastPresenceState;
+		const resendDue = now - this.lastPresenceSentAt >= HEARTBEAT_INTERVAL_MS;
+		if (isUnchanged && !resendDue) {
+			return;
+		}
+
+		const displayName = this.user?.name ?? "Guest";
+		const color = this.user?.color ?? "#737373";
+		const isGuest = this.user?.isGuest ?? true;
 
 		try {
-			await this.client.mutation(api.yjsAwareness.upsertAwareness, {
+			await this.client.mutation(yjsPresenceApi.upsertPresence, {
 				documentId: this.documentId,
 				clientId: this._document.clientID,
-				awarenessState: JSON.stringify(localState),
+				clientSessionId: this.clientSessionId,
+				displayName,
+				color,
+				isGuest,
+				awarenessState: payload.awarenessState,
 			});
-		} catch {
-			// Awareness is best-effort, don't propagate errors
+			this.lastPresenceState = payload.awarenessState;
+			this.lastPresenceSentAt = now;
+			this.lastQueuedPresenceState = payload.awarenessState;
+		} catch (error) {
+			if (isFunctionNotFoundError(error)) {
+				this.tripBackendContractCircuit(error, "yjsPresenceV3.upsertPresence");
+			}
+			// Presence should not break editing.
 		}
 	}
 
-	private handleRemoteAwareness(
-		entries: Array<{ clientId: number; awarenessState: string }>,
+	private handleRemotePresence(
+		entries: Array<{
+			clientId: number;
+			clientSessionId: string;
+			displayName: string;
+			color: string;
+			isGuest: boolean;
+			awarenessState: string;
+		}>,
 	): void {
+		const states = this._awareness.getStates();
 		const localClientId = this._document.clientID;
 
 		for (const entry of entries) {
+			if (entry.clientSessionId === this.clientSessionId) continue;
 			if (entry.clientId === localClientId) continue;
 
 			try {
-				const state = JSON.parse(entry.awarenessState);
-				const states = this._awareness.getStates();
+				const parsed = JSON.parse(entry.awarenessState) as Record<
+					string,
+					unknown
+				>;
+				const nextState =
+					parsed.user === undefined
+						? {
+								...parsed,
+								user: {
+									name: entry.displayName,
+									color: entry.color,
+									isGuest: entry.isGuest,
+								},
+							}
+						: parsed;
 
-				// Only apply if the remote state is different
 				const currentState = states.get(entry.clientId);
-				if (JSON.stringify(currentState) !== entry.awarenessState) {
-					states.set(entry.clientId, state);
+				if (JSON.stringify(currentState) !== JSON.stringify(nextState)) {
+					states.set(entry.clientId, nextState);
 					this._awareness.emit("change", [
 						{ added: [], updated: [entry.clientId], removed: [] },
 						"remote",
 					]);
 				}
 			} catch {
-				// Ignore malformed awareness data
+				// Ignore malformed presence payloads.
 			}
 		}
 
-		// Clean up awareness for clients no longer present
 		const remoteClientIds = new Set(
 			entries
-				.filter((e) => e.clientId !== localClientId)
-				.map((e) => e.clientId),
+				.filter((entry) => entry.clientSessionId !== this.clientSessionId)
+				.map((entry) => entry.clientId),
 		);
-		const states = this._awareness.getStates();
 		const removed: number[] = [];
 		for (const [clientId] of states) {
 			if (clientId !== localClientId && !remoteClientIds.has(clientId)) {
@@ -521,15 +716,32 @@ export class ConvexYjsProvider implements UnifiedProvider {
 		}
 	}
 
-	// ── Helpers ──────────────────────────────────────────────────────────
-
-	private setSynced(synced: boolean): void {
-		if (this._isSynced !== synced) {
-			this._isSynced = synced;
-			if (synced && process.env.NODE_ENV === "development") {
-				performance.mark("doc-editor:yjs-synced");
-			}
-			this.onSyncChange?.(synced);
+	private setSynced(nextValue: boolean): void {
+		if (this._isSynced !== nextValue) {
+			this._isSynced = nextValue;
+			this.onSyncChange?.(nextValue);
 		}
+	}
+
+	private tripBackendContractCircuit(error: unknown, operation: string): void {
+		if (this.backendContractUnavailable) {
+			return;
+		}
+
+		this.backendContractUnavailable = true;
+		this.updateBuffer = [];
+		this.consecutiveFailures = 0;
+		this.isFlushing = false;
+
+		this.stopDocumentSync();
+		this.stopPresenceSync({ skipLeavePresence: true });
+		this.setSynced(false);
+
+		const sourceError = toError(error);
+		this.onError?.(
+			new Error(
+				`Yjs backend contract unavailable while calling ${operation}: ${sourceError.message}`,
+			),
+		);
 	}
 }

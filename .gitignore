@@ -22,6 +22,14 @@ test-results/
 .env.test.local
 .env.production.local
 
+# Google / Cloud credentials (never commit)
+*.service-account.json
+*.gcp-sa.json
+*google-chat-credentials*.json
+**/clave-gchat-bot.json
+.secrets/
+secrets/
+
 # Convex
 convex/_generated/
 

@@ -26,9 +26,12 @@ export const retry = action({
 		}
 
 		if (recording.status !== "failed") {
-			throw new ConvexError(
-				`Cannot retry recording in "${recording.status}" status — only "failed" recordings can be retried`,
-			);
+			// Avoid hard failures when the client retries in a race while the
+			// recording is still transcribing/processing.
+			if (recording.status === "transcribing") {
+				return null;
+			}
+			return null;
 		}
 
 		await ctx.runAction(internal.ai.transcribe.run, {

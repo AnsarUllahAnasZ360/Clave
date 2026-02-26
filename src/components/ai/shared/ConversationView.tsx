@@ -1,7 +1,7 @@
 "use client";
 
 import type { UIMessage } from "@convex-dev/agent/react";
-import { AlertCircle, Clock, RotateCcw } from "lucide-react";
+import { AlertCircle, Clock, Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	IncognitoWelcomeScreen,
@@ -20,11 +20,6 @@ import {
 	ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent } from "@/components/ai-elements/message";
-import {
-	Reasoning,
-	ReasoningContent,
-	ReasoningTrigger,
-} from "@/components/ai-elements/reasoning";
 import { Button } from "@/components/ui/button";
 import { PixelClaveIcon } from "@/components/ui/pixel-clave-icon";
 import type { AIToolApproval } from "@/hooks/use-ai-chat";
@@ -156,9 +151,14 @@ export function ConversationView({
 		}
 		return map;
 	}, [approvals]);
+	// Show "Thinking..." only when sending AND the last *real* message is from
+	// the user (no assistant response has started yet). Using isSending instead
+	// of isStreaming avoids showing the spinner after the assistant starts streaming.
 	const showInlineThinking =
-		(isSending || isStreaming) && lastMessage?.role === "user";
-	const showInitialThinking = !hasMessages && Boolean(isLoadingMessages);
+		isSending && !isStreaming && lastMessage?.role === "user";
+	// Show a loading skeleton when paginating — NOT "Thinking..." which implies
+	// the AI is generating a response.
+	const showInitialLoading = !hasMessages && Boolean(isLoadingMessages);
 
 	return (
 		<Conversation
@@ -193,10 +193,11 @@ export function ConversationView({
 						{showInlineThinking && (
 							<Message from="assistant">
 								<MessageContent>
-									<Reasoning className="mb-0 w-full" isStreaming>
-										<ReasoningTrigger />
-										<ReasoningContent>{""}</ReasoningContent>
-									</Reasoning>
+									<div className="flex items-center gap-1 py-1">
+										<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60 [animation-delay:0ms]" />
+										<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60 [animation-delay:150ms]" />
+										<span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60 [animation-delay:300ms]" />
+									</div>
 								</MessageContent>
 							</Message>
 						)}
@@ -209,13 +210,13 @@ export function ConversationView({
 							/>
 						)}
 					</>
-				) : showInitialThinking ? (
+				) : showInitialLoading ? (
 					<Message from="assistant">
 						<MessageContent>
-							<Reasoning className="mb-0 w-full" isStreaming>
-								<ReasoningTrigger />
-								<ReasoningContent>{""}</ReasoningContent>
-							</Reasoning>
+							<div className="flex items-center gap-2 text-sm text-muted-foreground">
+								<Loader2 className="size-3.5 animate-spin" />
+								<span>Loading messages...</span>
+							</div>
 						</MessageContent>
 					</Message>
 				) : (

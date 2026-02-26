@@ -7,7 +7,7 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ShieldWarning } from "@phosphor-icons/react/dist/ssr";
 import { useAction, useMutation } from "convex/react";
-import { useRouter } from "next/navigation";
+import { notFound, useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "../../../../convex/_generated/api";
@@ -151,8 +151,7 @@ export default function DevLoginPage() {
 
 				// Ensure the auth user is linked to the seeded org + workspace
 				await ensureDevMember();
-				// Hand off to the logged-in bootstrap route to resolve destination.
-				router.replace("/boot");
+				router.replace("/");
 			} catch {
 				setError(
 					`Failed to sign in as ${user.name}. Check that Convex dev server is running.`,
@@ -163,12 +162,9 @@ export default function DevLoginPage() {
 		},
 		[signIn, signOut, router, ensureDevMember],
 	);
-	// Redirect to sign-in in production
+	// Server+client guard: 404 in production (defense-in-depth; middleware also blocks)
 	if (!isDevMode()) {
-		if (typeof window !== "undefined") {
-			router.replace("/sign-in");
-		}
-		return null;
+		notFound();
 	}
 
 	return (

@@ -98,6 +98,49 @@ export const getAuthAndContext = internalQuery({
 	},
 });
 
+export const getExternalChatActorContext = internalQuery({
+	args: {
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+	},
+	returns: v.union(
+		v.object({
+			workspaceName: v.string(),
+			userName: v.string(),
+			aiWorkspaceContext: v.optional(v.string()),
+			aiAssistantCharacteristics: v.optional(v.string()),
+		}),
+		v.null(),
+	),
+	handler: async (ctx, { workspaceId, userId }) => {
+		const membership = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_workspace_user", (q) =>
+				q.eq("workspaceId", workspaceId).eq("userId", userId),
+			)
+			.unique();
+		if (!membership) {
+			return null;
+		}
+
+		const [workspace, user, settings] = await Promise.all([
+			ctx.db.get(workspaceId),
+			ctx.db.get(userId),
+			ctx.db
+				.query("workspaceSettings")
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+				.unique(),
+		]);
+
+		return {
+			workspaceName: workspace?.name ?? "Unknown workspace",
+			userName: user?.name ?? "Unknown user",
+			aiWorkspaceContext: settings?.aiWorkspaceContext,
+			aiAssistantCharacteristics: settings?.aiAssistantCharacteristics,
+		};
+	},
+});
+
 // ── AI Teammate Config for Thread (used by sendMessage to apply overrides) ──
 
 export const getTeammateForThread = internalQuery({

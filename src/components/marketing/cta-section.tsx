@@ -30,7 +30,7 @@ export function CtaSection() {
 				</p>
 				<div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
 					<Link
-						href={"/sign-in" as never}
+						href={"/sign-up" as never}
 						prefetch={false}
 						className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-sienna-500 px-8 py-3 text-sm font-medium text-white transition-all hover:bg-sienna-600 hover:scale-[1.03] hover:shadow-[0_0_20px_2px_rgba(194,106,58,0.3)] active:scale-100"
 					>

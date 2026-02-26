@@ -89,9 +89,13 @@ describe("ai/providers", () => {
 			expect(result).toBeUndefined();
 		});
 
-		it("returns undefined for gpt-5.2 (chat API by default, reasoning only on responses API)", () => {
+		it("returns reasoning options for gpt-5.2", () => {
 			const result = getReasoningProviderOptions("gpt-5.2");
-			expect(result).toBeUndefined();
+			expect(result).toEqual({
+				azure: {
+					reasoningEffort: "medium",
+				},
+			});
 		});
 	});
 
@@ -110,8 +114,8 @@ describe("ai/providers", () => {
 			expect(usesResponsesApi("kimi-k2.5")).toBe(false);
 		});
 
-		it("returns false for gpt-5.2 (chat API by default)", () => {
-			expect(usesResponsesApi("gpt-5.2")).toBe(false);
+		it("returns true for gpt-5.2", () => {
+			expect(usesResponsesApi("gpt-5.2")).toBe(true);
 		});
 	});
 

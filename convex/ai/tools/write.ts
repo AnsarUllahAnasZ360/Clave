@@ -15,6 +15,120 @@ import {
 } from "./helpers";
 import type { ToolContext } from "./types";
 
+// ── Whiteboard scene summarizer ───────────────────────────────────────────
+
+const MAX_SUMMARY_ELEMENTS = 60;
+
+/**
+ * Produce a human-readable summary of an Excalidraw scene for AI prompt
+ * enrichment. Mirrors the client-side `serializeCanvasForAI` logic.
+ */
+function summarizeBoardScene(sceneData?: string | null): string | null {
+	if (!sceneData) return null;
+	try {
+		const parsed = JSON.parse(sceneData) as unknown;
+		if (!Array.isArray(parsed)) return null;
+
+		type El = {
+			id: string;
+			type: string;
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+			text?: string;
+			isDeleted?: boolean;
+			containerId?: string;
+			boundElements?: Array<{ id: string; type: string }>;
+			startBinding?: { elementId?: string };
+			endBinding?: { elementId?: string };
+		};
+		const elements = (parsed as El[]).filter(
+			(el) => el && typeof el === "object" && !el.isDeleted && el.type,
+		);
+		if (elements.length === 0) return null;
+
+		const elementMap = new Map(elements.map((el) => [el.id, el]));
+		function getBoundText(el: El): string | null {
+			if (el.text) return el.text;
+			const b = el.boundElements?.find((b) => b.type === "text");
+			if (!b) return null;
+			return elementMap.get(b.id)?.text ?? null;
+		}
+
+		const shapes = elements.filter(
+			(e) =>
+				e.type === "rectangle" ||
+				e.type === "ellipse" ||
+				e.type === "diamond" ||
+				e.type === "freedraw" ||
+				e.type === "image" ||
+				e.type === "frame",
+		);
+		const standaloneText = elements.filter(
+			(e) => e.type === "text" && !e.containerId,
+		);
+		const arrows = elements.filter(
+			(e) => e.type === "arrow" || e.type === "line",
+		);
+
+		const lines: string[] = [`${elements.length} elements total`];
+
+		if (shapes.length > 0) {
+			lines.push("Shapes:");
+			for (const shape of shapes.slice(0, MAX_SUMMARY_ELEMENTS)) {
+				const label = getBoundText(shape);
+				const labelStr = label
+					? ` "${label.length > 50 ? `${label.slice(0, 47)}...` : label}"`
+					: "";
+				lines.push(
+					`  - ${shape.type}${labelStr} at (${Math.round(shape.x)},${Math.round(shape.y)}) size ${Math.round(shape.width)}x${Math.round(shape.height)}`,
+				);
+			}
+			if (shapes.length > MAX_SUMMARY_ELEMENTS) {
+				lines.push(
+					`  ... and ${shapes.length - MAX_SUMMARY_ELEMENTS} more shapes`,
+				);
+			}
+		}
+
+		if (standaloneText.length > 0) {
+			lines.push("Text:");
+			for (const t of standaloneText.slice(0, 20)) {
+				const txt = t.text ?? "";
+				lines.push(
+					`  - "${txt.length > 60 ? `${txt.slice(0, 57)}...` : txt}" at (${Math.round(t.x)},${Math.round(t.y)})`,
+				);
+			}
+		}
+
+		if (arrows.length > 0) {
+			lines.push("Connections:");
+			for (const arrow of arrows.slice(0, 20)) {
+				const fromEl = arrow.startBinding?.elementId
+					? elementMap.get(arrow.startBinding.elementId)
+					: null;
+				const toEl = arrow.endBinding?.elementId
+					? elementMap.get(arrow.endBinding.elementId)
+					: null;
+				const fromLabel = fromEl ? getBoundText(fromEl) : null;
+				const toLabel = toEl ? getBoundText(toEl) : null;
+				const fromStr = fromLabel
+					? `"${fromLabel.slice(0, 30)}"`
+					: (arrow.startBinding?.elementId?.slice(0, 8) ?? "?");
+				const toStr = toLabel
+					? `"${toLabel.slice(0, 30)}"`
+					: (arrow.endBinding?.elementId?.slice(0, 8) ?? "?");
+				lines.push(`  - ${fromStr} -> ${toStr}`);
+			}
+		}
+
+		return lines.join("\n");
+	} catch {
+		return null;
+	}
+}
+
 // ── Return type interfaces ───────────────────────────────────────────────
 
 interface CreateIssueResult {
@@ -1074,6 +1188,19 @@ export const generateWhiteboardDiagram = createTool({
 			};
 		}
 
+		// Build an enriched prompt with canvas context for quality parity
+		// with the toolbar's client-side generation path.
+		const canvasSummary = summarizeBoardScene(board.sceneData);
+		const enrichedPrompt = [
+			`User request:\n${args.prompt}`,
+			canvasSummary ? `Canvas snapshot:\n${canvasSummary}` : null,
+			canvasSummary
+				? "Extend or complement the existing layout where relevant."
+				: "Generate a fresh layout.",
+		]
+			.filter(Boolean)
+			.join("\n\n");
+
 		const generationResult = await withTimeout(
 			ctx.runAction(api.ai.embedded.embeddedAction, {
 				type: "whiteboard_generate_diagram",
@@ -1081,7 +1208,7 @@ export const generateWhiteboardDiagram = createTool({
 					workspaceId,
 					whiteboardId,
 				},
-				prompt: args.prompt,
+				prompt: enrichedPrompt,
 				...(args.mode
 					? {
 							whiteboard: {

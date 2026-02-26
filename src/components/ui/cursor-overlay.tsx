@@ -43,6 +43,8 @@ function Cursor({
 		name,
 		color,
 	} = data ?? ({} as RemoteCursorData);
+	const remoteLabel = name?.trim() || "Guest";
+	const remoteColor = color || "#737373";
 	const isCursor = RangeApi.isCollapsed(selection);
 	const isRemote = id !== "selection" && id !== "drag";
 
@@ -60,9 +62,11 @@ function Cursor({
 
 	// Remote cursor styles derived from awareness user color
 	const remoteCursorStyle =
-		isRemote && color ? { backgroundColor: color } : undefined;
+		isRemote && remoteColor ? { backgroundColor: remoteColor } : undefined;
 	const remoteSelectionStyle =
-		isRemote && color ? { backgroundColor: `${color}40` } : undefined;
+		isRemote && remoteColor
+			? { backgroundColor: `${remoteColor}40` }
+			: undefined;
 
 	return (
 		<>
@@ -91,12 +95,12 @@ function Cursor({
 						...(isRemote ? remoteCursorStyle : style),
 					}}
 				>
-					{isRemote && name && (
+					{isRemote && (
 						<div
 							className="absolute -top-5 left-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] leading-none font-medium text-white"
-							style={{ backgroundColor: color }}
+							style={{ backgroundColor: remoteColor }}
 						>
-							{name}
+							{remoteLabel}
 						</div>
 					)}
 				</div>

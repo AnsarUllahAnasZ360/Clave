@@ -2,9 +2,17 @@
 	"root": true,
 	"pages": [
 		"index",
-		"---Guides---",
-		"...guides",
-		"---Documentation---",
-		"...documentation"
+		"---Getting Started---",
+		"...getting-started",
+		"---Features---",
+		"...features",
+		"---AI---",
+		"...ai",
+		"---Inbox & Notifications---",
+		"...inbox-and-notifications",
+		"---Settings---",
+		"...settings",
+		"---Analytics---",
+		"...analytics"
 	]
 }

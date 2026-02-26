@@ -1,5 +1,6 @@
 import {
 	createThread as agentCreateThread,
+	listMessages,
 	updateThreadMetadata,
 } from "@convex-dev/agent";
 import { paginationOptsValidator } from "convex/server";
@@ -414,6 +415,82 @@ export const cleanupIncognitoThreads = internalMutation({
 		}
 
 		return deleted;
+	},
+});
+
+// ── Search Threads (title + message content) ────────────────────────────────
+
+/** Helper to extract plain text from an agent message doc */
+function extractMessageText(msg: {
+	text?: string;
+	message?: { role: string; content: unknown };
+}): string {
+	// The `text` field is the flattened text content (set by the agent lib)
+	if (msg.text) return msg.text;
+	// Fallback: extract from message.content if it's a string
+	if (msg.message && typeof msg.message.content === "string") {
+		return msg.message.content;
+	}
+	return "";
+}
+
+export const searchThreads = query({
+	args: {
+		workspaceId: v.id("workspaces"),
+		query: v.string(),
+	},
+	handler: async (ctx, { workspaceId, query: searchQuery }) => {
+		const { userId } = await requireWorkspaceMember(ctx, workspaceId);
+		const trimmed = searchQuery.trim().toLowerCase();
+		if (!trimmed) return [];
+
+		// Fetch all user threads in this workspace (most recent first)
+		const allThreads = await ctx.db
+			.query("aiThreads")
+			.withIndex("by_workspace_user", (q) =>
+				q.eq("workspaceId", workspaceId).eq("userId", userId),
+			)
+			.order("desc")
+			.collect();
+
+		const visibleThreads = allThreads.filter((t) => !t.isIncognito);
+
+		// Phase 1: title matches (fast)
+		const titleMatches = new Set<string>();
+		const results: typeof visibleThreads = [];
+		for (const thread of visibleThreads) {
+			if (thread.title && thread.title.toLowerCase().includes(trimmed)) {
+				titleMatches.add(thread.threadId);
+				results.push(thread);
+			}
+		}
+
+		// Phase 2: message content matches (check threads not already matched)
+		// Limit to first 50 threads to keep query fast
+		const candidateThreads = visibleThreads
+			.filter((t) => !titleMatches.has(t.threadId))
+			.slice(0, 50);
+
+		for (const thread of candidateThreads) {
+			const messagesResult = await listMessages(ctx, components.agent, {
+				threadId: thread.threadId,
+				paginationOpts: { numItems: 20, cursor: null },
+			});
+
+			const hasMatch = messagesResult.page.some((msg) => {
+				const text = extractMessageText(msg);
+				return text.toLowerCase().includes(trimmed);
+			});
+
+			if (hasMatch) {
+				results.push(thread);
+			}
+		}
+
+		// Sort by updatedAt descending (most recent first)
+		results.sort((a, b) => b.updatedAt - a.updatedAt);
+
+		return results;
 	},
 });
 

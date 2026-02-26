@@ -165,6 +165,9 @@ function partsKey(parts: UIMessage["parts"]): string {
 		} else if (isSourcePart(p as { type: string })) {
 			const sp = p as AnySourcePart;
 			key += `s:${sp.sourceId},`;
+		} else if (p.type === "text") {
+			const tp = p as { text: string };
+			key += `x:${tp.text?.length ?? 0},`;
 		}
 	}
 	return key;
@@ -450,10 +453,7 @@ export const AssistantMessage = memo(
 								isStreaming={isStreaming}
 							/>
 						) : isStreaming ? (
-							<Reasoning className="mb-0 w-full" isStreaming>
-								<ReasoningTrigger />
-								<ReasoningContent>{""}</ReasoningContent>
-							</Reasoning>
+							<StreamingDots />
 						) : null}
 						{artifactCards.map((artifact) => (
 							<ArtifactCard key={artifact.id} artifact={artifact} />

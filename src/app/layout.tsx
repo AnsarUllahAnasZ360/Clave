@@ -4,7 +4,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ConvexProvider } from "@/components/providers/convex-provider";
 import { ThemeProvider } from "@/components/theme-provider";
-import { WebVitalsReporter } from "@/components/web-vitals-reporter";
 import "./globals.css";
 
 const inter = Inter({
@@ -30,7 +29,6 @@ export default function RootLayout({
 			>
 				<ConvexAuthNextjsServerProvider>
 					<ConvexProvider>
-						<WebVitalsReporter />
 						<ThemeProvider
 							attribute="class"
 							defaultTheme="system"

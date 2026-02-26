@@ -1,0 +1,16 @@
+export const PUBLIC_ROUTES: readonly string[] = [
+	"/",
+	"/sign-in",
+	"/sign-up",
+	"/auth/callback",
+	...(process.env.NEXT_PUBLIC_DEV_MODE === "true" ? ["/dev-login"] : []),
+	"/icon(.*)",
+	"/favicon.ico",
+	"/brand(.*)",
+	"/api/webhooks/(.*)",
+	"/api/web-vitals",
+	"/api/auth/(.*)",
+	"/docs(.*)",
+	"/share(.*)",
+	"/join(.*)",
+];

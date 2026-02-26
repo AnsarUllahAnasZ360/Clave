@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { requireAuth } from "./lib/auth";
 
 const destinationSourceValidator = v.union(
 	v.literal("lastActiveContext"),
@@ -198,6 +199,7 @@ export const current = query({
 			notifyEmail: v.optional(v.boolean()),
 			notifyPush: v.optional(v.boolean()),
 			notifyInApp: v.optional(v.boolean()),
+			notifyGoogleChat: v.optional(v.boolean()),
 			aiAboutMe: v.optional(v.string()),
 			aiHowToWorkWithMe: v.optional(v.string()),
 			personalSlashCommands: v.optional(v.array(slashCommandValidator)),
@@ -205,6 +207,9 @@ export const current = query({
 			lastActiveOrganizationId: v.optional(v.id("organizations")),
 			lastActiveWorkspaceId: v.optional(v.id("workspaces")),
 			lastActiveContextAt: v.optional(v.number()),
+			suspended: v.optional(v.boolean()),
+			isDemoUser: v.optional(v.boolean()),
+			demoOnboardingDismissed: v.optional(v.boolean()),
 		}),
 		v.null(),
 	),
@@ -218,7 +223,38 @@ export const current = query({
 			const url = await ctx.storage.getUrl(user.avatarStorageId);
 			if (url) avatarUrl = url;
 		}
-		return { ...user, avatarUrl: avatarUrl ?? user.image };
+		// Explicitly pick fields to avoid returning auth-internal fields
+		// (emailVerificationTime, phone, phoneVerificationTime, isAnonymous)
+		return {
+			_id: user._id,
+			_creationTime: user._creationTime,
+			name: user.name,
+			email: user.email,
+			image: user.image,
+			avatarStorageId: user.avatarStorageId,
+			avatarUrl: avatarUrl ?? user.image,
+			role: user.role,
+			timezone: user.timezone,
+			theme: user.theme,
+			locale: user.locale,
+			sidebarCollapsed: user.sidebarCollapsed,
+			compactMode: user.compactMode,
+			sidebarSections: user.sidebarSections,
+			notifyEmail: user.notifyEmail,
+			notifyPush: user.notifyPush,
+			notifyInApp: user.notifyInApp,
+			notifyGoogleChat: user.notifyGoogleChat,
+			aiAboutMe: user.aiAboutMe,
+			aiHowToWorkWithMe: user.aiHowToWorkWithMe,
+			personalSlashCommands: user.personalSlashCommands,
+			lastSeenVersion: user.lastSeenVersion,
+			lastActiveOrganizationId: user.lastActiveOrganizationId,
+			lastActiveWorkspaceId: user.lastActiveWorkspaceId,
+			lastActiveContextAt: user.lastActiveContextAt,
+			suspended: user.suspended,
+			isDemoUser: user.isDemoUser,
+			demoOnboardingDismissed: user.demoOnboardingDismissed,
+		};
 	},
 });
 
@@ -239,6 +275,7 @@ export const getById = query({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
+		await requireAuth(ctx);
 		const user = await ctx.db.get(args.userId);
 		if (!user) return null;
 		let avatarUrl: string | undefined;
@@ -304,6 +341,7 @@ export const update = mutation({
 		notifyEmail: v.optional(v.boolean()),
 		notifyPush: v.optional(v.boolean()),
 		notifyInApp: v.optional(v.boolean()),
+		notifyGoogleChat: v.optional(v.boolean()),
 		aiAboutMe: v.optional(v.string()),
 		aiHowToWorkWithMe: v.optional(v.string()),
 		personalSlashCommands: v.optional(v.array(slashCommandValidator)),
@@ -313,6 +351,34 @@ export const update = mutation({
 		const userId = await getAuthUserId(ctx);
 		if (!userId) {
 			throw new ConvexError("Not authenticated");
+		}
+
+		// Server-side profile validation
+		if (args.name !== undefined) {
+			const trimmed = args.name.trim();
+			if (trimmed.length < 1 || trimmed.length > 100) {
+				throw new ConvexError("Name must be between 1 and 100 characters");
+			}
+			args.name = trimmed;
+		}
+		if (args.aiAboutMe !== undefined && args.aiAboutMe.length > 2000) {
+			throw new ConvexError("About me must be at most 2000 characters");
+		}
+		if (
+			args.aiHowToWorkWithMe !== undefined &&
+			args.aiHowToWorkWithMe.length > 2000
+		) {
+			throw new ConvexError(
+				"How to work with me must be at most 2000 characters",
+			);
+		}
+		if (
+			args.personalSlashCommands !== undefined &&
+			JSON.stringify(args.personalSlashCommands).length > 5000
+		) {
+			throw new ConvexError(
+				"Personal slash commands must be at most 5000 characters",
+			);
 		}
 
 		// Build patch object from provided fields only
@@ -468,5 +534,74 @@ export const getAvatarUrl = query({
 		const user = await ctx.db.get(userId);
 		if (!user?.avatarStorageId) return null;
 		return await ctx.storage.getUrl(user.avatarStorageId);
+	},
+});
+
+/** Soft-delete the authenticated user's account */
+export const deleteAccount = mutation({
+	args: {},
+	returns: v.object({ success: v.boolean() }),
+	handler: async (ctx) => {
+		const userId = await requireAuth(ctx);
+
+		const user = await ctx.db.get(userId);
+		if (!user) {
+			throw new ConvexError("User not found");
+		}
+
+		// Check that user is not the sole owner of any organization
+		const orgMemberships = await ctx.db
+			.query("organizationMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+
+		for (const membership of orgMemberships) {
+			if (membership.role === "owner") {
+				// Check if there are other owners in this organization
+				const allOrgMembers = await ctx.db
+					.query("organizationMembers")
+					.withIndex("by_org", (q) =>
+						q.eq("organizationId", membership.organizationId),
+					)
+					.collect();
+				const otherOwners = allOrgMembers.filter(
+					(m) => m.role === "owner" && m.userId !== userId,
+				);
+				if (otherOwners.length === 0) {
+					const org = await ctx.db.get(membership.organizationId);
+					throw new ConvexError(
+						`You are the sole owner of "${org?.name ?? "an organization"}". Transfer ownership before deleting your account.`,
+					);
+				}
+			}
+		}
+
+		// Soft-delete user: anonymize profile
+		await ctx.db.patch(userId, {
+			deletedAt: Date.now(),
+			name: "Deleted User",
+			email: `deleted_${userId}@deleted.clave.app`,
+			image: undefined,
+			avatarStorageId: undefined,
+			aiAboutMe: undefined,
+			aiHowToWorkWithMe: undefined,
+			personalSlashCommands: undefined,
+		});
+
+		// Remove from all workspace memberships
+		const workspaceMemberships = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+		for (const membership of workspaceMemberships) {
+			await ctx.db.delete(membership._id);
+		}
+
+		// Remove from all organization memberships (non-owner already validated above)
+		for (const membership of orgMemberships) {
+			await ctx.db.delete(membership._id);
+		}
+
+		return { success: true };
 	},
 });

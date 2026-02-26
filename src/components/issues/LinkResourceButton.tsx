@@ -36,10 +36,14 @@ export function LinkResourceButton({
 	const [search, setSearch] = useState("");
 	const linkResource = useMutation(api.issues.linkResource);
 
-	const documents = useQuery(api.documents.listByWorkspace, { workspaceId });
-	const whiteboards = useQuery(api.whiteboards.listByWorkspace, {
-		workspaceId,
-	});
+	const documents = useQuery(
+		api.documents.listByWorkspace,
+		open ? { workspaceId } : "skip",
+	);
+	const whiteboards = useQuery(
+		api.whiteboards.listByWorkspace,
+		open ? { workspaceId, includePeople: false, limit: 120 } : "skip",
+	);
 
 	const filteredDocs = (documents ?? []).filter(
 		(d) =>

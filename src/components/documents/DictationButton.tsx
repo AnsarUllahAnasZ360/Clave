@@ -1,15 +1,14 @@
 "use client";
 
 import { Loader2, Mic, MicOff } from "lucide-react";
-import { useEditorRef } from "platejs/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useWorkspace } from "@/components/providers/workspace-context";
+import { useGlobalDictationOptional } from "@/components/providers/global-dictation-provider";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { type DictationState, useDictation } from "@/hooks/use-dictation";
+import type { DictationState } from "@/hooks/use-dictation";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -40,8 +39,7 @@ function WaveformBars() {
 // ── DictationButton ──────────────────────────────────────────────────────
 
 export function DictationButton() {
-	const editor = useEditorRef();
-	const { workspaceId } = useWorkspace();
+	const globalDictation = useGlobalDictationOptional();
 
 	// SSR-safe browser capability detection
 	const [isSupported, setIsSupported] = useState(true);
@@ -55,27 +53,9 @@ export function DictationButton() {
 		);
 	}, []);
 
-	const handleTranscript = useCallback(
-		(text: string) => {
-			// Focus the editor and insert text at the current cursor position
-			editor.tf.focus();
-			editor.tf.insertText(text);
-		},
-		[editor],
-	);
-
-	const {
-		state,
-		startDictation,
-		stopDictation,
-		duration,
-		canRetry,
-		retryTranscription,
-		discardRecording,
-	} = useDictation({
-		workspaceId,
-		onTranscript: handleTranscript,
-	});
+	const state = globalDictation?.state ?? "idle";
+	const duration = globalDictation?.duration ?? 0;
+	const canRetry = globalDictation?.canRetry ?? false;
 
 	// ── Screen reader announcements ───────────────────────────────────────
 
@@ -98,33 +78,9 @@ export function DictationButton() {
 	}, [state]);
 
 	const handleClick = useCallback(() => {
-		if (!isSupported) return;
-		if (state === "idle") {
-			startDictation();
-		} else if (state === "recording") {
-			stopDictation();
-		} else if (state === "error") {
-			// Retry same recording if attempts remain; otherwise start fresh
-			if (canRetry) {
-				retryTranscription();
-			} else {
-				discardRecording();
-				startDictation();
-			}
-		}
-	}, [
-		state,
-		isSupported,
-		canRetry,
-		discardRecording,
-		startDictation,
-		stopDictation,
-		retryTranscription,
-	]);
-
-	// NOTE: Global dictation event handling (clave:dictation-toggle) is now
-	// managed by DictationBridge inside EditorAIBridge. This button remains
-	// as a visible click target in the DocumentEditor toolbar.
+		if (!isSupported || !globalDictation) return;
+		globalDictation.toggleDictation();
+	}, [isSupported, globalDictation]);
 
 	// ── Aria label ────────────────────────────────────────────────────────
 
@@ -160,7 +116,7 @@ export function DictationButton() {
 	} else {
 		switch (state) {
 			case "idle":
-				tooltipText = "Dictate (⌘⇧V)";
+				tooltipText = "Dictate (Ctrl+Space)";
 				break;
 			case "requesting-permission":
 				tooltipText = "Requesting microphone...";

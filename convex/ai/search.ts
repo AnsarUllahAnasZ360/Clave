@@ -11,6 +11,7 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import {
+	GLOBAL_DOCS_NAMESPACE,
 	getCodeNamespace,
 	getProjectNamespace,
 	type RagSourceType,
@@ -41,16 +42,18 @@ export const vectorSearch = internalAction({
 		limit: v.number(),
 		sourceTypeFilters: v.optional(v.array(v.string())),
 		includeCode: v.boolean(),
+		includeGlobalDocs: v.optional(v.boolean()),
 	},
 	returns: v.array(vVectorSearchResult),
 	handler: async (ctx, args) => {
 		const namespace = getProjectNamespace(args.projectId);
+		const includeGlobalDocs = args.includeGlobalDocs ?? true;
 
 		// Build sourceType filters if specified (typed as RagSourceType)
 		const filters: Array<{ name: "sourceType"; value: RagSourceType }> = [];
 		if (args.sourceTypeFilters && args.sourceTypeFilters.length > 0) {
 			for (const st of args.sourceTypeFilters) {
-				if (st !== "github_file") {
+				if (st !== "github_file" && st !== "doc_page") {
 					filters.push({
 						name: "sourceType",
 						value: st as RagSourceType,
@@ -107,6 +110,35 @@ export const vectorSearch = internalAction({
 			}
 		}
 
+		// Also search global docs namespace for product documentation
+		if (
+			includeGlobalDocs &&
+			(!args.sourceTypeFilters ||
+				args.sourceTypeFilters.length === 0 ||
+				args.sourceTypeFilters.includes("doc_page"))
+		) {
+			try {
+				const docsResults = await rag.search(ctx, {
+					namespace: GLOBAL_DOCS_NAMESPACE,
+					query: args.query,
+					limit: Math.min(args.limit, 5),
+				});
+				for (let i = 0; i < docsResults.entries.length; i++) {
+					const entry = docsResults.entries[i];
+					results.push({
+						sourceType: "doc_page",
+						sourceId: (entry.metadata?.sourceId as string) ?? "",
+						title: entry.title ?? "",
+						snippet: truncateSnippet(entry.text, 200),
+						score: docsResults.results[i]?.score ?? 0,
+						metadata: (entry.metadata as Record<string, unknown>) ?? {},
+					});
+				}
+			} catch {
+				// Global docs namespace may not exist yet — silently skip
+			}
+		}
+
 		return results;
 	},
 });
@@ -159,6 +191,41 @@ export const codeSearch = internalAction({
 			});
 		} catch {
 			// Code namespace may not exist yet
+			return [];
+		}
+	},
+});
+
+// ── Docs Search Action ──────────────────────────────────────────────────
+
+/**
+ * Search the global docs namespace for product documentation.
+ * Returns doc page results matching the query.
+ */
+export const docsSearch = internalAction({
+	args: {
+		query: v.string(),
+		limit: v.number(),
+	},
+	returns: v.array(vVectorSearchResult),
+	handler: async (ctx, args) => {
+		try {
+			const docsResults = await rag.search(ctx, {
+				namespace: GLOBAL_DOCS_NAMESPACE,
+				query: args.query,
+				limit: args.limit,
+			});
+
+			return docsResults.entries.map((entry, i) => ({
+				sourceType: "doc_page",
+				sourceId: (entry.metadata?.sourceId as string) ?? "",
+				title: entry.title ?? "",
+				snippet: truncateSnippet(entry.text, 200),
+				score: docsResults.results[i]?.score ?? 0,
+				metadata: (entry.metadata as Record<string, unknown>) ?? {},
+			}));
+		} catch {
+			// Global docs namespace may not exist yet
 			return [];
 		}
 	},

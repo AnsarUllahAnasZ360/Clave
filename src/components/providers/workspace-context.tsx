@@ -9,6 +9,7 @@ interface WorkspaceContextValue {
 	workspaceName: string;
 	orgSlug: string;
 	logoUrl?: string | null;
+	isDemo?: boolean;
 }
 
 export const WorkspaceContext = createContext<WorkspaceContextValue | null>(

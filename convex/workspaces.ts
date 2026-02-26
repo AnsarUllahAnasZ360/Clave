@@ -44,9 +44,21 @@ export const list = query({
 			memberships.map((m) => ctx.db.get(m.workspaceId)),
 		);
 
-		return workspaceResults.filter(
-			(w): w is NonNullable<typeof w> => w !== null && !w.deletedAt,
-		);
+		return workspaceResults
+			.filter((w): w is NonNullable<typeof w> => w !== null && !w.deletedAt)
+			.map((w) => ({
+				_id: w._id,
+				_creationTime: w._creationTime,
+				name: w.name,
+				slug: w.slug,
+				ownerId: w.ownerId,
+				organizationId: w.organizationId,
+				visibility: w.visibility,
+				description: w.description,
+				logoStorageId: w.logoStorageId,
+				updatedAt: w.updatedAt,
+				deletedAt: w.deletedAt,
+			}));
 	},
 });
 
@@ -68,14 +80,16 @@ export const create = mutation({
 
 		const slug = args.slug || generateSlug(args.name);
 
-		// Check slug uniqueness
+		// Check slug uniqueness within the organization
 		const existing = await ctx.db
 			.query("workspaces")
-			.withIndex("by_slug", (q) => q.eq("slug", slug))
-			.unique();
+			.withIndex("by_org_slug", (q) =>
+				q.eq("organizationId", args.organizationId).eq("slug", slug),
+			)
+			.first();
 		if (existing) {
 			throw new ConvexError(
-				"A workspace with this slug already exists. Please choose a different name.",
+				"A workspace with this slug already exists in this organization. Please choose a different name.",
 			);
 		}
 
@@ -157,13 +171,31 @@ export const update = mutation({
 			if (normalized.length < 2) {
 				throw new ConvexError("Slug must be at least 2 characters");
 			}
-			// Check uniqueness (allow same workspace to keep its slug)
-			const existing = await ctx.db
-				.query("workspaces")
-				.withIndex("by_slug", (q) => q.eq("slug", normalized))
-				.unique();
-			if (existing && existing._id !== args.workspaceId) {
-				throw new ConvexError("A workspace with this slug already exists");
+			// Check org-scoped slug uniqueness (allow same workspace to keep its slug)
+			const workspace = await ctx.db.get(args.workspaceId);
+			if (workspace?.organizationId) {
+				const existing = await ctx.db
+					.query("workspaces")
+					.withIndex("by_org_slug", (q) =>
+						q
+							.eq("organizationId", workspace.organizationId)
+							.eq("slug", normalized),
+					)
+					.first();
+				if (existing && existing._id !== args.workspaceId) {
+					throw new ConvexError(
+						"A workspace with this slug already exists in this organization",
+					);
+				}
+			} else {
+				// Fallback to global uniqueness for orphan workspaces
+				const existing = await ctx.db
+					.query("workspaces")
+					.withIndex("by_slug", (q) => q.eq("slug", normalized))
+					.unique();
+				if (existing && existing._id !== args.workspaceId) {
+					throw new ConvexError("A workspace with this slug already exists");
+				}
 			}
 			patch.slug = normalized;
 		}
@@ -188,6 +220,7 @@ export const getLogoUrl = query({
 	args: { workspaceId: v.id("workspaces") },
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
+		await requireAuth(ctx);
 		const workspace = await ctx.db.get(args.workspaceId);
 		if (!workspace || !workspace.logoStorageId) return null;
 		return await ctx.storage.getUrl(workspace.logoStorageId);
@@ -210,19 +243,34 @@ export const getBySlug = query({
 			),
 			description: v.optional(v.string()),
 			logoStorageId: v.optional(v.id("_storage")),
+			isDemo: v.optional(v.boolean()),
 			updatedAt: v.optional(v.number()),
 			deletedAt: v.optional(v.number()),
 		}),
 		v.null(),
 	),
 	handler: async (ctx, args) => {
+		await requireAuth(ctx);
 		const workspace = await ctx.db
 			.query("workspaces")
 			.withIndex("by_slug", (q) => q.eq("slug", args.slug))
 			.unique();
 
 		if (!workspace || workspace.deletedAt) return null;
-		return workspace;
+		return {
+			_id: workspace._id,
+			_creationTime: workspace._creationTime,
+			name: workspace.name,
+			slug: workspace.slug,
+			ownerId: workspace.ownerId,
+			organizationId: workspace.organizationId,
+			visibility: workspace.visibility,
+			description: workspace.description,
+			logoStorageId: workspace.logoStorageId,
+			isDemo: workspace.isDemo,
+			updatedAt: workspace.updatedAt,
+			deletedAt: workspace.deletedAt,
+		};
 	},
 });
 
@@ -243,6 +291,7 @@ export const listByOrganization = query({
 			description: v.optional(v.string()),
 			logoStorageId: v.optional(v.id("_storage")),
 			logoUrl: v.optional(v.string()),
+			isDemo: v.optional(v.boolean()),
 			updatedAt: v.optional(v.number()),
 			deletedAt: v.optional(v.number()),
 			isMember: v.boolean(),
@@ -302,8 +351,19 @@ export const listByOrganization = query({
 		);
 
 		return visible.map(({ workspace, isMember, memberCount }, i) => ({
-			...workspace,
+			_id: workspace._id,
+			_creationTime: workspace._creationTime,
+			name: workspace.name,
+			slug: workspace.slug,
+			ownerId: workspace.ownerId,
+			organizationId: workspace.organizationId,
+			visibility: workspace.visibility,
+			description: workspace.description,
+			logoStorageId: workspace.logoStorageId,
+			updatedAt: workspace.updatedAt,
+			deletedAt: workspace.deletedAt,
 			logoUrl: logoUrls[i] ?? undefined,
+			isDemo: workspace.isDemo,
 			isMember,
 			memberCount,
 		}));

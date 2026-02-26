@@ -122,14 +122,26 @@ export const claveAgent = new Agent(components.agent, {
 	},
 	usageHandler: async (_ctx, args) => {
 		const { userId, threadId, agentName, model, provider, usage } = args;
+		const normalizedModel = String(model ?? "").toLowerCase();
+		const normalizedProvider = String(provider ?? "").toLowerCase();
+		const usageType =
+			normalizedModel.includes("embedding") ||
+			normalizedProvider.includes("embedding")
+				? "embedding"
+				: "generation";
+		const logLabel =
+			usageType === "embedding"
+				? "[chat-tokens:embedding]"
+				: "[chat-tokens:generation]";
 		console.info(
-			"[chat-tokens]",
+			logLabel,
 			JSON.stringify({
 				userId,
 				threadId,
 				agentName,
 				model,
 				provider,
+				usageType,
 				inputTokens: usage.inputTokens,
 				outputTokens: usage.outputTokens,
 				totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),

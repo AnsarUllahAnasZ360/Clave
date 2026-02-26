@@ -3,6 +3,9 @@ import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { requireWorkspaceMember } from "./lib/auth";
 
+const DEFAULT_RECENTS_LIMIT = 5;
+const MAX_RECENTS_LIMIT = 20;
+
 const entityTypeValidator = v.union(
 	v.literal("document"),
 	v.literal("whiteboard"),
@@ -57,6 +60,7 @@ export const record = mutation({
 export const list = query({
 	args: {
 		workspaceId: v.id("workspaces"),
+		limit: v.optional(v.number()),
 	},
 	returns: v.array(
 		v.object({
@@ -71,6 +75,10 @@ export const list = query({
 	),
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		const limit = Math.max(
+			1,
+			Math.min(args.limit ?? DEFAULT_RECENTS_LIMIT, MAX_RECENTS_LIMIT),
+		);
 
 		const recents = await ctx.db
 			.query("recents")
@@ -78,7 +86,7 @@ export const list = query({
 				q.eq("userId", userId).eq("workspaceId", args.workspaceId),
 			)
 			.order("desc")
-			.take(5);
+			.take(limit);
 
 		const resolved = await Promise.all(
 			recents.map(async (recent) => {

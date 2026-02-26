@@ -1,7 +1,14 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { type MutationCtx, mutation, query } from "./_generated/server";
+import {
+	internalMutation,
+	internalQuery,
+	type MutationCtx,
+	mutation,
+	type QueryCtx,
+	query,
+} from "./_generated/server";
 import { logActivity } from "./lib/activity";
 import {
 	canAccessProject,
@@ -21,6 +28,14 @@ const issueStatusValidator = v.union(
 	v.literal("in_review"),
 	v.literal("done"),
 	v.literal("cancelled"),
+);
+
+const nonDestructiveIssueStatusValidator = v.union(
+	v.literal("triage"),
+	v.literal("backlog"),
+	v.literal("todo"),
+	v.literal("in_progress"),
+	v.literal("in_review"),
 );
 
 const issuePriorityValidator = v.union(
@@ -2682,5 +2697,463 @@ export const unlinkResource = mutation({
 				updatedAt: Date.now(),
 			});
 		}
+	},
+});
+
+// ── Integration Bridge (Google Chat actions) ─────────────────────────────
+
+const integrationIssueActionResultValidator = v.object({
+	issueId: v.id("issues"),
+	workspaceId: v.id("workspaces"),
+	identifier: v.string(),
+	title: v.string(),
+	status: v.string(),
+	assigneeId: v.optional(v.id("users")),
+});
+
+const googleChatDuplicateCandidateValidator = v.object({
+	issueId: v.id("issues"),
+	identifier: v.string(),
+	title: v.string(),
+	status: v.string(),
+	priority: v.string(),
+	projectId: v.optional(v.id("projects")),
+});
+
+const googleChatIssueContextValidator = v.object({
+	issueId: v.id("issues"),
+	workspaceId: v.id("workspaces"),
+	workspaceSlug: v.string(),
+	organizationSlug: v.optional(v.string()),
+	identifier: v.string(),
+	title: v.string(),
+	status: v.string(),
+	assigneeId: v.optional(v.id("users")),
+	assigneeName: v.optional(v.string()),
+});
+
+async function requireActorIssueAccess(
+	ctx: MutationCtx,
+	args: { issueId: Id<"issues">; actorUserId: Id<"users"> },
+) {
+	const issue = await ctx.db.get(args.issueId);
+	if (!issue || issue.deletedAt) {
+		throw new ConvexError("Issue not found");
+	}
+
+	const membership = await ctx.db
+		.query("workspaceMembers")
+		.withIndex("by_workspace_user", (q) =>
+			q.eq("workspaceId", issue.workspaceId).eq("userId", args.actorUserId),
+		)
+		.unique();
+	if (!membership) {
+		throw new ConvexError("Not a workspace member");
+	}
+
+	if (membership.role !== "admin" && issue.projectId) {
+		const hasAccess = await canAccessProject(
+			ctx,
+			issue.projectId,
+			args.actorUserId,
+			membership.role as "admin" | "member",
+		);
+		if (
+			!hasAccess &&
+			issue.assigneeId !== args.actorUserId &&
+			issue.createdBy !== args.actorUserId
+		) {
+			throw new ConvexError("You don't have access to this issue's project");
+		}
+	}
+
+	return issue;
+}
+
+async function requireWorkspaceActorMembership(args: {
+	ctx: MutationCtx | QueryCtx;
+	workspaceId: Id<"workspaces">;
+	actorUserId: Id<"users">;
+}) {
+	const membership = await args.ctx.db
+		.query("workspaceMembers")
+		.withIndex("by_workspace_user", (q) =>
+			q.eq("workspaceId", args.workspaceId).eq("userId", args.actorUserId),
+		)
+		.unique();
+	if (!membership) {
+		throw new ConvexError("Not a workspace member");
+	}
+	return membership;
+}
+
+async function resolveLabelIdsByNames(args: {
+	ctx: MutationCtx;
+	workspaceId: Id<"workspaces">;
+	labelNames?: string[];
+}) {
+	if (!args.labelNames || args.labelNames.length === 0) {
+		return undefined;
+	}
+	const normalized = args.labelNames
+		.map((name) => name.trim().toLowerCase())
+		.filter((name) => name.length > 0);
+	if (normalized.length === 0) return undefined;
+
+	const labels = await args.ctx.db
+		.query("labels")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+		.collect();
+
+	const matchIds = labels
+		.filter((label) => !label.deletedAt)
+		.filter((label) => normalized.includes(label.name.trim().toLowerCase()))
+		.map((label) => label._id);
+
+	return matchIds.length > 0 ? matchIds : undefined;
+}
+
+async function buildIntegrationIssueActionResult(
+	ctx: MutationCtx,
+	issueId: Id<"issues">,
+) {
+	const issue = await ctx.db.get(issueId);
+	if (!issue || issue.deletedAt) {
+		throw new ConvexError("Issue not found");
+	}
+
+	return {
+		issueId: issue._id,
+		workspaceId: issue.workspaceId,
+		identifier: issue.identifier,
+		title: issue.title,
+		status: issue.status,
+		assigneeId: issue.assigneeId,
+	};
+}
+
+export const searchForGoogleChatDuplicates = internalQuery({
+	args: {
+		workspaceId: v.id("workspaces"),
+		actorUserId: v.id("users"),
+		searchTerm: v.string(),
+		limit: v.optional(v.number()),
+	},
+	returns: v.array(googleChatDuplicateCandidateValidator),
+	handler: async (ctx, args) => {
+		const searchTerm = args.searchTerm.trim();
+		if (!searchTerm) return [];
+
+		const membership = await requireWorkspaceActorMembership({
+			ctx,
+			workspaceId: args.workspaceId,
+			actorUserId: args.actorUserId,
+		});
+		const accessibleProjectIds = await getAccessibleProjectIds(
+			ctx,
+			args.workspaceId,
+			args.actorUserId,
+			membership.role as "admin" | "member",
+		);
+
+		const issues = await ctx.db
+			.query("issues")
+			.withSearchIndex("search_title", (q) =>
+				q.search("title", searchTerm).eq("workspaceId", args.workspaceId),
+			)
+			.take(20);
+
+		const filtered = issues.filter((issue) => {
+			if (issue.deletedAt) return false;
+			if (accessibleProjectIds !== null) {
+				const inAccessibleProject =
+					issue.projectId && accessibleProjectIds.has(issue.projectId);
+				const isAssigned = issue.assigneeId === args.actorUserId;
+				const isCreator = issue.createdBy === args.actorUserId;
+				if (!inAccessibleProject && !isAssigned && !isCreator) return false;
+			}
+			return true;
+		});
+
+		const limit = Math.max(1, Math.min(args.limit ?? 8, 20));
+		return filtered.slice(0, limit).map((issue) => ({
+			issueId: issue._id,
+			identifier: issue.identifier,
+			title: issue.title,
+			status: issue.status,
+			priority: issue.priority,
+			projectId: issue.projectId,
+		}));
+	},
+});
+
+export const createFromGoogleChatIntegration = internalMutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		actorUserId: v.id("users"),
+		title: v.string(),
+		description: v.optional(v.string()),
+		status: v.optional(issueStatusValidator),
+		priority: v.optional(issuePriorityValidator),
+		type: v.optional(issueTypeValidator),
+		labelNames: v.optional(v.array(v.string())),
+		tags: v.optional(v.array(v.string())),
+	},
+	returns: v.object({
+		issueId: v.id("issues"),
+		identifier: v.string(),
+	}),
+	handler: async (ctx, args) => {
+		await requireWorkspaceActorMembership({
+			ctx,
+			workspaceId: args.workspaceId,
+			actorUserId: args.actorUserId,
+		});
+
+		const trimmedTitle = args.title.trim();
+		if (!trimmedTitle) {
+			throw new ConvexError("Issue title is required");
+		}
+
+		const settings = await ctx.db
+			.query("workspaceSettings")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+			.unique();
+		if (!settings) {
+			throw new ConvexError("Workspace settings not found");
+		}
+
+		const prefix = settings.issuePrefix ?? settings.storyPrefix;
+		const nextNumber = settings.nextIssueNumber ?? 1;
+		const identifier = generateIdentifier(prefix, nextNumber);
+		await ctx.db.patch(settings._id, {
+			issuePrefix: prefix,
+			nextIssueNumber: nextNumber + 1,
+		});
+
+		const status = args.status ?? "triage";
+		const labelIds = await resolveLabelIdsByNames({
+			ctx,
+			workspaceId: args.workspaceId,
+			labelNames: args.labelNames,
+		});
+
+		const issueId = await ctx.db.insert("issues", {
+			workspaceId: args.workspaceId,
+			identifier,
+			title: trimmedTitle,
+			description: args.description?.trim() ? args.description : undefined,
+			status,
+			priority: args.priority ?? "no_priority",
+			type: args.type ?? "issue",
+			labelIds,
+			tags: args.tags,
+			sortOrder: fractionalIndex(null, null),
+			createdBy: args.actorUserId,
+			completedAt: isCompletedStatus(status) ? Date.now() : undefined,
+		});
+
+		await logActivity(ctx, {
+			workspaceId: args.workspaceId,
+			entityType: "issue",
+			entityId: issueId,
+			action: "created",
+			actorId: args.actorUserId,
+			description: `created issue "${identifier}: ${trimmedTitle}" from Google Chat`,
+			issueId,
+			projectId: undefined,
+			metadata: JSON.stringify({ identifier, source: "google-chat" }),
+		});
+
+		await autoSubscribe(ctx, issueId, args.actorUserId);
+		await ctx.scheduler.runAfter(
+			0,
+			internal.ai.indexing.issueIndexer.indexIssue,
+			{ issueId },
+		);
+
+		return { issueId, identifier };
+	},
+});
+
+export const resolveIssueIdByIdentifierInternal = internalQuery({
+	args: {
+		workspaceId: v.id("workspaces"),
+		identifier: v.string(),
+	},
+	returns: v.union(v.id("issues"), v.null()),
+	handler: async (ctx, args) => {
+		const issue = await ctx.db
+			.query("issues")
+			.withIndex("by_identifier", (q) =>
+				q
+					.eq("workspaceId", args.workspaceId)
+					.eq("identifier", args.identifier.toUpperCase()),
+			)
+			.unique();
+
+		if (!issue || issue.deletedAt) {
+			return null;
+		}
+		return issue._id;
+	},
+});
+
+export const getGoogleChatIssueContextInternal = internalQuery({
+	args: {
+		issueId: v.id("issues"),
+	},
+	returns: v.union(googleChatIssueContextValidator, v.null()),
+	handler: async (ctx, args) => {
+		const issue = await ctx.db.get(args.issueId);
+		if (!issue || issue.deletedAt) {
+			return null;
+		}
+
+		const workspace = await ctx.db.get(issue.workspaceId);
+		if (!workspace) {
+			return null;
+		}
+
+		const [organization, assignee] = await Promise.all([
+			workspace.organizationId ? ctx.db.get(workspace.organizationId) : null,
+			issue.assigneeId ? ctx.db.get(issue.assigneeId) : null,
+		]);
+
+		return {
+			issueId: issue._id,
+			workspaceId: issue.workspaceId,
+			workspaceSlug: workspace.slug,
+			organizationSlug: organization?.slug,
+			identifier: issue.identifier,
+			title: issue.title,
+			status: issue.status,
+			assigneeId: issue.assigneeId,
+			assigneeName: assignee?.name,
+		};
+	},
+});
+
+export const assignToUserFromIntegration = internalMutation({
+	args: {
+		issueId: v.id("issues"),
+		actorUserId: v.id("users"),
+		assigneeId: v.id("users"),
+	},
+	returns: integrationIssueActionResultValidator,
+	handler: async (ctx, args) => {
+		const issue = await requireActorIssueAccess(ctx, {
+			issueId: args.issueId,
+			actorUserId: args.actorUserId,
+		});
+
+		await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
+
+		if (issue.assigneeId !== args.assigneeId) {
+			await ctx.db.patch(issue._id, {
+				assigneeId: args.assigneeId,
+				updatedAt: Date.now(),
+			});
+
+			const actor = await ctx.db.get(args.actorUserId);
+			const actorName = actor?.name ?? "Someone";
+			const assignee = await ctx.db.get(args.assigneeId);
+
+			await logActivity(ctx, {
+				workspaceId: issue.workspaceId,
+				entityType: "issue",
+				entityId: issue._id,
+				action: "updated",
+				actorId: args.actorUserId,
+				description: `assigned "${issue.identifier}" to ${assignee?.name ?? "a workspace member"}`,
+				issueId: issue._id,
+				projectId: issue.projectId,
+				field: "assigneeId",
+				oldValue: issue.assigneeId,
+				newValue: args.assigneeId,
+			});
+
+			await notifySubscribers(ctx, issue._id, {
+				workspaceId: issue.workspaceId,
+				type: "issue_status_changed",
+				title: "Issue updated",
+				body: `${actorName} reassigned '${issue.identifier}: ${issue.title}'`,
+				issueId: issue._id,
+				projectId: issue.projectId ?? undefined,
+				actorId: args.actorUserId,
+			});
+
+			if (args.assigneeId !== args.actorUserId) {
+				await createNotification(ctx, {
+					userId: args.assigneeId,
+					workspaceId: issue.workspaceId,
+					type: "issue_assigned",
+					title: "Issue assigned to you",
+					body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to you`,
+					issueId: issue._id,
+					projectId: issue.projectId ?? undefined,
+					actorId: args.actorUserId,
+				});
+			}
+		}
+
+		return await buildIntegrationIssueActionResult(ctx, issue._id);
+	},
+});
+
+export const updateStatusFromIntegration = internalMutation({
+	args: {
+		issueId: v.id("issues"),
+		actorUserId: v.id("users"),
+		status: nonDestructiveIssueStatusValidator,
+	},
+	returns: integrationIssueActionResultValidator,
+	handler: async (ctx, args) => {
+		const issue = await requireActorIssueAccess(ctx, {
+			issueId: args.issueId,
+			actorUserId: args.actorUserId,
+		});
+
+		const oldStatus = issue.status;
+		if (oldStatus !== args.status) {
+			const patch: Record<string, unknown> = {
+				status: args.status,
+				updatedAt: Date.now(),
+			};
+			if (!isCompletedStatus(args.status) && isCompletedStatus(oldStatus)) {
+				patch.completedAt = undefined;
+			}
+			await ctx.db.patch(issue._id, patch);
+
+			const oldLabel = oldStatus.replaceAll("_", " ");
+			const newLabel = args.status.replaceAll("_", " ");
+			await logActivity(ctx, {
+				workspaceId: issue.workspaceId,
+				entityType: "issue",
+				entityId: issue._id,
+				action: "status_changed",
+				actorId: args.actorUserId,
+				description: `changed status from ${oldLabel} to ${newLabel}`,
+				issueId: issue._id,
+				projectId: issue.projectId,
+				field: "status",
+				oldValue: oldStatus,
+				newValue: args.status,
+			});
+
+			const actor = await ctx.db.get(args.actorUserId);
+			const actorName = actor?.name ?? "Someone";
+			await notifySubscribers(ctx, issue._id, {
+				workspaceId: issue.workspaceId,
+				type: "issue_status_changed",
+				title: "Issue status changed",
+				body: `${actorName} changed '${issue.identifier}: ${issue.title}' from ${oldLabel} to ${newLabel}`,
+				issueId: issue._id,
+				projectId: issue.projectId ?? undefined,
+				actorId: args.actorUserId,
+			});
+		}
+
+		return await buildIntegrationIssueActionResult(ctx, issue._id);
 	},
 });

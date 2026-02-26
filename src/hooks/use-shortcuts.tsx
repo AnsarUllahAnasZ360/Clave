@@ -40,7 +40,7 @@ export interface ShortcutDefinition {
 	key: string;
 	label: string;
 	category: ShortcutCategory;
-	modifier?: "shift" | "alt" | "cmd" | "cmd+shift";
+	modifier?: "shift" | "alt" | "cmd" | "cmd+shift" | "ctrl" | "ctrl+shift";
 	popular?: boolean;
 }
 
@@ -181,11 +181,17 @@ export const ALL_SHORTCUTS: ShortcutDefinition[] = [
 		popular: true,
 	},
 	{
-		key: "V",
+		key: "Space",
 		label: "Toggle dictation",
 		category: "ai",
-		modifier: "cmd+shift",
+		modifier: "ctrl",
 		popular: true,
+	},
+	{
+		key: "Space",
+		label: "Dictation clipboard",
+		category: "ai",
+		modifier: "ctrl+shift",
 	},
 
 	// AI Chat
@@ -326,11 +332,20 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 	// Global keydown handler for shortcuts managed by the provider
 	useEffect(() => {
 		function handleKeyDown(e: KeyboardEvent) {
-			// Cmd+Shift+V / Ctrl+Shift+V — global dictation toggle
+			// Ctrl+Shift+Space — open dictation clipboard (settings)
+			if (e.ctrlKey && e.shiftKey && e.code === "Space") {
+				e.preventDefault();
+				window.dispatchEvent(new CustomEvent("clave:open-dictation-clipboard"));
+				return;
+			}
+
+			// Ctrl+Space — toggle dictation (works even in text inputs)
 			if (
-				(e.metaKey || e.ctrlKey) &&
-				e.shiftKey &&
-				e.key.toLowerCase() === "v"
+				e.ctrlKey &&
+				!e.shiftKey &&
+				!e.metaKey &&
+				!e.altKey &&
+				e.code === "Space"
 			) {
 				e.preventDefault();
 				window.dispatchEvent(
@@ -465,6 +480,26 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 				chordTimeoutRef.current = null;
 			}
 		};
+	}, [router, orgSlug, workspaceSlug, hasWorkspaceContext]);
+
+	// Listen for dictation clipboard open event (from shortcut, slash command, or palette)
+	useEffect(() => {
+		if (!hasWorkspaceContext) return;
+		function handleOpenClipboard() {
+			// biome-ignore lint/suspicious/noExplicitAny: dynamic workspace paths
+			router.push(
+				`/${orgSlug}/${workspaceSlug}/settings?section=dictation` as any,
+			);
+		}
+		window.addEventListener(
+			"clave:open-dictation-clipboard",
+			handleOpenClipboard,
+		);
+		return () =>
+			window.removeEventListener(
+				"clave:open-dictation-clipboard",
+				handleOpenClipboard,
+			);
 	}, [router, orgSlug, workspaceSlug, hasWorkspaceContext]);
 
 	const value = useMemo<ShortcutContextValue>(

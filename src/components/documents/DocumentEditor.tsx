@@ -69,7 +69,11 @@ const GifPicker = dynamic(
 );
 
 // Register the Convex provider type for Plate's YjsPlugin
-registerProviderType("convex", ConvexYjsProvider);
+let providerTypeRegistered = false;
+if (!providerTypeRegistered) {
+	registerProviderType("convex", ConvexYjsProvider);
+	providerTypeRegistered = true;
+}
 
 const CURSOR_COLORS = [
 	"#ef4444",
@@ -82,6 +86,60 @@ const CURSOR_COLORS = [
 	"#f87171",
 ];
 
+function hashString(value: string): number {
+	return value.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function randomSessionId(): string {
+	if (typeof window === "undefined") {
+		return `server-${Date.now()}`;
+	}
+	return (
+		window.crypto?.randomUUID?.() ??
+		`${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+	);
+}
+
+function getOrCreateTabSessionId(documentId: string): string {
+	if (typeof window === "undefined") {
+		return randomSessionId();
+	}
+	const key = `clave:doc-session:${documentId}`;
+	const existing = window.sessionStorage.getItem(key);
+	if (existing) return existing;
+	const created = randomSessionId();
+	window.sessionStorage.setItem(key, created);
+	return created;
+}
+
+function getOrCreateGuestIdentity(documentId: string): {
+	name: string;
+	color: string;
+} {
+	if (typeof window === "undefined") {
+		return { name: "Guest", color: CURSOR_COLORS[0] };
+	}
+	const key = `clave:doc-guest:${documentId}`;
+	const existing = window.localStorage.getItem(key);
+	if (existing) {
+		try {
+			const parsed = JSON.parse(existing) as { name?: string; color?: string };
+			if (parsed.name && parsed.color) {
+				return { name: parsed.name, color: parsed.color };
+			}
+		} catch {
+			// Ignore malformed local storage data.
+		}
+	}
+
+	const short = randomSessionId().slice(0, 4).toUpperCase();
+	const name = `Guest ${short}`;
+	const color = CURSOR_COLORS[hashString(name) % CURSOR_COLORS.length];
+	const created = { name, color };
+	window.localStorage.setItem(key, JSON.stringify(created));
+	return created;
+}
+
 /** Default empty Slate document for new Yjs documents. */
 function createDefaultSlateValue(): Record<string, unknown>[] {
 	return [{ type: "p", children: [{ text: "" }] }];
@@ -91,6 +149,17 @@ const DEFAULT_SLATE_VALUE = createDefaultSlateValue();
 
 /** Interval for periodic content snapshot saving (ms). */
 const SNAPSHOT_SAVE_INTERVAL_MS = 7_000;
+const FUNCTION_NOT_FOUND_PATTERNS = [
+	/function not found/i,
+	/could not find (?:public |internal )?function/i,
+	/unknown function/i,
+	/no function .*registered/i,
+];
+
+function isFunctionNotFoundError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return FUNCTION_NOT_FOUND_PATTERNS.some((pattern) => pattern.test(message));
+}
 
 function sanitizeLeafNode(
 	node: Record<string, unknown>,
@@ -192,16 +261,16 @@ export default function DocumentEditor({
 	// Optional chaining handles the loading state (document === undefined).
 	// Memoized so DocumentEditorInner's Yjs init effect is not re-triggered
 	// on unrelated re-renders (e.g. Convex query re-deliveries).
-	const needsSyncUpgrade =
+	const legacyContentFormat =
 		!document?.syncVersion || document.syncVersion === "v1";
+	const needsSyncUpgrade = document?.syncVersion !== "v3";
 	const initialValue = useMemo(() => {
-		const isV1 = !document?.syncVersion || document.syncVersion === "v1";
 		const convertedContent =
-			isV1 && document?.content
+			legacyContentFormat && document?.content
 				? parseAnyContentToSlate(document.content)
 				: undefined;
 		return normalizeSlateValue(convertedContent ?? DEFAULT_SLATE_VALUE);
-	}, [document?.content, document?.syncVersion]);
+	}, [document?.content, legacyContentFormat]);
 
 	// Note: mounted gate removed — this component is "use client" and loaded
 	// via next/dynamic with ssr: false, so it never SSRs. Removing the
@@ -257,36 +326,68 @@ function DocumentEditorInner({
 	needsSyncUpgrade,
 }: DocumentEditorInnerProps) {
 	const client = useConvex();
-	const createDocument = useMutation(api.yjsSync.createDocument);
+	const createDocument = useMutation(api.yjsV3.ensureDocument);
 	const updateContent = useMutation(api.documents.updateContent);
 	const [error, setError] = useState<string | null>(null);
+	const [retryKey, setRetryKey] = useState(0);
 	const [isSynced, setIsSynced] = useState(false);
 	const [gifPickerOpen, setGifPickerOpen] = useState(false);
 	const [embedDialogOpen, setEmbedDialogOpen] = useState(false);
 
+	const clientSessionId = useMemo(
+		() => getOrCreateTabSessionId(documentId),
+		[documentId],
+	);
+	const guestIdentity = useMemo(
+		() => (shareMode ? getOrCreateGuestIdentity(documentId) : null),
+		[shareMode, documentId],
+	);
+
 	// Stable user info for cursor awareness
 	const user = useMemo(() => {
-		if (shareMode || !currentUser) return undefined;
-		const hash = currentUser._id
-			.split("")
-			.reduce((a, c) => a + c.charCodeAt(0), 0);
+		if (shareMode) {
+			return {
+				name: guestIdentity?.name ?? "Guest",
+				color: guestIdentity?.color ?? CURSOR_COLORS[0],
+				isGuest: true,
+			};
+		}
+		if (!currentUser) return undefined;
+		const hash = hashString(currentUser._id);
 		return {
 			name: currentUser.name ?? currentUser.email ?? "Anonymous",
 			color: CURSOR_COLORS[hash % CURSOR_COLORS.length],
+			isGuest: false,
 		};
-	}, [shareMode, currentUser]);
+	}, [shareMode, currentUser, guestIdentity]);
 
 	// Refs for callbacks used inside useMemo (avoid re-creating editor)
 	const userRef = useRef(user);
 	userRef.current = user;
+	const createDocumentRef = useRef(createDocument);
+	createDocumentRef.current = createDocument;
 	const syncRef = useRef(setIsSynced);
 	syncRef.current = setIsSynced;
+	const bootstrapValueRef = useRef<{
+		documentId: Id<"documents">;
+		value: Record<string, unknown>[];
+	}>({
+		documentId,
+		value: initialValue,
+	});
+	if (bootstrapValueRef.current.documentId !== documentId) {
+		bootstrapValueRef.current = {
+			documentId,
+			value: initialValue,
+		};
+	}
 
 	const workspace = useWorkspaceOptional();
 
 	// Create Plate editor with all plugins + YjsPlugin for collaboration
 	const editor = useMemo(() => {
 		return createPlateEditor({
+			skipInitialization: true,
 			plugins: [
 				...createBasePlugins(),
 				// Enable AI slash menu items (filtered by "ai-editor" plugin presence)
@@ -299,6 +400,7 @@ function DocumentEditorInner({
 								options: {
 									client,
 									documentId,
+									clientSessionId,
 									user: userRef.current,
 								},
 							},
@@ -312,32 +414,103 @@ function DocumentEditorInner({
 				}),
 			],
 		});
-	}, [client, documentId, shareMode]);
+	}, [client, documentId, shareMode, clientSessionId, retryKey]);
 
-	// Ensure Yjs document exists and initialize collaboration.
-	// createDocument and yjs.init() run concurrently — createDocument is an
-	// idempotent upsert and they don't share mutable state before sync.
+	// Ensure Yjs document exists before initializing collaboration.
+	// If the backend contract is missing, fail fast to avoid silent retry loops.
 	useEffect(() => {
 		let cancelled = false;
+		let destroyed = false;
+		let initStarted = false;
+
+		const yjs = editor.getApi(YjsPlugin).yjs;
+
+		const destroyYjs = () => {
+			if (destroyed) return;
+			destroyed = true;
+			if (!initStarted) {
+				return;
+			}
+			try {
+				yjs.destroy();
+			} catch {
+				// Ignore cleanup errors.
+			}
+		};
+
+		const setErrorState = (err: unknown) => {
+			if (cancelled) return;
+			setError(
+				err instanceof Error ? err.message : "Failed to initialize editor",
+			);
+		};
 
 		perfMark("yjs-init-start");
 
 		async function init() {
-			// Fire both concurrently:
-			// 1. Ensure backend Yjs doc entry exists (idempotent, may fail in share mode)
-			// 2. Init YjsPlugin — connects providers and binds Slate to Y.Doc
-			const createDocPromise = createDocument({ documentId }).catch(() => {});
-			const yjsInitPromise = editor.getApi(YjsPlugin).yjs.init({
-				id: documentId,
-				autoConnect: true,
-				value: initialValue,
-			});
+			try {
+				try {
+					await createDocumentRef.current({ documentId });
+				} catch (err) {
+					if (isFunctionNotFoundError(err)) {
+						const errMessage =
+							err instanceof Error ? err.message : "Unknown backend error";
+						setErrorState(
+							new Error(
+								`Collaboration backend is out of sync (missing yjsV3.ensureDocument). Deploy latest Convex functions and retry. ${errMessage}`,
+							),
+						);
+						return;
+					}
+					// Share mode and read-only edge cases can fail this upsert; keep init best-effort.
+					console.warn(
+						"[DocEditor] ensureDocument failed; continuing init",
+						err,
+					);
+				}
 
-			await Promise.all([createDocPromise, yjsInitPromise]);
+				// React Strict Mode can tear down this effect before the async
+				// ensureDocument call resolves. Never call yjs.init for a cancelled run.
+				if (cancelled || destroyed) {
+					return;
+				}
+
+				initStarted = true;
+				await yjs.init({
+					id: documentId,
+					autoConnect: true,
+					value: bootstrapValueRef.current.value,
+				});
+				if (cancelled) {
+					destroyYjs();
+					return;
+				}
+			} catch (err) {
+				// Auto-retry once on sharedRoot errors (stale Yjs state)
+				const msg = err instanceof Error ? err.message : String(err);
+				if (msg.includes("sharedRoot") || msg.includes("non-text element")) {
+					console.warn("[DocEditor] sharedRoot error, retrying Yjs init…", msg);
+					destroyYjs();
+					destroyed = false;
+					try {
+						initStarted = true;
+						await yjs.init({
+							id: documentId,
+							autoConnect: true,
+							value: bootstrapValueRef.current.value,
+						});
+					} catch (retryErr) {
+						setErrorState(retryErr);
+						return;
+					}
+				} else {
+					setErrorState(err);
+					return;
+				}
+			}
 
 			if (cancelled) {
-				// Cleanup ran before init finished — destroy to leave editor clean
-				editor.getApi(YjsPlugin).yjs.destroy();
+				destroyYjs();
 				return;
 			}
 			perfMark("yjs-init-done");
@@ -345,26 +518,15 @@ function DocumentEditorInner({
 
 		init().catch((err) => {
 			if (!cancelled) {
-				setError(
-					err instanceof Error ? err.message : "Failed to initialize editor",
-				);
+				setErrorState(err);
 			}
 		});
 
-		// Always destroy on cleanup — yjs.destroy() is safe to call at any
-		// init stage (providers list may be empty, wrapped in try/catch internally).
-		// Previously guarded by `initialized`, which was only set after the async
-		// await resolved — causing destroy() to be skipped on early unmounts and
-		// leading to "already connected" on remount.
 		return () => {
 			cancelled = true;
-			try {
-				editor.getApi(YjsPlugin).yjs.destroy();
-			} catch {
-				// Ignore errors during cleanup
-			}
+			destroyYjs();
 		};
-	}, [editor, documentId, createDocument]);
+	}, [editor, documentId, retryKey]);
 
 	// Periodic Slate JSON snapshot saving to documents.content
 	// Replicates the onSnapshot behavior from prosemirrorSync
@@ -381,7 +543,7 @@ function DocumentEditorInner({
 				// On first save of a v1 doc, also upgrade syncVersion to v2
 				if (!syncUpgraded) {
 					syncUpgraded = true;
-					updateContent({ documentId, content: json, syncVersion: "v2" }).catch(
+					updateContent({ documentId, content: json, syncVersion: "v3" }).catch(
 						() => {},
 					);
 				} else {
@@ -396,11 +558,16 @@ function DocumentEditorInner({
 			const json = JSON.stringify(editor.children);
 			if (json !== lastSavedJson) {
 				if (!syncUpgraded) {
-					updateContent({ documentId, content: json, syncVersion: "v2" }).catch(
+					updateContent({
+						documentId,
+						content: json,
+						syncVersion: "v3",
+						forceIndex: true,
+					}).catch(() => {});
+				} else {
+					updateContent({ documentId, content: json, forceIndex: true }).catch(
 						() => {},
 					);
-				} else {
-					updateContent({ documentId, content: json }).catch(() => {});
 				}
 			}
 		};
@@ -463,9 +630,20 @@ function DocumentEditorInner({
 
 	if (error) {
 		return (
-			<div className="flex flex-col items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+			<div className="flex flex-col items-center justify-center gap-3 p-8 text-sm text-muted-foreground">
 				<p>Failed to load editor</p>
-				<p className="text-xs">{error}</p>
+				<p className="max-w-md text-center text-xs">{error}</p>
+				<button
+					type="button"
+					className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+					onClick={() => {
+						setError(null);
+						setIsSynced(false);
+						setRetryKey((k) => k + 1);
+					}}
+				>
+					Retry
+				</button>
 			</div>
 		);
 	}

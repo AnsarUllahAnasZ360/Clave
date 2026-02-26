@@ -15,6 +15,7 @@ function createMockEditor(overrides: Record<string, unknown> = {}) {
 		},
 		api: {},
 		...overrides,
+		// biome-ignore lint/suspicious/noExplicitAny: mock editor for tests
 	} as any;
 }
 

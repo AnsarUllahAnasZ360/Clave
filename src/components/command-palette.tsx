@@ -7,6 +7,7 @@ import {
 	Folder,
 	Gear,
 	MagnifyingGlass,
+	Microphone,
 	PenNib,
 	Plus,
 	Tray,
@@ -607,6 +608,31 @@ export function CommandPalette() {
 								<Gear className="size-4 text-muted-foreground" />
 								<span>Go to settings</span>
 								<CommandShortcut>G S</CommandShortcut>
+							</CommandItem>
+							<CommandItem
+								value="toggle-dictation"
+								onSelect={() => {
+									setOpen(false);
+									window.dispatchEvent(
+										new CustomEvent("clave:dictation-toggle", {
+											detail: { source: "command-palette" },
+										}),
+									);
+								}}
+							>
+								<Microphone className="size-4 text-muted-foreground" />
+								<span>Toggle dictation</span>
+								<CommandShortcut>Ctrl+Space</CommandShortcut>
+							</CommandItem>
+							<CommandItem
+								value="dictation-clipboard"
+								onSelect={() =>
+									navigate(`${basePath}/settings?section=dictation`)
+								}
+							>
+								<Microphone className="size-4 text-muted-foreground" />
+								<span>Dictation clipboard</span>
+								<CommandShortcut>Ctrl+Shift+Space</CommandShortcut>
 							</CommandItem>
 						</CommandGroup>
 

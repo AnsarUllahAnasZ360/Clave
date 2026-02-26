@@ -180,17 +180,22 @@ export const ToolbarButton = withTooltip(function ToolbarButton({
 export function ToolbarSplitButton({
 	className,
 	...props
-}: React.ComponentPropsWithoutRef<typeof ToolbarButton>) {
+}: React.ComponentPropsWithoutRef<"div"> & { pressed?: boolean }) {
+	const { pressed = false, children, ...splitProps } = props;
+
 	return (
-		<ToolbarButton
+		<div
 			className={cn("group flex gap-0 px-0 hover:bg-transparent", className)}
-			{...props}
-		/>
+			data-state={pressed ? "on" : "off"}
+			{...splitProps}
+		>
+			{children}
+		</div>
 	);
 }
 
 type ToolbarSplitButtonPrimaryProps = Omit<
-	React.ComponentPropsWithoutRef<typeof ToolbarToggleItem>,
+	React.ComponentPropsWithoutRef<"button">,
 	"value"
 > &
 	VariantProps<typeof toolbarButtonVariants>;
@@ -203,20 +208,21 @@ export function ToolbarSplitButtonPrimary({
 	...props
 }: ToolbarSplitButtonPrimaryProps) {
 	return (
-		<span
+		<button
+			type="button"
 			className={cn(
 				toolbarButtonVariants({
 					size,
 					variant,
 				}),
 				"rounded-r-none",
-				"group-data-[pressed=true]:bg-accent group-data-[pressed=true]:text-accent-foreground",
+				"group-data-[state=on]:bg-accent group-data-[state=on]:text-accent-foreground",
 				className,
 			)}
 			{...props}
 		>
 			{children}
-		</span>
+		</button>
 	);
 }
 
@@ -235,7 +241,7 @@ export function ToolbarSplitButtonSecondary({
 					size,
 					variant,
 				}),
-				"group-data-[pressed=true]:bg-accent group-data-[pressed=true]:text-accent-foreground",
+				"group-data-[state=on]:bg-accent group-data-[state=on]:text-accent-foreground",
 				className,
 			)}
 			onClick={(e) => e.stopPropagation()}

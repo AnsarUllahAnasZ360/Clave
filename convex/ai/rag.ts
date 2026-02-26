@@ -32,6 +32,7 @@ export const RAG_SOURCE_TYPES = [
 	"document",
 	"comment",
 	"github_file",
+	"doc_page",
 ] as const;
 
 export type RagSourceType = (typeof RAG_SOURCE_TYPES)[number];
@@ -80,6 +81,12 @@ export function getProjectNamespace(projectId: string): string {
 export function getCodeNamespace(projectId: string): string {
 	return `project:${projectId}:code`;
 }
+
+/**
+ * Namespace for global product documentation pages.
+ * Not project-scoped — accessible to all orgs and workspaces.
+ */
+export const GLOBAL_DOCS_NAMESPACE = "global:docs";
 
 // ── Content hashing ─────────────────────────────────────────────────────
 

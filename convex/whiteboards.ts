@@ -12,6 +12,9 @@ import {
 import { createNotification, notifyUsers } from "./lib/notifications";
 import { getRandomEmoji } from "./lib/randomEmoji";
 
+const DEFAULT_WORKSPACE_WHITEBOARD_LIMIT = 200;
+const MAX_WORKSPACE_WHITEBOARD_LIMIT = 500;
+
 /** List whiteboards for a project, excluding soft-deleted, sorted by sortOrder */
 export const listByProject = query({
 	args: {
@@ -51,11 +54,20 @@ export const listByProject = query({
 export const listByWorkspace = query({
 	args: {
 		workspaceId: v.id("workspaces"),
+		limit: v.optional(v.number()),
+		includePeople: v.optional(v.boolean()),
 	},
 	handler: async (ctx, args) => {
 		const { userId, member } = await requireWorkspaceMember(
 			ctx,
 			args.workspaceId,
+		);
+		const limit = Math.max(
+			1,
+			Math.min(
+				args.limit ?? DEFAULT_WORKSPACE_WHITEBOARD_LIMIT,
+				MAX_WORKSPACE_WHITEBOARD_LIMIT,
+			),
 		);
 		const accessibleProjectIds = await getAccessibleProjectIds(
 			ctx,
@@ -68,7 +80,7 @@ export const listByWorkspace = query({
 			.query("whiteboards")
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.order("desc")
-			.take(200);
+			.take(limit);
 
 		const filtered = whiteboards.filter((w) => {
 			if (w.deletedAt) return false;
@@ -78,6 +90,19 @@ export const listByWorkspace = query({
 			}
 			return true;
 		});
+
+		if (args.includePeople === false) {
+			return filtered.map((wb) => ({
+				_id: wb._id,
+				_creationTime: wb._creationTime,
+				title: wb.title,
+				icon: wb.icon,
+				projectId: wb.projectId,
+				updatedAt: wb.updatedAt,
+				createdBy: wb.createdBy,
+				lastEditedBy: wb.lastEditedBy,
+			}));
+		}
 
 		// Collect unique user IDs and batch-fetch
 		const userIds = new Set<string>();
@@ -123,7 +148,14 @@ export const listByWorkspace = query({
 			const creator = wb.createdBy ? userMap.get(wb.createdBy) : undefined;
 			const editor = wb.lastEditedBy ? userMap.get(wb.lastEditedBy) : undefined;
 			return {
-				...wb,
+				_id: wb._id,
+				_creationTime: wb._creationTime,
+				title: wb.title,
+				icon: wb.icon,
+				projectId: wb.projectId,
+				updatedAt: wb.updatedAt,
+				createdBy: wb.createdBy,
+				lastEditedBy: wb.lastEditedBy,
 				creatorName: creator?.name,
 				creatorImage: creator?.avatarUrl ?? creator?.image,
 				lastEditorName: editor?.name,

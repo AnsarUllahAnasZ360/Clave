@@ -1,6 +1,12 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { requireAuth, requireOrgAdmin, requireOrgOwner } from "./lib/auth";
+import {
+	requireAuth,
+	requireOrgAdmin,
+	requireOrgMember,
+	requireOrgOwner,
+} from "./lib/auth";
 import { generateSlug } from "./lib/utils";
 
 /** List all organizations the authenticated user is a member of */
@@ -77,9 +83,25 @@ export const getById = query({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
+		await requireAuth(ctx);
 		const org = await ctx.db.get(args.organizationId);
 		if (!org || org.deletedAt) return null;
-		return org;
+
+		try {
+			await requireOrgMember(ctx, org._id);
+			return org;
+		} catch {
+			// Non-member: strip sensitive billing fields
+			const {
+				stripeCustomerId,
+				subscriptionId,
+				subscriptionStatus,
+				billingEmail,
+				trialEndsAt,
+				...safe
+			} = org;
+			return safe;
+		}
 	},
 });
 
@@ -117,13 +139,29 @@ export const getBySlug = query({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
+		await requireAuth(ctx);
 		const org = await ctx.db
 			.query("organizations")
 			.withIndex("by_slug", (q) => q.eq("slug", args.slug))
 			.unique();
 
 		if (!org || org.deletedAt) return null;
-		return org;
+
+		try {
+			await requireOrgMember(ctx, org._id);
+			return org;
+		} catch {
+			// Non-member: strip sensitive billing fields
+			const {
+				stripeCustomerId,
+				subscriptionId,
+				subscriptionStatus,
+				billingEmail,
+				trialEndsAt,
+				...safe
+			} = org;
+			return safe;
+		}
 	},
 });
 
@@ -170,6 +208,12 @@ export const create = mutation({
 			userId,
 			role: "owner",
 			joinedAt: now,
+		});
+
+		// Auto-create demo workspace for new organizations
+		await ctx.scheduler.runAfter(0, internal.demo.seed.initDemoWorkspace, {
+			organizationId,
+			creatorUserId: userId,
 		});
 
 		return organizationId;
@@ -248,6 +292,7 @@ export const getLogoUrl = query({
 	args: { organizationId: v.id("organizations") },
 	returns: v.union(v.string(), v.null()),
 	handler: async (ctx, args) => {
+		await requireAuth(ctx);
 		const org = await ctx.db.get(args.organizationId);
 		if (!org || !org.logoStorageId) return null;
 		return await ctx.storage.getUrl(org.logoStorageId);

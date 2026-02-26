@@ -117,15 +117,15 @@ export default function IssueDescriptionEditor({
 		[issueId, updateIssue],
 	);
 
-	if (!mounted) {
-		return <IssueDescriptionEditorSkeleton />;
-	}
-
 	const aiPlugins = useMemo(
 		() => (workspace ? [AIEditorPlugin] : []),
 		[workspace?.workspaceId],
 	);
 	const hasContent = (activeContent ?? "").trim().length > 0;
+
+	if (!mounted) {
+		return <IssueDescriptionEditorSkeleton />;
+	}
 
 	return (
 		<div className="space-y-2">

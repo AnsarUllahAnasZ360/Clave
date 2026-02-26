@@ -1,0 +1,11 @@
+{
+	"title": "Settings",
+	"pages": [
+		"workspace-settings",
+		"account-settings",
+		"billing",
+		"integrations",
+		"google-chat",
+		"keyboard-shortcuts"
+	]
+}

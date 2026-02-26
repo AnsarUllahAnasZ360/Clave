@@ -228,15 +228,15 @@ export function AccountSettingsPane() {
 
 			<SettingSection title="Information">
 				{!user.avatarStorageId && (
-					<div className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 mb-4">
-						<div className="flex-1 text-sm text-amber-200">
+					<div className="flex items-center gap-3 rounded-lg border border-sienna-500/30 bg-sienna-500/10 px-4 py-3 mb-4">
+						<div className="flex-1 text-sm text-sienna-600 dark:text-sienna-200">
 							<span className="font-medium">Profile picture required.</span>{" "}
 							Upload a photo so your team can recognize you.
 						</div>
 						<Button
 							variant="outline"
 							size="sm"
-							className="h-8 px-3 text-xs shrink-0 border-amber-500/30 text-amber-200 hover:bg-amber-500/20"
+							className="h-8 px-3 text-xs shrink-0 border-sienna-500/30 text-sienna-600 hover:bg-sienna-500/20 dark:text-sienna-200"
 							onClick={handleRequestPhoto}
 							disabled={isUploading}
 						>

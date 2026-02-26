@@ -45,6 +45,8 @@ const RESTORE_SCENE_OPTIONS = {
 	refreshDimensions: true,
 } as const;
 
+export type SaveStatus = "idle" | "saving" | "saved";
+
 interface WhiteboardEditorProps {
 	whiteboardId: Id<"whiteboards">;
 	commentMode?: boolean;
@@ -52,6 +54,7 @@ interface WhiteboardEditorProps {
 	currentUserId?: string;
 	workspaceSlug?: string;
 	shareMode?: boolean;
+	onSaveStatusChange?: (status: SaveStatus) => void;
 }
 
 export default function WhiteboardEditor({
@@ -61,6 +64,7 @@ export default function WhiteboardEditor({
 	currentUserId,
 	workspaceSlug,
 	shareMode,
+	onSaveStatusChange,
 }: WhiteboardEditorProps) {
 	// Force commentMode off in share mode — comments require auth
 	const effectiveCommentMode = shareMode ? false : commentMode;
@@ -80,9 +84,13 @@ export default function WhiteboardEditor({
 	const lastRemoteTimestampRef = useRef(0);
 
 	// Save status for user feedback
-	const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-		"idle",
-	);
+	const [saveStatus, setSaveStatusRaw] = useState<SaveStatus>("idle");
+	const onSaveStatusChangeRef = useRef(onSaveStatusChange);
+	onSaveStatusChangeRef.current = onSaveStatusChange;
+	const setSaveStatus = useCallback((status: SaveStatus) => {
+		setSaveStatusRaw(status);
+		onSaveStatusChangeRef.current?.(status);
+	}, []);
 	const savedResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// ── Comment overlay state ──────────────────────────────────────────────
@@ -597,18 +605,6 @@ export default function WhiteboardEditor({
 		<div className="flex h-full w-full">
 			{/* Canvas area */}
 			<div className="relative flex-1 min-w-0 excalidraw-clave">
-				{saveStatus === "saving" && (
-					<div className="absolute top-2 right-48 z-10 flex items-center gap-1.5 rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm">
-						<div className="h-2 w-2 animate-pulse rounded-full bg-sienna-9" />
-						Saving...
-					</div>
-				)}
-				{saveStatus === "saved" && (
-					<div className="absolute top-2 right-48 z-10 flex items-center gap-1.5 rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground backdrop-blur-sm">
-						<div className="h-2 w-2 rounded-full bg-emerald-500" />
-						Saved
-					</div>
-				)}
 				{/* AI Generate Diagram toolbar — only in authenticated mode */}
 				{workspaceId && !shareMode && (
 					<div className="absolute top-2 right-2 z-10">

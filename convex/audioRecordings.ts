@@ -1,3 +1,4 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import {
@@ -89,6 +90,7 @@ export const get = query({
 			errorMessage: v.optional(v.string()),
 			retryCount: v.number(),
 			createdAt: v.number(),
+			audioCleanedAt: v.optional(v.number()),
 		}),
 		v.null(),
 	),
@@ -97,6 +99,62 @@ export const get = query({
 		if (!recording) return null;
 		await requireWorkspaceMember(ctx, recording.workspaceId);
 		return recording;
+	},
+});
+
+/** List user's recordings ordered by createdAt desc, limit 50 */
+export const listByUser = query({
+	args: {},
+	returns: v.array(
+		v.object({
+			_id: v.id("audioRecordings"),
+			_creationTime: v.number(),
+			workspaceId: v.id("workspaces"),
+			userId: v.id("users"),
+			storageId: v.optional(v.id("_storage")),
+			mimeType: v.string(),
+			duration: v.optional(v.number()),
+			fileSize: v.optional(v.number()),
+			status: v.union(
+				v.literal("uploading"),
+				v.literal("ready"),
+				v.literal("transcribing"),
+				v.literal("transcribed"),
+				v.literal("failed"),
+			),
+			transcript: v.optional(v.string()),
+			transcriptFormat: v.optional(v.string()),
+			transcriptLanguage: v.optional(v.string()),
+			transcriptDurationSeconds: v.optional(v.number()),
+			transcriptSegmentsJson: v.optional(v.string()),
+			errorMessage: v.optional(v.string()),
+			retryCount: v.number(),
+			createdAt: v.number(),
+			audioCleanedAt: v.optional(v.number()),
+		}),
+	),
+	handler: async (ctx) => {
+		const userId = await getAuthUserId(ctx);
+		if (!userId) throw new ConvexError("Not authenticated");
+		const recordings = await ctx.db
+			.query("audioRecordings")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.order("desc")
+			.take(50);
+		return recordings;
+	},
+});
+
+/** Get storage URL for playback (null if audio cleaned) */
+export const getAudioUrl = query({
+	args: { id: v.id("audioRecordings") },
+	returns: v.union(v.string(), v.null()),
+	handler: async (ctx, args) => {
+		const recording = await ctx.db.get(args.id);
+		if (!recording) return null;
+		await requireWorkspaceMember(ctx, recording.workspaceId);
+		if (!recording.storageId) return null;
+		return await ctx.storage.getUrl(recording.storageId);
 	},
 });
 
@@ -185,6 +243,24 @@ export const markFailed = internalMutation({
 	},
 });
 
+/** Strip audio blob but preserve transcript record */
+export const cleanAudio = internalMutation({
+	args: { id: v.id("audioRecordings") },
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const recording = await ctx.db.get(args.id);
+		if (!recording) return null;
+		if (recording.storageId) {
+			await ctx.storage.delete(recording.storageId);
+		}
+		await ctx.db.patch(args.id, {
+			storageId: undefined,
+			audioCleanedAt: Date.now(),
+		});
+		return null;
+	},
+});
+
 /** Hard-delete a recording and its storage object */
 export const remove = internalMutation({
 	args: { id: v.id("audioRecordings") },
@@ -211,7 +287,7 @@ export const listOlderThan = internalQuery({
 			.query("audioRecordings")
 			.withIndex("by_created_at", (q) => q.lt("createdAt", args.cutoff))
 			.collect();
-		return recordings.map((r) => r._id);
+		return recordings.filter((r) => r.storageId != null).map((r) => r._id);
 	},
 });
 
@@ -243,6 +319,7 @@ export const getInternal = internalQuery({
 			errorMessage: v.optional(v.string()),
 			retryCount: v.number(),
 			createdAt: v.number(),
+			audioCleanedAt: v.optional(v.number()),
 		}),
 		v.null(),
 	),
@@ -264,7 +341,7 @@ export const cleanupStale = internalAction({
 			{ cutoff: twoDaysAgo },
 		);
 		for (const id of staleIds) {
-			await ctx.runMutation(internal.audioRecordings.remove, { id });
+			await ctx.runMutation(internal.audioRecordings.cleanAudio, { id });
 		}
 		return null;
 	},

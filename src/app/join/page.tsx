@@ -1,6 +1,7 @@
 "use client";
 
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -139,12 +140,13 @@ function JoinPageContent() {
 
 				<div className="border-t border-border/70 bg-muted/40 px-6 py-4 text-center text-sm text-muted-foreground">
 					Already have an account?{" "}
-					<a
+					<Link
 						href="/sign-in"
+						prefetch={false}
 						className="text-primary underline underline-offset-4"
 					>
 						Sign in
-					</a>
+					</Link>
 				</div>
 			</div>
 		</div>

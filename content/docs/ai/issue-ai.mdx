@@ -1,0 +1,86 @@
+---
+title: Issue AI
+description: AI features built into the issue workflow — auto-triage, descriptions, duplicates, and @AI comments.
+---
+
+Clave's AI is embedded directly in the issue workflow. When you create or work on an issue, several AI features activate automatically or on demand to help you move faster and keep your tracker clean.
+
+## Auto-triage
+
+When you create a new issue, the AI reads the title and description you have typed and suggests a **priority**, **issue type**, and **labels** in real time. This happens in the create modal as you type — no extra step required.
+
+Auto-triage suggestions appear in a panel below the title field. The panel shows:
+
+- **Priority** — a suggested priority level (Urgent, High, Medium, Low)
+- **Type** — issue type (Bug, Feature, Improvement, or general Issue)
+- **Labels** — one or more suggested labels from your workspace label list
+
+To use the suggestions, click **Apply** in the triage panel. This fills in those fields for you. You can then adjust any of the values before saving.
+
+To ignore the suggestions, just leave the panel — it does not affect your issue.
+
+![Auto-triage panel](/docs/screenshots/ai-auto-triage.png)
+
+## AI-drafted descriptions
+
+When creating or editing an issue, you can ask the AI to draft the description for you. This is useful when you have a title in mind but haven't written up the full details yet.
+
+### Drafting a description on a new issue
+
+1. Type a clear, specific issue title.
+2. Click the **AI** button in the description field toolbar.
+3. The AI generates a description based on the title, issue type, and priority.
+4. The draft appears in the description field — review and edit it as needed.
+5. Save the issue when ready.
+
+### Drafting a description on an existing issue
+
+1. Open the issue detail view.
+2. Click inside the description field.
+3. Click the **Draft with AI** button that appears in the toolbar.
+4. If the field already has content, you will be asked to confirm before overwriting.
+5. The AI generates a new draft based on the issue title and context.
+
+## Duplicate detection
+
+When you create an issue, the AI scans your workspace for similar existing issues and alerts you if potential duplicates are found. This helps keep your tracker clean and avoids creating the same issue twice.
+
+Duplicate warnings appear in the create modal below the title field. Each suggested duplicate shows:
+
+- The existing issue's identifier and title
+- Its current status
+- A link to open the issue
+
+If you see a match, click the link to check whether it is actually the same issue before saving. If it is not a duplicate, ignore the panel and continue creating your issue.
+
+## @AI in comments
+
+You can mention `@AI` in any issue comment to ask the AI a question or request help directly in the issue thread. The AI reads the full issue context — title, description, existing comments — and responds as a comment in the thread.
+
+### Using @AI
+
+1. Open an issue and scroll to the comments section.
+2. Click **Add a comment**.
+3. Type `@AI` followed by your question or request. For example:
+   - `@AI Can you summarize the discussion so far?`
+   - `@AI What would be the acceptance criteria for this?`
+   - `@AI Is this related to CLV-123?`
+4. Post the comment. The AI replies as a comment attributed to the AI.
+
+The AI's comment appears in the thread like any other comment. Team members can read it, quote it, and continue the discussion.
+
+![AI comment in issue thread](/docs/screenshots/ai-issue-comment.png)
+
+## AI-suggested labels
+
+The auto-triage panel suggests labels from your workspace's existing label set. The AI matches the issue content against label names and descriptions to find the most relevant ones.
+
+If the suggested labels are not right, dismiss the triage panel and set labels manually. You can also add custom labels through [Labels settings](/docs/settings/workspace-settings).
+
+## Tips for best results
+
+**Write specific titles.** The more specific your issue title, the better the auto-triage and description draft will be. "Button broken" produces a weaker triage than "Submit button on checkout form throws 500 error on mobile."
+
+**Review AI suggestions before applying.** Auto-triage is a starting point, not a final answer. Always verify priority and labels match your team's conventions before saving.
+
+**Use @AI for long threads.** When an issue has accumulated many comments, use `@AI Summarize this thread` to get a quick digest of what has been discussed and decided.

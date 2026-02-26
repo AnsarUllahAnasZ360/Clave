@@ -1,0 +1,97 @@
+---
+title: Google Chat
+description: Connect Google Chat to receive notifications, create issues, and interact with the Clave AI assistant from Google Chat.
+---
+
+The Google Chat integration brings Clave into your Google Workspace. Once connected, you can receive issue notifications as interactive cards, create issues from conversations, and chat with the Clave AI assistant — all within Google Chat.
+
+## Prerequisites
+
+- A Google Workspace account (the integration uses Google Chat apps, not consumer Gmail)
+- Workspace admin access in Clave
+- A Google Cloud project with the Google Chat API enabled and a service account configured
+
+## Connecting
+
+1. Open **Settings** in your Clave workspace.
+2. Navigate to **Google Chat**.
+3. Optionally set an **app display name** and **auth audience**.
+4. Click **Connect Google Chat**.
+
+Clave registers the integration and creates a default policy for your workspace. The webhook endpoint displayed in the settings pane is the URL you configure in your Google Cloud project's Chat API settings.
+
+## Installing the app in Google Chat
+
+After connecting in Clave, you need to install the Clave bot in Google Chat:
+
+1. Open Google Chat (chat.google.com or the Google Chat app).
+2. Click the **+** button next to **Spaces**, or use the search bar.
+3. Search for **Clave** (the app name configured in your Google Cloud project).
+4. Choose one of:
+   - **Add to a space** — open an existing space, click the space name, then **Apps and integrations**, and add Clave.
+   - **Start a DM** — search for Clave under **People and apps** and start a direct message.
+
+## Features
+
+### AI assistant
+
+Mention `@Clave` in any space where the bot is installed to ask questions about your workspace. The AI assistant has access to your projects, issues, documents, and notes — the same context it uses in the Clave web app.
+
+### Notifications
+
+When events occur in Clave (issue assignments, status changes, comments), the integration sends interactive notification cards to the relevant Google Chat space or DM. Cards include the event details and action buttons.
+
+### Card actions
+
+Notification cards include buttons that let you act without leaving Google Chat:
+
+- **Assign to me** — self-assign the issue
+- **Change status** — move the issue to a different status (triage, backlog, todo, in progress, in review)
+- **View in Clave** — open the issue detail page in the Clave web app
+
+### Issue creation
+
+Ask the AI assistant to create an issue from a conversation. For example, type `@Clave Create an issue: Login button is broken` and the bot responds with a draft issue card. Confirm to create the issue in your workspace.
+
+### Conversation triage
+
+Convert a Google Chat thread into a Clave issue. The AI assistant captures the conversation context and drafts a structured issue with title, description, and suggested priority.
+
+### AI approval
+
+When the AI assistant suggests actions that require confirmation (based on your policy settings), it sends an approval card. You can approve or reject the action directly in Google Chat.
+
+### Multi-turn conversations
+
+After the first `@Clave` mention in a thread, the bot continues to listen in that thread. Follow-up messages in the same thread are handled as part of the ongoing conversation — no need to mention `@Clave` again.
+
+### Direct messages
+
+Send private messages to the Clave bot for personal queries. Direct messages require domain-wide delegation to be configured in your Google Cloud project.
+
+## Space subscriptions
+
+Control which events trigger notifications in specific Google Chat spaces.
+
+1. Open **Settings → Google Chat → Spaces**.
+2. Configure event subscriptions per space — choose which event types (issue assignments, status changes, comments) are delivered to each space.
+
+## Policy settings
+
+The policy section controls how the integration behaves:
+
+| Setting | Description |
+|---------|-------------|
+| **Enable integration** | Master toggle. When disabled, all Google Chat deliveries are paused. |
+| **Allow direct messages** | Allow the integration to send notifications and respond in DMs. |
+| **Allow spaces** | Allow the integration to operate in Google Chat spaces. |
+| **Require identity link** | Only users with a linked Google Chat identity can execute card actions. |
+| **Require action confirmation** | Mutating issue actions must be confirmed in Clave before they take effect. |
+| **Issue action allowlist** | Control which card actions are available: assign to me, non-destructive status updates, and open issue link. |
+
+## Limitations
+
+- No slash commands — Google Chat apps do not support custom slash commands.
+- No typing indicators — the bot cannot show typing indicators while generating responses.
+- No modals or dialogs — card interactions use inline buttons only.
+- DMs require domain-wide delegation — without it, the bot only responds to `@Clave` mentions in spaces where it is installed.

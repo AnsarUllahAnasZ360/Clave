@@ -1,0 +1,10 @@
+{
+	"title": "Issues",
+	"pages": [
+		"creating-issues",
+		"board-list-timeline",
+		"issue-details",
+		"labels-and-filters",
+		"sub-issues-and-relations"
+	]
+}

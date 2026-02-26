@@ -15,6 +15,7 @@ const CURSOR_COLORS = [
 	"#D19A66", // orange
 	"#BE5046", // coral
 ];
+const PRESENCE_TOUCH_FRESH_MS = 8000;
 
 export function getUserColor(userId: string): string {
 	let hash = 0;
@@ -58,17 +59,33 @@ export function useDocumentPresence(
 
 	// Debounced cursor position update (250ms)
 	const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const lastPresenceWriteAtRef = useRef(0);
+	const lastCursorUpsertRef = useRef<{ from: number; to: number } | null>(null);
 
 	const updateCursorPosition = useCallback((from: number, to: number) => {
 		if (debounceTimerRef.current) {
 			clearTimeout(debounceTimerRef.current);
 		}
 		debounceTimerRef.current = setTimeout(() => {
+			const now = Date.now();
+			const lastCursor = lastCursorUpsertRef.current;
+			if (
+				lastCursor &&
+				lastCursor.from === from &&
+				lastCursor.to === to &&
+				now - lastPresenceWriteAtRef.current < PRESENCE_TOUCH_FRESH_MS
+			) {
+				return;
+			}
 			upsertRef
 				.current({
 					documentId: documentIdRef.current,
 					cursorFrom: from,
 					cursorTo: to,
+				})
+				.then(() => {
+					lastPresenceWriteAtRef.current = Date.now();
+					lastCursorUpsertRef.current = { from, to };
 				})
 				.catch(() => {});
 		}, 250);
@@ -79,9 +96,18 @@ export function useDocumentPresence(
 		if (!currentUserId) return;
 		const interval = setInterval(
 			() => {
+				if (
+					Date.now() - lastPresenceWriteAtRef.current <
+					PRESENCE_TOUCH_FRESH_MS
+				) {
+					return;
+				}
 				heartbeatRef
 					.current({
 						documentId: documentIdRef.current,
+					})
+					.then(() => {
+						lastPresenceWriteAtRef.current = Date.now();
 					})
 					.catch(() => {});
 			},

@@ -64,6 +64,15 @@ const insertBlockMap: Record<
 	[KEYS.table]: (editor) =>
 		editor.getTransforms(TablePlugin).insert.table({}, { select: true }),
 	[KEYS.toc]: (editor) => insertToc(editor, { select: true }),
+	[KEYS.toggle]: (editor) => {
+		editor.tf.insertNodes(
+			{
+				type: KEYS.toggle,
+				children: [{ type: "p", children: [{ text: "" }] }],
+			},
+			{ select: true },
+		);
+	},
 	[KEYS.video]: (editor) => insertVideoPlaceholder(editor, { select: true }),
 };
 

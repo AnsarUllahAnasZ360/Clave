@@ -234,6 +234,25 @@ export const ChatInput = memo(function ChatInput({
 		[onSubmit, isControlled, onValueChange],
 	);
 
+	// Prevent Enter-to-submit while streaming — the submit button becomes a
+	// stop button during streaming, so a bare Enter would clear the user's
+	// in-progress text without actually sending a message.
+	const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = useCallback(
+		(e) => {
+			if (
+				isStreaming &&
+				e.key === "Enter" &&
+				!e.shiftKey &&
+				!e.nativeEvent.isComposing
+			) {
+				e.preventDefault();
+				return;
+			}
+			onKeyDown?.(e);
+		},
+		[isStreaming, onKeyDown],
+	);
+
 	const handleChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
 			const newValue = e.currentTarget.value;
@@ -268,7 +287,7 @@ export const ChatInput = memo(function ChatInput({
 						data-ai-chat-input="true"
 						value={inputValue}
 						onChange={handleChange}
-						onKeyDown={onKeyDown}
+						onKeyDown={handleKeyDown}
 						placeholder={placeholder}
 						disabled={disabled}
 						aria-label="Message input"

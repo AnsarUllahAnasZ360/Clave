@@ -17,7 +17,6 @@ import {
 } from "platejs/react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
 import {
 	Tooltip,
 	TooltipContent,
@@ -145,20 +144,21 @@ function Draggable(props: PlateElementProps) {
 								isInColumn && "mr-1.5",
 							)}
 						>
-							<Button
-								ref={handleRef}
-								variant="ghost"
-								className="-left-0 absolute h-6 w-full p-0"
-								style={{ top: `${dragButtonTop + 3}px` }}
-								data-plate-prevent-deselect
-							>
-								<DragHandle
-									isDragging={isDragging}
-									previewRef={previewRef}
-									resetPreview={resetPreview}
-									setPreviewTop={setPreviewTop}
-								/>
-							</Button>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<DragHandle
+										isDragging={isDragging}
+										previewRef={previewRef}
+										resetPreview={resetPreview}
+										setPreviewTop={setPreviewTop}
+										handleRef={handleRef}
+										style={{ top: `${dragButtonTop + 3}px` }}
+										isInColumn={isInColumn}
+									/>
+								</TooltipTrigger>
+
+								<TooltipContent>Drag to move</TooltipContent>
+							</Tooltip>
 						</div>
 					</div>
 				</Gutter>
@@ -225,110 +225,127 @@ const DragHandle = React.memo(function DragHandle({
 	previewRef,
 	resetPreview,
 	setPreviewTop,
+	style,
+	handleRef,
+	isInColumn,
 }: {
 	isDragging: boolean;
 	previewRef: React.RefObject<HTMLDivElement | null>;
 	resetPreview: () => void;
 	setPreviewTop: (top: number) => void;
+	style: React.CSSProperties;
+	handleRef: React.Ref<HTMLElement>;
+	isInColumn: boolean;
 }) {
 	const editor = useEditorRef();
 	const element = useElement();
 
+	const handleClassName = cn(
+		"-left-0 absolute h-6 w-full p-0 cursor-grab !rounded-none bg-transparent text-muted-foreground",
+		isInColumn && "w-full",
+	);
+
 	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<button
-					type="button"
-					className="flex size-full items-center justify-center"
-					onClick={(e) => {
-						e.preventDefault();
-						editor.getApi(BlockSelectionPlugin).blockSelection.focus();
-					}}
-					onMouseDown={(e) => {
-						resetPreview();
+		<span
+			ref={handleRef}
+			role="button"
+			tabIndex={0}
+			style={style}
+			className={cn(
+				handleClassName,
+				"flex size-full items-center justify-center",
+			)}
+			onClick={(e) => {
+				e.preventDefault();
+				editor.getApi(BlockSelectionPlugin).blockSelection.focus();
+			}}
+			onMouseDown={(e) => {
+				resetPreview();
 
-						if ((e.button !== 0 && e.button !== 2) || e.shiftKey) return;
+				if ((e.button !== 0 && e.button !== 2) || e.shiftKey) return;
 
-						const blockSelection = editor
-							.getApi(BlockSelectionPlugin)
-							.blockSelection.getNodes({ sort: true });
+				const blockSelection = editor
+					.getApi(BlockSelectionPlugin)
+					.blockSelection.getNodes({ sort: true });
 
-						let selectionNodes =
-							blockSelection.length > 0
-								? blockSelection
-								: editor.api.blocks({ mode: "highest" });
+				let selectionNodes =
+					blockSelection.length > 0
+						? blockSelection
+						: editor.api.blocks({ mode: "highest" });
 
-						// If current block is not in selection, use it as the starting point
-						if (!selectionNodes.some(([node]) => node.id === element.id)) {
-							selectionNodes = [[element, editor.api.findPath(element)!]];
-						}
+				// If current block is not in selection, use it as the starting point
+				if (!selectionNodes.some(([node]) => node.id === element.id)) {
+					selectionNodes = [[element, editor.api.findPath(element)!]];
+				}
 
-						// Process selection nodes to include list children
-						const blocks = expandListItemsWithChildren(
-							editor,
-							selectionNodes,
-						).map(([node]) => node);
+				// Process selection nodes to include list children
+				const blocks = expandListItemsWithChildren(editor, selectionNodes).map(
+					([node]) => node,
+				);
 
-						if (blockSelection.length === 0) {
-							editor.tf.blur();
-							editor.tf.collapse();
-						}
+				if (blockSelection.length === 0) {
+					editor.tf.blur();
+					editor.tf.collapse();
+				}
 
-						const elements = createDragPreviewElements(editor, blocks);
-						previewRef.current?.append(...elements);
-						previewRef.current?.classList.remove("hidden");
-						previewRef.current?.classList.add("opacity-0");
-						editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
+				const elements = createDragPreviewElements(editor, blocks);
+				previewRef.current?.append(...elements);
+				previewRef.current?.classList.remove("hidden");
+				previewRef.current?.classList.add("opacity-0");
+				editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
 
-						editor
-							.getApi(BlockSelectionPlugin)
-							.blockSelection.set(blocks.map((block) => block.id as string));
-					}}
-					onMouseEnter={() => {
-						if (isDragging) return;
+				editor
+					.getApi(BlockSelectionPlugin)
+					.blockSelection.set(blocks.map((block) => block.id as string));
+			}}
+			onMouseEnter={() => {
+				if (isDragging) return;
 
-						const blockSelection = editor
-							.getApi(BlockSelectionPlugin)
-							.blockSelection.getNodes({ sort: true });
+				const blockSelection = editor
+					.getApi(BlockSelectionPlugin)
+					.blockSelection.getNodes({ sort: true });
 
-						let selectedBlocks =
-							blockSelection.length > 0
-								? blockSelection
-								: editor.api.blocks({ mode: "highest" });
+				let selectedBlocks =
+					blockSelection.length > 0
+						? blockSelection
+						: editor.api.blocks({ mode: "highest" });
 
-						// If current block is not in selection, use it as the starting point
-						if (!selectedBlocks.some(([node]) => node.id === element.id)) {
-							selectedBlocks = [[element, editor.api.findPath(element)!]];
-						}
+				// If current block is not in selection, use it as the starting point
+				if (!selectedBlocks.some(([node]) => node.id === element.id)) {
+					selectedBlocks = [[element, editor.api.findPath(element)!]];
+				}
 
-						// Process selection to include list children
-						const processedBlocks = expandListItemsWithChildren(
-							editor,
-							selectedBlocks,
-						);
+				// Process selection to include list children
+				const processedBlocks = expandListItemsWithChildren(
+					editor,
+					selectedBlocks,
+				);
 
-						const ids = processedBlocks.map((block) => block[0].id as string);
+				const ids = processedBlocks.map((block) => block[0].id as string);
 
-						if (ids.length > 1 && ids.includes(element.id as string)) {
-							const previewTop = calculatePreviewTop(editor, {
-								blocks: processedBlocks.map((block) => block[0]),
-								element,
-							});
-							setPreviewTop(previewTop);
-						} else {
-							setPreviewTop(0);
-						}
-					}}
-					onMouseUp={() => {
-						resetPreview();
-					}}
-					data-plate-prevent-deselect
-				>
-					<GripVertical className="text-muted-foreground" />
-				</button>
-			</TooltipTrigger>
-			<TooltipContent>Drag to move</TooltipContent>
-		</Tooltip>
+				if (ids.length > 1 && ids.includes(element.id as string)) {
+					const previewTop = calculatePreviewTop(editor, {
+						blocks: processedBlocks.map((block) => block[0]),
+						element,
+					});
+					setPreviewTop(previewTop);
+				} else {
+					setPreviewTop(0);
+				}
+			}}
+			onMouseUp={() => {
+				resetPreview();
+			}}
+			onKeyDown={(event) => {
+				if (event.key === " " || event.key === "Enter") {
+					event.preventDefault();
+					event.currentTarget.click();
+				}
+			}}
+			data-plate-prevent-deselect
+		>
+			<GripVertical className="text-muted-foreground" />
+		</span>
 	);
 });
 
@@ -506,10 +523,14 @@ const calculatePreviewTop = (
 };
 
 const calcDragButtonTop = (editor: PlateEditor, element: TElement): number => {
-	const child = editor.api.toDOMNode(element)!;
+	const child = editor.api.toDOMNode(element);
+
+	if (!child) {
+		return 0;
+	}
 
 	const currentMarginTopString = window.getComputedStyle(child).marginTop;
-	const currentMarginTop = Number(currentMarginTopString.replace("px", ""));
+	const currentMarginTop = Number.parseFloat(currentMarginTopString);
 
-	return currentMarginTop;
+	return Number.isFinite(currentMarginTop) ? currentMarginTop : 0;
 };
