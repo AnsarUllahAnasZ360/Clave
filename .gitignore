@@ -30,8 +30,9 @@ test-results/
 .secrets/
 secrets/
 
-# Convex
-convex/_generated/
+# Convex — generated types are checked in per Convex best practices
+# https://docs.convex.dev/understanding/best-practices/other-recommendations#check-generated-code-into-version-control
+# convex/_generated/
 
 # IDE
 .idea/
