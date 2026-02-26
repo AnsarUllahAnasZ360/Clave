@@ -50,19 +50,29 @@ type RagEntryMetadata = {
 	title?: string;
 };
 
-// ── RAG instance ────────────────────────────────────────────────────────
+// ── RAG instance (lazy — avoids top-level env reads during module analysis) ──
+
+let _rag: RAG<RagFilterTypes, RagEntryMetadata> | null = null;
 
 /**
  * Project-scoped RAG component for indexing workspace content.
  *
  * Uses Azure text-embedding-3-small (1536 dimensions) and supports
  * sourceType filtering for content-type-specific search.
+ *
+ * Lazy-initialized to avoid calling embeddingModel() at module top level,
+ * which would trigger env var reads during Convex's module analysis phase.
  */
-export const rag = new RAG<RagFilterTypes, RagEntryMetadata>(components.rag, {
-	textEmbeddingModel: embeddingModel,
-	embeddingDimension: 1536,
-	filterNames: ["sourceType"],
-});
+export function getRag() {
+	if (!_rag) {
+		_rag = new RAG<RagFilterTypes, RagEntryMetadata>(components.rag, {
+			textEmbeddingModel: embeddingModel(),
+			embeddingDimension: 1536,
+			filterNames: ["sourceType"],
+		});
+	}
+	return _rag;
+}
 
 // ── Namespace helpers ───────────────────────────────────────────────────
 

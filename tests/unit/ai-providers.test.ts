@@ -1,8 +1,9 @@
 /**
  * Tests for convex/ai/providers.ts
  *
- * providers.ts requires Azure env vars at module load time. We set process.env
- * directly before the static import is resolved by Vitest's module transform.
+ * providers.ts lazily reads Azure env vars on first function call (not at
+ * module load time). We set process.env before any calls to ensure the
+ * lazy initializers find the required values.
  */
 
 // Set env vars before any imports that depend on them
@@ -120,15 +121,19 @@ describe("ai/providers", () => {
 	});
 
 	describe("chatModel", () => {
-		it("is defined and has a model ID", () => {
-			expect(chatModel).toBeDefined();
-			expect(chatModel.modelId).toBeDefined();
+		it("is a function that returns a model with a model ID", () => {
+			expect(typeof chatModel).toBe("function");
+			const model = chatModel();
+			expect(model).toBeDefined();
+			expect(model.modelId).toBeDefined();
 		});
 	});
 
 	describe("embeddingModel", () => {
-		it("is defined", () => {
-			expect(embeddingModel).toBeDefined();
+		it("is a function that returns a model", () => {
+			expect(typeof embeddingModel).toBe("function");
+			const model = embeddingModel();
+			expect(model).toBeDefined();
 		});
 	});
 

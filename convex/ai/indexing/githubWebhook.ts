@@ -20,7 +20,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import { action, internalAction } from "../../_generated/server";
-import { getCodeNamespace, rag } from "../rag";
+import { getCodeNamespace, getRag } from "../rag";
 import {
 	type CodeChunk,
 	chunkCodeFile,
@@ -506,7 +506,7 @@ export const processWebhookPush = internalAction({
 				// Delete RAG entry if we have the ID
 				if (ragEntryId) {
 					// biome-ignore lint/suspicious/noExplicitAny: RAG entryId requires branded type
-					await rag.delete(ctx, { entryId: ragEntryId as any });
+					await getRag().delete(ctx, { entryId: ragEntryId as any });
 				}
 
 				removedCount++;
@@ -671,12 +671,12 @@ async function processChangedFile(
 
 		const { entryId, replacedEntry } =
 			ragChunks.length === 1
-				? await rag.add(ctx, { ...ragAddArgs, text: ragChunks[0] })
-				: await rag.add(ctx, { ...ragAddArgs, chunks: ragChunks });
+				? await getRag().add(ctx, { ...ragAddArgs, text: ragChunks[0] })
+				: await getRag().add(ctx, { ...ragAddArgs, chunks: ragChunks });
 
 		// Clean up replaced entry
 		if (replacedEntry) {
-			await rag.delete(ctx, { entryId: replacedEntry.entryId });
+			await getRag().delete(ctx, { entryId: replacedEntry.entryId });
 		}
 
 		// Update sync status

@@ -19,7 +19,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import { internalAction } from "../../_generated/server";
-import { getCodeNamespace, rag } from "../rag";
+import { getCodeNamespace, getRag } from "../rag";
 import {
 	type CodeChunk,
 	chunkCodeFile,
@@ -317,12 +317,12 @@ async function processFile(
 
 		const { entryId, replacedEntry } =
 			ragChunks.length === 1
-				? await rag.add(ctx, { ...ragAddArgs, text: ragChunks[0] })
-				: await rag.add(ctx, { ...ragAddArgs, chunks: ragChunks });
+				? await getRag().add(ctx, { ...ragAddArgs, text: ragChunks[0] })
+				: await getRag().add(ctx, { ...ragAddArgs, chunks: ragChunks });
 
 		// Clean up replaced entry
 		if (replacedEntry) {
-			await rag.delete(ctx, { entryId: replacedEntry.entryId });
+			await getRag().delete(ctx, { entryId: replacedEntry.entryId });
 		}
 
 		// Update sync status

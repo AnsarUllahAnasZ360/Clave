@@ -6,7 +6,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action } from "../_generated/server";
-import { claveAgent } from "./agents";
+import { getClaveAgent } from "./agents";
 import { buildContextPrompt, type PageContext } from "./contextPrompts";
 import { getComposedPrompt } from "./getComposedPrompt";
 import { closeMcpClients, loadMcpTools } from "./mcpClient";
@@ -379,7 +379,7 @@ export const sendMessage = action({
 		// Resolve or create thread
 		const threadResolveStart = Date.now();
 		let resolvedThreadId = threadId ?? "";
-		let isNewThread = false;
+		let _isNewThread = false;
 		if (threadId) {
 			resolvedThreadId = threadId;
 			// Keep thread metadata in sync before continuing.
@@ -388,11 +388,14 @@ export const sendMessage = action({
 				model: modelIdForRequest,
 			});
 		} else {
-			const created: { threadId: string } = await claveAgent.createThread(ctx, {
-				userId,
-			});
+			const created: { threadId: string } = await getClaveAgent().createThread(
+				ctx,
+				{
+					userId,
+				},
+			);
 			resolvedThreadId = created.threadId;
-			isNewThread = true;
+			_isNewThread = true;
 
 			// Insert metadata only for threads created inside this action (fallback path)
 			await ctx.runMutation(internal.ai.threads.insertThreadMetadata, {
@@ -440,8 +443,8 @@ export const sendMessage = action({
 
 		let errorInfo: { type: string; retryAfter?: number } | undefined;
 		const defaultInstructions =
-			typeof claveAgent.options.instructions === "string"
-				? claveAgent.options.instructions
+			typeof getClaveAgent().options.instructions === "string"
+				? getClaveAgent().options.instructions
 				: "";
 		// Persist the user input first and continue generation from that saved message.
 		const savePromptStart = Date.now();
@@ -449,7 +452,7 @@ export const sendMessage = action({
 			typeof promptInput === "string"
 				? [{ role: "user", content: promptInput }]
 				: promptInput;
-		const savedPrompt = await claveAgent.saveMessages(ctx, {
+		const savedPrompt = await getClaveAgent().saveMessages(ctx, {
 			threadId: resolvedThreadId,
 			userId,
 			messages: promptMessages,
@@ -583,7 +586,7 @@ export const sendMessage = action({
 			const supportsTemperature = supportsTemperatureSetting(modelIdForRequest);
 			mark("before_stream");
 			streamStartedAt = Date.now();
-			const result = await claveAgent.streamText(
+			const result = await getClaveAgent().streamText(
 				ctx,
 				{ threadId: resolvedThreadId, userId },
 				{

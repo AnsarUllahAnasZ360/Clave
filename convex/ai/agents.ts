@@ -63,96 +63,106 @@ const CLAVE_SYSTEM_PROMPT = `You are Clave AI, a helpful workspace assistant emb
 
 // ── Default Clave AI Agent ────────────────────────────────────────────────
 // The primary agent used for all chat interactions.
-// All workspace tools (read + write + sub-agent delegation) are registered
-// here so every call site automatically has access.
-export const claveAgent = new Agent(components.agent, {
-	name: "Clave AI",
-	languageModel: chatModel,
-	embeddingModel,
-	instructions: CLAVE_SYSTEM_PROMPT,
-	tools: { ...allTools, ...subAgentTools },
-	rawRequestResponseHandler: async (_ctx, { request, response }) => {
-		if (!ENABLE_AGENT_TRACE) return;
+// Lazy-initialized to avoid top-level env var reads during Convex module analysis.
 
-		console.info(
-			"[claveAgent:rawRequestResponse]",
-			clipText(JSON.stringify(request), 600),
-			clipText(JSON.stringify(response), 1200),
-		);
-	},
-	contextHandler: async (_ctx, args) => {
-		// Use the decomposed args pattern from @convex-dev/agent docs:
-		// search, recent, inputMessages, inputPrompt, existingResponses
-		const { search, recent, inputMessages, inputPrompt, existingResponses } =
-			args;
+// biome-ignore lint/suspicious/noExplicitAny: Agent generic types are complex
+let _claveAgent: any = null;
 
-		// Trim long assistant messages in older conversation history
-		const trimmedRecent = trimOlderMessages(recent);
+export function getClaveAgent() {
+	if (!_claveAgent) {
+		_claveAgent = new Agent(components.agent, {
+			name: "Clave AI",
+			languageModel: chatModel(),
+			embeddingModel: embeddingModel(),
+			instructions: CLAVE_SYSTEM_PROMPT,
+			tools: { ...allTools, ...subAgentTools },
+			rawRequestResponseHandler: async (_ctx, { request, response }) => {
+				if (!ENABLE_AGENT_TRACE) return;
 
-		const context = [
-			...search,
-			...trimmedRecent,
-			...inputMessages,
-			...inputPrompt,
-			...existingResponses,
-		];
+				console.info(
+					"[claveAgent:rawRequestResponse]",
+					clipText(JSON.stringify(request), 600),
+					clipText(JSON.stringify(response), 1200),
+				);
+			},
+			contextHandler: async (_ctx, args) => {
+				const {
+					search,
+					recent,
+					inputMessages,
+					inputPrompt,
+					existingResponses,
+				} = args;
 
-		if (ENABLE_AGENT_TRACE) {
-			console.info(
-				"[claveAgent:context]",
-				JSON.stringify({
-					searchCount: search.length,
-					recentCount: recent.length,
-					trimmedCount: trimmedRecent.filter(
-						(m, i) =>
-							i < recent.length - PROTECTED_RECENT_COUNT &&
-							m.role === "assistant" &&
-							typeof m.content === "string" &&
-							m.content.endsWith("… [trimmed]"),
-					).length,
-					inputCount: inputMessages.length,
-					promptCount: inputPrompt.length,
-					existingCount: existingResponses.length,
-					totalMessages: context.length,
-				}),
-			);
-		}
+				const trimmedRecent = trimOlderMessages(recent);
 
-		return context;
-	},
-	usageHandler: async (_ctx, args) => {
-		const { userId, threadId, agentName, model, provider, usage } = args;
-		const normalizedModel = String(model ?? "").toLowerCase();
-		const normalizedProvider = String(provider ?? "").toLowerCase();
-		const usageType =
-			normalizedModel.includes("embedding") ||
-			normalizedProvider.includes("embedding")
-				? "embedding"
-				: "generation";
-		const logLabel =
-			usageType === "embedding"
-				? "[chat-tokens:embedding]"
-				: "[chat-tokens:generation]";
-		console.info(
-			logLabel,
-			JSON.stringify({
-				userId,
-				threadId,
-				agentName,
-				model,
-				provider,
-				usageType,
-				inputTokens: usage.inputTokens,
-				outputTokens: usage.outputTokens,
-				totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
-			}),
-		);
-	},
-	stopWhen: stepCountIs(15),
-	callSettings: {
-		maxRetries: 1,
-	},
-});
+				const context = [
+					...search,
+					...trimmedRecent,
+					...inputMessages,
+					...inputPrompt,
+					...existingResponses,
+				];
+
+				if (ENABLE_AGENT_TRACE) {
+					console.info(
+						"[claveAgent:context]",
+						JSON.stringify({
+							searchCount: search.length,
+							recentCount: recent.length,
+							trimmedCount: trimmedRecent.filter(
+								(m, i) =>
+									i < recent.length - PROTECTED_RECENT_COUNT &&
+									m.role === "assistant" &&
+									typeof m.content === "string" &&
+									m.content.endsWith("… [trimmed]"),
+							).length,
+							inputCount: inputMessages.length,
+							promptCount: inputPrompt.length,
+							existingCount: existingResponses.length,
+							totalMessages: context.length,
+						}),
+					);
+				}
+
+				return context;
+			},
+			usageHandler: async (_ctx, args) => {
+				const { userId, threadId, agentName, model, provider, usage } = args;
+				const normalizedModel = String(model ?? "").toLowerCase();
+				const normalizedProvider = String(provider ?? "").toLowerCase();
+				const usageType =
+					normalizedModel.includes("embedding") ||
+					normalizedProvider.includes("embedding")
+						? "embedding"
+						: "generation";
+				const logLabel =
+					usageType === "embedding"
+						? "[chat-tokens:embedding]"
+						: "[chat-tokens:generation]";
+				console.info(
+					logLabel,
+					JSON.stringify({
+						userId,
+						threadId,
+						agentName,
+						model,
+						provider,
+						usageType,
+						inputTokens: usage.inputTokens,
+						outputTokens: usage.outputTokens,
+						totalTokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+					}),
+				);
+			},
+			stopWhen: stepCountIs(15),
+			callSettings: {
+				maxRetries: 1,
+			},
+		});
+	}
+	return _claveAgent;
+}
 
 // Export for testing
 export { trimOlderMessages, TRIM_THRESHOLD_CHARS, PROTECTED_RECENT_COUNT };

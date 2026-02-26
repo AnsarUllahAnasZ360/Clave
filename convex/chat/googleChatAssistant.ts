@@ -7,7 +7,7 @@ import { ConvexError, v } from "convex/values";
 import { components } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
-import { claveAgent } from "../ai/agents";
+import { getClaveAgent } from "../ai/agents";
 import {
 	buildMentionContextBlock,
 	type MentionReferenceData,
@@ -139,7 +139,7 @@ export const dispatchMention = internalAction({
 
 		const { resolvedModelId, model } = resolveChatModel(undefined);
 
-		let resolvedThreadId = args.threadId;
+		let resolvedThreadId = args.threadId ?? "";
 		if (resolvedThreadId) {
 			const metadata = await ctx.runQuery(getThreadMetadataRef, {
 				threadId: resolvedThreadId,
@@ -156,7 +156,7 @@ export const dispatchMention = internalAction({
 				);
 			}
 		} else {
-			const created = await claveAgent.createThread(ctx, {
+			const created = await getClaveAgent().createThread(ctx, {
 				userId: args.actorUserId,
 			});
 			resolvedThreadId = created.threadId;
@@ -174,7 +174,7 @@ export const dispatchMention = internalAction({
 				content: args.prompt,
 			},
 		];
-		const savedPrompt = await claveAgent.saveMessages(ctx, {
+		const savedPrompt = await getClaveAgent().saveMessages(ctx, {
 			threadId: resolvedThreadId,
 			userId: args.actorUserId,
 			messages: promptMessages,
@@ -188,8 +188,8 @@ export const dispatchMention = internalAction({
 		}
 
 		const baseSystemPrompt =
-			typeof claveAgent.options.instructions === "string"
-				? claveAgent.options.instructions
+			typeof getClaveAgent().options.instructions === "string"
+				? getClaveAgent().options.instructions
 				: "";
 		let contextSuffix = `\n\nWorkspace: ${actorContext.workspaceName}\nUser: ${actorContext.userName}`;
 		if (actorContext.aiWorkspaceContext?.trim()) {
@@ -210,7 +210,7 @@ export const dispatchMention = internalAction({
 			}
 		}
 
-		const result = await claveAgent.streamText(
+		const result = await getClaveAgent().streamText(
 			ctx,
 			{ threadId: resolvedThreadId, userId: args.actorUserId },
 			{

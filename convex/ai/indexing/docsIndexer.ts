@@ -19,7 +19,7 @@ import {
 	chunkText,
 	computeContentHash,
 	GLOBAL_DOCS_NAMESPACE,
-	rag,
+	getRag,
 } from "../rag";
 import { DOC_PAGES } from "./docsManifest";
 
@@ -134,12 +134,12 @@ export const indexDocPage = internalAction({
 
 			const { entryId, replacedEntry } =
 				chunks.length === 1
-					? await rag.add(ctx, { ...ragArgs, text: chunks[0] })
-					: await rag.add(ctx, { ...ragArgs, chunks });
+					? await getRag().add(ctx, { ...ragArgs, text: chunks[0] })
+					: await getRag().add(ctx, { ...ragArgs, chunks });
 
 			// Clean up replaced entry
 			if (replacedEntry) {
-				await rag.delete(ctx, { entryId: replacedEntry.entryId });
+				await getRag().delete(ctx, { entryId: replacedEntry.entryId });
 			}
 
 			// Update sync status

@@ -14,8 +14,8 @@ import {
 	GLOBAL_DOCS_NAMESPACE,
 	getCodeNamespace,
 	getProjectNamespace,
+	getRag,
 	type RagSourceType,
-	rag,
 } from "./rag";
 
 // ── Vector search result shape ──────────────────────────────────────────
@@ -63,7 +63,7 @@ export const vectorSearch = internalAction({
 		}
 
 		// Search content namespace
-		const contentResults = await rag.search(ctx, {
+		const contentResults = await getRag().search(ctx, {
 			namespace,
 			query: args.query,
 			limit: args.limit,
@@ -89,7 +89,7 @@ export const vectorSearch = internalAction({
 		) {
 			try {
 				const codeNamespace = getCodeNamespace(args.projectId);
-				const codeResults = await rag.search(ctx, {
+				const codeResults = await getRag().search(ctx, {
 					namespace: codeNamespace,
 					query: args.query,
 					limit: Math.min(args.limit, 5),
@@ -118,7 +118,7 @@ export const vectorSearch = internalAction({
 				args.sourceTypeFilters.includes("doc_page"))
 		) {
 			try {
-				const docsResults = await rag.search(ctx, {
+				const docsResults = await getRag().search(ctx, {
 					namespace: GLOBAL_DOCS_NAMESPACE,
 					query: args.query,
 					limit: Math.min(args.limit, 5),
@@ -171,7 +171,7 @@ export const codeSearch = internalAction({
 		const codeNamespace = getCodeNamespace(args.projectId);
 
 		try {
-			const codeResults = await rag.search(ctx, {
+			const codeResults = await getRag().search(ctx, {
 				namespace: codeNamespace,
 				query: args.query,
 				limit: args.limit,
@@ -210,7 +210,7 @@ export const docsSearch = internalAction({
 	returns: v.array(vVectorSearchResult),
 	handler: async (ctx, args) => {
 		try {
-			const docsResults = await rag.search(ctx, {
+			const docsResults = await getRag().search(ctx, {
 				namespace: GLOBAL_DOCS_NAMESPACE,
 				query: args.query,
 				limit: args.limit,

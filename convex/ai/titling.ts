@@ -30,7 +30,7 @@ function cleanTitle(raw: string): string {
 
 async function attemptGenerateTitle(prompt: string): Promise<string | null> {
 	const result = await generateText({
-		model: chatModel,
+		model: chatModel(),
 		prompt: TITLING_PROMPT + prompt,
 	});
 	const title = cleanTitle(result.text ?? "");

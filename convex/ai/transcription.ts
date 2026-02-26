@@ -106,19 +106,25 @@ export function getTranscriptionRuntimeConfig(): TranscriptionRuntimeConfig {
 	};
 }
 
-// ── Azure provider for transcription ────────────────────────────────────
-// Uses deployment-based URLs which some transcription deployments require.
+// ── Azure provider for transcription (lazy — avoids top-level env reads) ──
 
-const azure = createAzure({
-	...(process.env.AZURE_TRANSCRIPTION_BASE_URL
-		? { baseURL: process.env.AZURE_TRANSCRIPTION_BASE_URL }
-		: { resourceName: requireEnv("AZURE_RESOURCE_NAME") }),
-	apiKey: requireEnv("AZURE_API_KEY"),
-	useDeploymentBasedUrls: true,
-	apiVersion:
-		process.env.AZURE_TRANSCRIPTION_API_VERSION ??
-		DEFAULT_TRANSCRIPTION_API_VERSION,
-});
+let _azure: ReturnType<typeof createAzure> | null = null;
+
+function getAzure() {
+	if (!_azure) {
+		_azure = createAzure({
+			...(process.env.AZURE_TRANSCRIPTION_BASE_URL
+				? { baseURL: process.env.AZURE_TRANSCRIPTION_BASE_URL }
+				: { resourceName: requireEnv("AZURE_RESOURCE_NAME") }),
+			apiKey: requireEnv("AZURE_API_KEY"),
+			useDeploymentBasedUrls: true,
+			apiVersion:
+				process.env.AZURE_TRANSCRIPTION_API_VERSION ??
+				DEFAULT_TRANSCRIPTION_API_VERSION,
+		});
+	}
+	return _azure;
+}
 
 // ── Transcription model factory ─────────────────────────────────────────
 
@@ -138,5 +144,5 @@ const azure = createAzure({
  */
 export function getTranscriptionModel() {
 	const { deployment } = getTranscriptionRuntimeConfig();
-	return azure.transcription(deployment);
+	return getAzure().transcription(deployment);
 }

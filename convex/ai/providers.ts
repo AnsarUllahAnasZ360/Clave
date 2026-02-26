@@ -310,21 +310,28 @@ function createKimiReasoningAwareFetch(
 	};
 }
 
-// ── Azure provider ───────────────────────────────────────────────────────
+// ── Azure provider (lazy — created on first use to avoid top-level env checks) ─
 
-const azure = createAzure({
-	...(process.env.AZURE_BASE_URL
-		? { baseURL: process.env.AZURE_BASE_URL }
-		: { resourceName: requireEnv("AZURE_RESOURCE_NAME") }),
-	apiKey: requireEnv("AZURE_API_KEY"),
-	fetch: createKimiReasoningAwareFetch(
-		(input, init) => fetch(input, init),
-		process.env.AZURE_CHAT_MODEL_KIMI_25 ?? null,
-	),
-	...(process.env.AZURE_CHAT_API_VERSION
-		? { apiVersion: process.env.AZURE_CHAT_API_VERSION }
-		: {}),
-});
+let _azure: ReturnType<typeof createAzure> | null = null;
+
+function getAzure() {
+	if (!_azure) {
+		_azure = createAzure({
+			...(process.env.AZURE_BASE_URL
+				? { baseURL: process.env.AZURE_BASE_URL }
+				: { resourceName: requireEnv("AZURE_RESOURCE_NAME") }),
+			apiKey: requireEnv("AZURE_API_KEY"),
+			fetch: createKimiReasoningAwareFetch(
+				(input, init) => fetch(input, init),
+				process.env.AZURE_CHAT_MODEL_KIMI_25 ?? null,
+			),
+			...(process.env.AZURE_CHAT_API_VERSION
+				? { apiVersion: process.env.AZURE_CHAT_API_VERSION }
+				: {}),
+		});
+	}
+	return _azure;
+}
 
 // ── Deployment name mapping (env → Azure deployment IDs) ─────────────────
 
@@ -493,7 +500,9 @@ const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 function createLanguageModel(modelId: ChatModelId, deployment: string) {
 	const apiVariant = getModelApiVariant(modelId);
 	const baseModel =
-		apiVariant === "responses" ? azure(deployment) : azure.chat(deployment);
+		apiVariant === "responses"
+			? getAzure()(deployment)
+			: getAzure().chat(deployment);
 
 	const middlewares: LanguageModelMiddleware[] = [
 		normalizeUnsupportedWarningsMiddleware,
@@ -517,25 +526,38 @@ function createLanguageModel(modelId: ChatModelId, deployment: string) {
 	});
 }
 
-// Validate default model is configured at startup
-const defaultDeployment = getDeploymentName(DEFAULT_CHAT_MODEL_ID);
-if (!defaultDeployment) {
-	throw new Error(
-		`[providers] Default model "${DEFAULT_CHAT_MODEL_ID}" is not configured. ` +
-			`Set env var: npx convex env set ${DEPLOYMENT_ENV_VARS[DEFAULT_CHAT_MODEL_ID][0]} <deployment-name>`,
-	);
+// Lazy initialization to avoid top-level env checks during Convex module analysis.
+// Preview deployments run module analysis before env vars are available.
+
+let _chatModel: ReturnType<typeof createLanguageModel> | null = null;
+let _embeddingModel: ReturnType<
+	ReturnType<typeof createAzure>["embeddingModel"]
+> | null = null;
+
+/** Default chat model instance (lazy-initialized) */
+export function chatModel() {
+	if (!_chatModel) {
+		const defaultDeployment = getDeploymentName(DEFAULT_CHAT_MODEL_ID);
+		if (!defaultDeployment) {
+			throw new Error(
+				`[providers] Default model "${DEFAULT_CHAT_MODEL_ID}" is not configured. ` +
+					`Set env var: npx convex env set ${DEPLOYMENT_ENV_VARS[DEFAULT_CHAT_MODEL_ID][0]} <deployment-name>`,
+			);
+		}
+		_chatModel = createLanguageModel(DEFAULT_CHAT_MODEL_ID, defaultDeployment);
+	}
+	return _chatModel;
 }
 
-/** Default chat model instance */
-export const chatModel = createLanguageModel(
-	DEFAULT_CHAT_MODEL_ID,
-	defaultDeployment,
-);
-
-/** Embedding model instance */
-export const embeddingModel = azure.embeddingModel(
-	process.env.AZURE_EMBEDDING_DEPLOYMENT ?? "text-embedding-3-large",
-);
+/** Embedding model instance (lazy-initialized) */
+export function embeddingModel() {
+	if (!_embeddingModel) {
+		_embeddingModel = getAzure().embeddingModel(
+			process.env.AZURE_EMBEDDING_DEPLOYMENT ?? "text-embedding-3-large",
+		);
+	}
+	return _embeddingModel;
+}
 
 // ── Model resolution (action-context only) ───────────────────────────────
 

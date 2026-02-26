@@ -43,7 +43,7 @@ import {
 	whiteboardGenerateDiagramPrompt,
 } from "./prompts/whiteboard_prompts";
 import { chatModel, getReasoningProviderOptions } from "./providers";
-import { getProjectNamespace, rag } from "./rag";
+import { getProjectNamespace, getRag } from "./rag";
 import {
 	extractElementsPayload,
 	fallbackElementsForMode,
@@ -99,7 +99,7 @@ async function callAI(
 	},
 ): Promise<string> {
 	const result = await generateText({
-		model: chatModel,
+		model: chatModel(),
 		prompt: systemPrompt,
 		maxOutputTokens: options?.maxOutputTokens ?? 1024,
 		timeout: options?.timeoutMs ?? AI_GENERATION_TIMEOUT_MS,
@@ -1055,7 +1055,7 @@ export const embeddedAction = action({
 						projectIds.map(async (pid) => {
 							try {
 								const ns = getProjectNamespace(pid);
-								const res = await rag.search(ctx, {
+								const res = await getRag().search(ctx, {
 									namespace: ns,
 									query: searchQuery,
 									limit: perProjectLimit,
