@@ -338,7 +338,7 @@ export const updatePolicy = mutation({
 	},
 });
 
-export const resolveWorkspaceForWebhook = internalQuery({
+export const resolveWorkspaceForWebhook = query({
 	args: {
 		provider: providerValidator,
 		spaceName: v.optional(v.string()),

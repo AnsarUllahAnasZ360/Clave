@@ -43,6 +43,8 @@ export const list = query({
 		const result = [];
 		for (const member of members) {
 			const user = await ctx.db.get(member.userId);
+			// Skip demo users from the member list
+			if (user?.isDemoUser) continue;
 			let avatarUrl: string | undefined;
 			if (user?.avatarStorageId) {
 				const url = await ctx.storage.getUrl(user.avatarStorageId);

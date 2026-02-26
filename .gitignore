@@ -21,6 +21,9 @@ test-results/
 .env.development.local
 .env.test.local
 .env.production.local
+# Vercel CLI pull output — contain real deploy keys and service account creds
+.env.preview
+.env.production
 
 # Google / Cloud credentials (never commit)
 *.service-account.json

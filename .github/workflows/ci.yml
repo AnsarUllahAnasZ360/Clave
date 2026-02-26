@@ -6,25 +6,21 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      run_release:
-        description: "Run release job after CI passes"
-        type: boolean
-        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 # ─── Secrets required ─────────────────────────────────────────────────────────
-# CONVEX_DEPLOY_KEY  — Convex deploy key (CI codegen uses the default key;
-#                      Vercel uses scoped production/preview keys)
-# GITHUB_TOKEN       — Auto-provided by GitHub Actions (release job uses it)
+# GITHUB_TOKEN — auto-provided by GitHub Actions (changeset check uses it)
 #
-# Vercel handles all deployments via Git integration — no Vercel tokens needed
-# in this workflow. Team members with repo push/PR access control the full
-# CI/CD pipeline without needing Vercel or Convex dashboard access.
+# No Vercel or Convex tokens needed here — this workflow is the quality gate
+# only. Deployments are handled by preview.yml and production.yml.
 # ──────────────────────────────────────────────────────────────────────────────
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   ci:
@@ -42,7 +38,7 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Cache bun dependencies
+      - name: Cache Bun
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -51,12 +47,7 @@ jobs:
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install
-
-      - name: Generate Convex types
-        run: bunx convex codegen
-        env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: bun install --frozen-lockfile
 
       - name: Lint
         run: bun run lint
@@ -70,77 +61,8 @@ jobs:
       - name: Integration tests
         run: bun run test:integration
 
-      - name: Check changesets
+      - name: Changeset check
         if: github.event_name == 'pull_request'
         continue-on-error: true
         run: |
           npx changeset status --since=origin/main || echo "::warning::No changeset found. If this PR includes user-facing changes, run 'bun run changeset' to add one."
-
-  release:
-    name: Release
-    if: >-
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && inputs.run_release)
-    needs: [ci]
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    permissions:
-      contents: write
-      pull-requests: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: bun install
-
-      - name: Create Release Pull Request or Tag
-        id: changesets
-        uses: changesets/action@v1
-        with:
-          version: bun run changeset:version
-          commit: "chore: version packages"
-          title: "chore: version packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get current version
-        if: steps.changesets.outputs.hasChangesets == 'false'
-        id: pkg-version
-        run: echo "value=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
-
-      - name: Check if tag exists
-        if: steps.changesets.outputs.hasChangesets == 'false'
-        id: tag-check
-        run: |
-          if git rev-parse "v${{ steps.pkg-version.outputs.value }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create git tag and GitHub release
-        if: steps.changesets.outputs.hasChangesets == 'false' && steps.tag-check.outputs.exists == 'false'
-        run: |
-          VERSION="v${{ steps.pkg-version.outputs.value }}"
-          git tag "$VERSION"
-          git push origin "$VERSION"
-          gh release create "$VERSION" --generate-notes --title "$VERSION"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
