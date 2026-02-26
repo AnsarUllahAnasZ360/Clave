@@ -1,0 +1,58 @@
+---
+title: Sharing Whiteboards
+description: Share whiteboards with your team or create a public read-only link.
+---
+
+Whiteboards can be shared with specific teammates, made visible to everyone in your workspace, or published as a public read-only link.
+
+## Open the Share dialog
+
+Click the **Share** button in the whiteboard header. The Share dialog opens.
+
+You can also share from the Boards list by right-clicking a board card and selecting **Share**.
+
+## Visibility settings
+
+Choose who can access the board:
+
+| Visibility | Who can view |
+|------------|--------------|
+| **Private** | Only you and people you explicitly share with |
+| **Workspace** | Anyone in the workspace can view the board |
+| **Public** | Anyone with the share link can view — no login required |
+
+Select the visibility level from the dropdown in the Share dialog.
+
+## Copy the share link
+
+After setting visibility to **Workspace** or **Public**, a share link appears in the dialog. Click **Copy link** to copy it.
+
+- **Public** links open at `/share/board/[token]` — a standalone read-only view with no workspace chrome.
+- **Private** links are internal URLs — only workspace members who are signed in can open them.
+
+You can also **copy a link from the whiteboard header** using the ⋯ menu → Copy link. If the board is public, this copies the public share URL. If private, it copies the internal link with a note that it's workspace-only.
+
+## Share with specific people
+
+In the Share dialog, search for a teammate by name, select them, and set their permission level. Shared members appear in the list in the Share dialog and can be removed at any time.
+
+## Revoke access
+
+- **Remove a specific person:** Find them in the Share dialog and click remove.
+- **Revoke public access:** Change visibility back to **Private**. The previous public link stops working.
+
+## Regenerate the share token
+
+If a public link has been shared accidentally or needs to be invalidated, click **Regenerate link** in the Share dialog. This creates a new token and makes the old link permanently invalid.
+
+## What external viewers see
+
+When someone opens a public board link, they see:
+
+- The full whiteboard canvas with all elements
+- The board title and emoji
+- Zoom and pan controls
+- No editing tools — the canvas is read-only
+- No comment pins or sidebar — comments are workspace-only
+
+The public view respects the current canvas state at the time of viewing.

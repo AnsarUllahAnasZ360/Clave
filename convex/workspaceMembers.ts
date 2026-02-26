@@ -1,10 +1,12 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
 	requireAuth,
 	requireWorkspaceAdmin,
 	requireWorkspaceMember,
 } from "./lib/auth";
+import { checkPlanLimit } from "./lib/planLimits";
 
 /** List all members of a workspace with user profile data */
 export const list = query({
@@ -117,7 +119,41 @@ export const joinWithCode = mutation({
 			throw new ConvexError("Workspace no longer exists");
 		}
 
-		// Check if user is already a member
+		if (!workspace.organizationId) {
+			throw new ConvexError("Workspace is not linked to an organization");
+		}
+
+		const organizationId = workspace.organizationId;
+		const organization = await ctx.db.get(organizationId);
+		if (!organization || organization.deletedAt) {
+			throw new ConvexError("Organization no longer exists");
+		}
+
+		// Ensure workspace members are also organization members.
+		const existingOrgMember = await ctx.db
+			.query("organizationMembers")
+			.withIndex("by_org_user", (q) =>
+				q.eq("organizationId", organizationId).eq("userId", userId),
+			)
+			.unique();
+
+		let addedOrgMembership = false;
+		if (!existingOrgMember) {
+			// Apply plan checks before adding a new organization seat.
+			await checkPlanLimit(ctx, organizationId, "maxMembers");
+
+			await ctx.db.insert("organizationMembers", {
+				organizationId,
+				userId,
+				role: "member",
+				joinedAt: Date.now(),
+				invitedBy: inviteCode.createdBy,
+			});
+
+			addedOrgMembership = true;
+		}
+
+		// Check if user is already a workspace member
 		const existingMember = await ctx.db
 			.query("workspaceMembers")
 			.withIndex("by_workspace_user", (q) =>
@@ -126,7 +162,13 @@ export const joinWithCode = mutation({
 			.unique();
 
 		if (existingMember) {
-			// Already a member, just return the workspace ID
+			if (addedOrgMembership) {
+				// Fire-and-forget seat sync when organization membership changed.
+				await ctx.scheduler.runAfter(0, internal.billing.syncSeatCount, {
+					organizationId,
+				});
+			}
+			// Already a member, just return the workspace ID.
 			return inviteCode.workspaceId;
 		}
 
@@ -144,6 +186,13 @@ export const joinWithCode = mutation({
 			useCount: inviteCode.useCount + 1,
 			usedBy: [...usedBy, userId],
 		});
+
+		if (addedOrgMembership) {
+			// Fire-and-forget seat sync when organization membership changed.
+			await ctx.scheduler.runAfter(0, internal.billing.syncSeatCount, {
+				organizationId,
+			});
+		}
 
 		return inviteCode.workspaceId;
 	},

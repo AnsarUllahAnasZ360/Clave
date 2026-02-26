@@ -1,0 +1,125 @@
+---
+title: Workspace settings
+description: Configure your workspace identity, issue types, AI behavior, and team access.
+---
+
+Workspace settings control how your workspace looks, how issues are classified, and how the AI assistant behaves for everyone on the team. Most workspace settings require admin access.
+
+## Accessing workspace settings
+
+Open **Settings** from the left sidebar (or press **G then S**). Under the **Workspace** section you'll find the settings areas described below.
+
+## Workspace identity
+
+Go to **Settings → Workspace** to update your workspace's core identity.
+
+### Workspace logo
+
+Click **Change logo** to upload a new image. The logo appears in the sidebar and workspace switcher. Accepted formats: any image file up to 2 MB. You can crop the image after selecting it.
+
+### Workspace name
+
+The display name shown in the sidebar header and page titles. Click the field, update the name, and click outside to save. The name must be at least 2 characters.
+
+### URL slug
+
+The short identifier that appears in your workspace URL (for example, `goclave.app/yourorg/your-slug`). Changing the slug will break any existing bookmarks or shared links using the old URL. The slug is auto-formatted to lowercase with hyphens.
+
+### Description
+
+A short optional description of what your team works on. Visible to organization members who are browsing available workspaces.
+
+### Workspace ID
+
+A read-only identifier for this workspace. Use the **Copy** button to copy it when setting up integrations.
+
+### Visibility
+
+Controls whether other members of your organization can discover and join this workspace.
+
+- **Public** — anyone in your organization can find and join this workspace without an invite.
+- **Private** — only users you explicitly invite can access it.
+
+Only admins can change visibility.
+
+## Types (issue customization)
+
+Go to **Settings → Types** to customize how issues are classified. Changes apply workspace-wide.
+
+### Issue types
+
+Rename or recolor the four built-in issue types: Issue, Bug, Improvement, Feature. The internal key cannot be changed — only the display name and color.
+
+Click the color swatch next to any type to open a color picker. Click the name to rename it.
+
+### Statuses
+
+Customize the display names and colors for issue statuses used in kanban columns and badges: Triage, Backlog, To Do, In Progress, In Review, Done, Cancelled.
+
+### Priorities
+
+Customize the display names and colors for priority levels: No Priority, Low, Medium, High, Urgent.
+
+### Labels
+
+Create labels to tag and filter issues. Each label has a name, color, and optional description.
+
+To create a label, click the **+** button in the Labels section, fill in the name and choose a color, then click **Create**.
+
+To rename a label, click its name. To change the color, click the color swatch. To delete a label, click the trash icon.
+
+## Clave AI
+
+Go to **Settings → Clave AI** to configure how the AI assistant behaves in your workspace.
+
+### Personalization (personal)
+
+These settings apply only to you — other workspace members have their own settings.
+
+- **About me** — personal context the AI should remember: your role, goals, and how you like to work.
+- **How to work with me** — response preferences: tone, detail level, preferred formats.
+
+Click **Save personal preferences** when done.
+
+### Workspace AI profile (admin only)
+
+These settings apply to all AI conversations in the workspace.
+
+- **Workspace context** — shared background information: team processes, domain constraints, preferred terminology.
+- **Assistant characteristics** — the AI's default behavior: communication style, decision-making approach, reference preferences.
+
+Click **Save workspace AI profile** when done.
+
+## Slash commands
+
+Go to **Settings → Slash Commands** to manage reusable prompt shortcuts. See the [AI skills guide](/docs/ai/skills) and [AI chat guide](/docs/ai/chat) for how slash commands work in practice.
+
+### Built-in commands
+
+Clave ships with several built-in slash commands that are always available in chat. They cannot be edited or deleted.
+
+### Workspace commands (admin only)
+
+Shared commands available to everyone in the workspace. Admins can add, edit, delete, and toggle shortcuts.
+
+Click **Add** to create a new workspace command. Enter a name (the part after `/`) and a prompt template. Mark it as a **Shortcut** to pin it in the chat input for faster access.
+
+### Personal commands
+
+Commands visible only in your own chat. Any workspace member can create personal commands.
+
+## Teammates
+
+Go to **Settings → Teammates** to manage who has access to the workspace and their roles.
+
+You can view all current members, see their roles (admin or member), and remove members as needed.
+
+To invite new teammates, use the invite flow from the workspace. See [Inviting teammates](/docs/getting-started/inviting-teammates) for details.
+
+## AI agents and skills
+
+Go to **Settings → Agents** or **Settings → Skills** to configure AI sub-agents and composable skills. These are covered in detail in the [Sub-agents guide](/docs/ai/sub-agents) and [Skills guide](/docs/ai/skills).
+
+## MCP servers
+
+Go to **Settings → MCP Servers** to connect external tools to the AI assistant. See the [Integrations guide](/docs/settings/integrations) for full details.

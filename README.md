@@ -73,6 +73,21 @@ npx convex env set AUTH_GOOGLE_ID <your-google-client-id>
 npx convex env set AUTH_GOOGLE_SECRET <your-google-client-secret>
 ```
 
+Enable email OTP flows (password reset + email verification) via Resend:
+
+```bash
+npx convex env set AUTH_RESEND_KEY <your-resend-api-key>
+npx convex env set AUTH_EMAIL_FROM "Clave <noreply@your-verified-domain.com>"
+```
+
+- `AUTH_RESEND_KEY` turns on both password reset and email verification providers for email/password auth.
+- `AUTH_EMAIL_FROM` should use a sender from a verified Resend domain for production delivery.
+- Before enabling in production, run the verification backfill once for existing password accounts:
+
+```bash
+npx convex run migrations/backfillPasswordAccountsAsVerified:runAll
+```
+
 ## Development
 
 ```bash

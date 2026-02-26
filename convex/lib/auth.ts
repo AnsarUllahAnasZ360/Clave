@@ -3,6 +3,89 @@ import { ConvexError } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
+// ── Rate Limiting ─────────────────────────────────────────────────────────
+
+/** Record a rate limit attempt for the given key and action. */
+export async function recordRateLimitAttempt(
+	ctx: MutationCtx,
+	key: string,
+	action: string,
+) {
+	await ctx.db.insert("rateLimits", {
+		key,
+		action,
+		timestamp: Date.now(),
+	});
+}
+
+/**
+ * Check if the given key is within rate limits for the action.
+ * Returns whether the action is allowed and remaining attempts.
+ */
+export async function checkRateLimit(
+	ctx: QueryCtx | MutationCtx,
+	args: {
+		key: string;
+		action: string;
+		maxAttempts: number;
+		windowMs: number;
+	},
+): Promise<{
+	allowed: boolean;
+	remainingAttempts: number;
+	retryAfterMs?: number;
+}> {
+	const now = Date.now();
+	const windowStart = now - args.windowMs;
+
+	const recentAttempts = await ctx.db
+		.query("rateLimits")
+		.withIndex("by_key_action", (q) =>
+			q.eq("key", args.key).eq("action", args.action),
+		)
+		.collect();
+
+	const attemptsInWindow = recentAttempts.filter(
+		(a) => a.timestamp >= windowStart,
+	);
+	const count = attemptsInWindow.length;
+
+	if (count >= args.maxAttempts) {
+		const oldestInWindow = attemptsInWindow.reduce(
+			(min, a) => (a.timestamp < min ? a.timestamp : min),
+			now,
+		);
+		return {
+			allowed: false,
+			remainingAttempts: 0,
+			retryAfterMs: oldestInWindow + args.windowMs - now,
+		};
+	}
+
+	return {
+		allowed: true,
+		remainingAttempts: args.maxAttempts - count,
+	};
+}
+
+/** Delete expired rate limit records older than maxAgeMs. */
+export async function cleanupExpiredRateLimits(
+	ctx: MutationCtx,
+	maxAgeMs: number,
+) {
+	const cutoff = Date.now() - maxAgeMs;
+	const expired = await ctx.db.query("rateLimits").collect();
+
+	let deleted = 0;
+	for (const record of expired) {
+		if (record.timestamp < cutoff) {
+			await ctx.db.delete(record._id);
+			deleted++;
+		}
+	}
+	return deleted;
+}
+
 /** Get authenticated user ID or throw */
 export async function requireAuth(ctx: QueryCtx | MutationCtx) {
 	const userId = await getAuthUserId(ctx);

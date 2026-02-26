@@ -1,0 +1,59 @@
+---
+title: Creating an organization
+description: Organizations are the top-level container in Clave. Set up your organization to get your team started.
+---
+
+## What is an organization?
+
+An organization is the highest level in Clave's structure. It holds one or more workspaces, manages team membership, and owns billing. Think of it as your company or team account.
+
+You can belong to multiple organizations and switch between them from the Clave header.
+
+## Create your first organization
+
+After signing in, you land on the **Organizations** page. If you have no organizations yet, you will see an empty state with two options.
+
+1. Click **Create organization**.
+2. A dialog opens asking for two things:
+
+   - **Name** — The display name for your organization (e.g., "Acme Corp" or "My Team").
+   - **URL slug** — A short identifier used in your workspace URLs (e.g., `acme`). Clave generates this from your name automatically, but you can edit it.
+
+3. Click **Create organization**.
+
+![Create organization dialog](/docs/screenshots/create-organization.png)
+
+The page reloads and your new organization appears. Click it to open it.
+
+## Organization roles
+
+Every member of an organization has one of three roles:
+
+| Role | What they can do |
+|------|-----------------|
+| **Owner** | Full access — manage members, billing, settings, and delete the org |
+| **Admin** | Manage members and settings, but not billing or org deletion |
+| **Member** | Access workspaces they are invited to |
+
+The person who creates an organization is the **owner** by default.
+
+## Managing organization settings
+
+To open organization settings, click the organization name in the header and select **Settings**, or navigate to `/organizations/{slug}/settings`.
+
+Settings are organized into four sections:
+
+- **General** — Edit organization name and other details.
+- **Members** — View and manage who belongs to the organization.
+- **Invite codes** — Create and manage codes to invite new members.
+- **Billing** — View your plan, usage, and subscription.
+
+## Join an existing organization
+
+If a teammate has already created an organization, you can join it with an invite code.
+
+1. On the **Organizations** page, click **Join**.
+2. Enter the invite code your teammate shared with you.
+3. Click **Join organization**.
+
+You are added as a member and the organization appears in your list. See [Inviting teammates](/docs/getting-started/inviting-teammates) to learn how to generate invite codes.

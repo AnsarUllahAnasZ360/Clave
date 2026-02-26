@@ -240,7 +240,7 @@ export default function OnboardingPage() {
 		<div className="flex min-h-screen items-center justify-center bg-background">
 			<div className="w-full max-w-md space-y-8 px-4">
 				<div className="text-center">
-					<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-800 text-white shadow-[inset_0_-5px_6.6px_0_rgba(0,0,0,0.25)]">
+					<div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-sienna-600 text-white shadow-[inset_0_-5px_6.6px_0_rgba(0,0,0,0.25)]">
 						<span className="text-lg font-bold">C</span>
 					</div>
 					<h1 className="mt-6 text-2xl font-semibold tracking-tight">

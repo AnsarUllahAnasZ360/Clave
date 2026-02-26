@@ -269,12 +269,6 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 		const thread = threads.find((t) => t.threadId === activeThreadId);
 		return thread?.title || "New conversation";
 	}, [activeThreadId, threads]);
-	const activeModelStatusLabel = useMemo(() => {
-		if (selectedModel === "gpt-5.2") return "GPT 5.2";
-		if (selectedModel === "kimi-k2.5") return "Kimi K2.5";
-		return selectedModel;
-	}, [selectedModel]);
-
 	const handleSubmit = useCallback(
 		(
 			text: string,
@@ -552,19 +546,6 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 					<p className="rounded border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200">
 						{modelWarning}
 					</p>
-				</div>
-			)}
-			{(isSending || isStreaming) && (
-				<div className="px-3 pb-2">
-					<div className="inline-flex items-center gap-2 rounded-md border border-sienna-500/20 bg-sienna-500/5 px-2.5 py-1 text-xs text-muted-foreground">
-						<span className="size-1.5 rounded-full bg-sienna-500 animate-pulse" />
-						<span>
-							{isStreaming ? "Generating response..." : "Preparing response..."}
-						</span>
-						<span className="text-[10px] text-sienna-600 dark:text-sienna-400">
-							{activeModelStatusLabel}
-						</span>
-					</div>
 				</div>
 			)}
 

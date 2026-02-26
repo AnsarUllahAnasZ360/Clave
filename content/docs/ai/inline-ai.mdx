@@ -1,0 +1,72 @@
+---
+title: Inline AI
+description: AI assistance inside the document editor — triggered by keyboard shortcut or text selection.
+---
+
+Inline AI brings the power of the AI directly into your documents. You can trigger it at the cursor position with a keyboard shortcut, or by selecting text to get a floating action toolbar. Everything happens in the editor — no need to switch to the chat sidebar.
+
+## Two ways to use inline AI
+
+### Cmd+I — AI at the cursor
+
+Press **Cmd+I** (Mac) or **Ctrl+I** (Windows/Linux) anywhere in the document editor to open the inline AI prompt. A small input appears at your cursor position.
+
+Type your instruction and press **Enter**. The AI generates content and inserts it at the cursor. For example:
+
+- "Write an introduction for this section"
+- "Draft acceptance criteria for the issue above"
+- "Add a table comparing the three options discussed"
+
+The generated text appears inline, ready to edit. You can accept it and keep writing, or delete it and try a different prompt.
+
+### Slash commands — AI from the slash menu
+
+In the document editor, type `/` to open the slash command menu. Scroll to or search for the **AI** group. Available AI commands:
+
+| Command | What it does |
+|---------|--------------|
+| AI: Continue writing | Continues the document from where your cursor is |
+| AI: Summarize above | Summarizes the content above the cursor |
+| AI: Write from prompt… | Opens a prompt dialog — type your instruction and the AI generates content |
+| AI: Improve writing | Improves the clarity and flow of nearby text |
+| AI: Translate… | Translates content — a language picker opens before it runs |
+
+Select a command and the AI runs immediately (or opens a dialog for commands marked with "…").
+
+## Selection toolbar — AI on selected text
+
+Select any text in the document editor. A floating toolbar appears above your selection with six AI actions:
+
+| Action | What it does |
+|--------|--------------|
+| Improve | Enhances clarity, flow, and word choice |
+| Rewrite | Rewrites the selection in a different style or structure |
+| Summarize | Condenses the selection into a shorter form |
+| Translate | Translates the selection to another language |
+| Fix grammar | Corrects grammar and punctuation errors |
+| Expand | Expands the selection with more detail |
+
+Click an action to run it. The AI processes your selected text and shows the result.
+
+For **Translate**, a language picker dialog appears first — select your target language and click **Translate**.
+
+![Inline AI selection toolbar](/docs/screenshots/ai-inline-toolbar.png)
+
+## Accepting or discarding results
+
+When the AI generates a result from the selection toolbar, it appears below your selection as a suggested replacement. You have two choices:
+
+- **Accept** — replaces your selected text with the AI's version
+- **Discard** — closes the result and leaves your original text unchanged
+
+Results from cursor-based actions (Cmd+I, slash commands) are inserted directly. If you don't want them, use **Cmd+Z** to undo.
+
+## Tips for inline AI
+
+**Be specific with your prompts.** "Rewrite this to be more concise" works better than "make it better."
+
+**Use summarize for long sections.** Select a long paragraph and hit Summarize to get a compressed version you can place in a sidebar or summary block.
+
+**Use expand for drafts.** Write a one-line bullet point, select it, and click Expand to flesh it out into a full paragraph.
+
+**Continue writing works well at section breaks.** Place your cursor at the end of a completed section heading or opening sentence, press Cmd+I, and use "continue" to let the AI fill in the section.

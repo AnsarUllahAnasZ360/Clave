@@ -6,7 +6,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action } from "../_generated/server";
-import { claveAgent } from "./agents";
+import { getClaveAgent } from "./agents";
 import { buildContextPrompt, type PageContext } from "./contextPrompts";
 import { getComposedPrompt } from "./getComposedPrompt";
 import { closeMcpClients, loadMcpTools } from "./mcpClient";
@@ -91,7 +91,8 @@ type ClassifiedError = {
 };
 
 const ENABLE_CHAT_TIMINGS = process.env.AI_CHAT_DEBUG_TIMING === "true";
-const ENABLE_CHAT_AUDIT_LOGS = process.env.AI_CHAT_DEBUG_TIMING === "true";
+// Default audit logging to on unless explicitly disabled.
+const ENABLE_CHAT_AUDIT_LOGS = process.env.AI_CHAT_AUDIT_LOGS !== "false";
 
 function makeDebugRequestId(override?: string) {
 	const fallback = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -289,6 +290,7 @@ export const sendMessage = action({
 				retryAfter: v.optional(v.number()),
 			}),
 		),
+		errorMessage: v.optional(v.string()),
 	}),
 	handler: async (
 		ctx,
@@ -326,6 +328,7 @@ export const sendMessage = action({
 		};
 		let streamStartedAt: number | null = null;
 		let mcpResult: Awaited<ReturnType<typeof loadMcpTools>> | null = null;
+		let errorMessage: string | undefined;
 
 		logChatStage(traceId, "request:start", 0, {
 			workspaceId,
@@ -375,8 +378,8 @@ export const sendMessage = action({
 
 		// Resolve or create thread
 		const threadResolveStart = Date.now();
-		let resolvedThreadId: string;
-		let isNewThread = false;
+		let resolvedThreadId = threadId ?? "";
+		let _isNewThread = false;
 		if (threadId) {
 			resolvedThreadId = threadId;
 			// Keep thread metadata in sync before continuing.
@@ -385,11 +388,14 @@ export const sendMessage = action({
 				model: modelIdForRequest,
 			});
 		} else {
-			const created: { threadId: string } = await claveAgent.createThread(ctx, {
-				userId,
-			});
+			const created: { threadId: string } = await getClaveAgent().createThread(
+				ctx,
+				{
+					userId,
+				},
+			);
 			resolvedThreadId = created.threadId;
-			isNewThread = true;
+			_isNewThread = true;
 
 			// Insert metadata only for threads created inside this action (fallback path)
 			await ctx.runMutation(internal.ai.threads.insertThreadMetadata, {
@@ -437,9 +443,27 @@ export const sendMessage = action({
 
 		let errorInfo: { type: string; retryAfter?: number } | undefined;
 		const defaultInstructions =
-			typeof claveAgent.options.instructions === "string"
-				? claveAgent.options.instructions
+			typeof getClaveAgent().options.instructions === "string"
+				? getClaveAgent().options.instructions
 				: "";
+		// Persist the user input first and continue generation from that saved message.
+		const savePromptStart = Date.now();
+		const promptMessages: ModelMessage[] =
+			typeof promptInput === "string"
+				? [{ role: "user", content: promptInput }]
+				: promptInput;
+		const savedPrompt = await getClaveAgent().saveMessages(ctx, {
+			threadId: resolvedThreadId,
+			userId,
+			messages: promptMessages,
+		});
+		const promptMessageId =
+			savedPrompt.messages[savedPrompt.messages.length - 1]?._id;
+		if (!promptMessageId) {
+			throw new Error("Failed to persist prompt message before generation");
+		}
+		const promptSaveMs = Date.now() - savePromptStart;
+		mark("after_prompt_saved");
 		// Kick off expensive setup steps in parallel so first-token latency is lower.
 		const setupStart = Date.now();
 		const mcpToolsPromise = loadMcpTools(ctx, workspaceId, {
@@ -550,12 +574,8 @@ export const sendMessage = action({
 				timing: { totalMs: 0, queryMs: 0, servers: [], fastPath: true },
 			};
 			const hasMcpTools = Object.keys(mcpResult.tools).length > 0;
-			// Returning immediately dramatically improves perceived latency, but
-			// MCP-backed tools require live client connections for the full stream.
-			// Keep the blocking behavior only when MCP tools are involved.
-			const shouldReturnImmediately = !hasMcpTools;
 			logChatTiming("parallel setup complete", startedAt);
-			stageTimings.setupMs = Date.now() - setupStart;
+			stageTimings.setupMs = promptSaveMs + (Date.now() - setupStart);
 
 			// Stream the response with delta persistence.
 			// saveStreamDeltas persists each token to the DB as it arrives,
@@ -566,15 +586,15 @@ export const sendMessage = action({
 			const supportsTemperature = supportsTemperatureSetting(modelIdForRequest);
 			mark("before_stream");
 			streamStartedAt = Date.now();
-			const result = await claveAgent.streamText(
+			const result = await getClaveAgent().streamText(
 				ctx,
 				{ threadId: resolvedThreadId, userId },
 				{
-					prompt: promptInput,
+					promptMessageId,
 					system: systemPrompt,
 					model: modelForRequest,
-					// Keep responses tighter to improve first-token and completion latency.
-					maxOutputTokens: 2048,
+					// Allow enough room for substantial responses without unnecessary truncation.
+					maxOutputTokens: 16384,
 					// Apply teammate temperature override if set
 					...(supportsTemperature &&
 						teammateConfig?.temperature !== undefined && {
@@ -600,7 +620,6 @@ export const sendMessage = action({
 						chunking: "word",
 						// Reduce write amplification during long streams.
 						throttleMs: 40,
-						...(shouldReturnImmediately ? { returnImmediately: true } : {}),
 					},
 					contextOptions: {
 						// 20 recent messages gives good conversational context while the
@@ -616,22 +635,14 @@ export const sendMessage = action({
 				modelId: modelIdForRequest,
 			});
 
-			if (!shouldReturnImmediately) {
-				// For MCP-backed runs, keep the action alive until completion so we
-				// can close MCP client connections deterministically in finally.
-				await result.consumeStream();
-				stageTimings.streamMs = Date.now() - streamStartedAt;
-				logChatTiming(
-					`stream complete model=${modelIdForRequest} (stream=${Date.now() - streamStartedAt}ms)`,
-					startedAt,
-				);
-			} else {
-				stageTimings.streamMs = Date.now() - streamStartedAt;
-				logChatTiming(
-					`stream started model=${modelIdForRequest} (returnImmediately, setup=${Date.now() - streamStartedAt}ms)`,
-					startedAt,
-				);
-			}
+			// Always block until stream completion to avoid dangling mutations
+			// from the agent persistence path.
+			await result.consumeStream();
+			stageTimings.streamMs = Date.now() - streamStartedAt;
+			logChatTiming(
+				`stream complete model=${modelIdForRequest} mcp=${hasMcpTools} (${Date.now() - streamStartedAt}ms)`,
+				startedAt,
+			);
 		} catch (error) {
 			// Log the actual error for debugging
 			console.error(
@@ -651,6 +662,7 @@ export const sendMessage = action({
 					retryAfter: classified.retryAfter,
 				}),
 			};
+			errorMessage = classified.message;
 			stageTimings.streamMs = streamStartedAt
 				? Date.now() - streamStartedAt
 				: 0;
@@ -665,7 +677,15 @@ export const sendMessage = action({
 				await closeMcpClients(mcpResult.clients);
 			}
 			mark("action_end");
-			console.info("[chat-timing]", JSON.stringify(timingMarks));
+			console.info(
+				"[chat-timing]",
+				JSON.stringify({
+					requestId: traceId,
+					threadId: resolvedThreadId || undefined,
+					modelId: modelIdForRequest,
+					marks: timingMarks,
+				}),
+			);
 		}
 
 		stageTimings.totalMs = Date.now() - startedAt;
@@ -674,10 +694,27 @@ export const sendMessage = action({
 			threadId: resolvedThreadId,
 		});
 
-		// Auto-title new threads after their first exchange (fire and forget).
-		// isNewThread: thread created inside this action (fallback path).
-		// isFirstMessage: thread was pre-created by the client — still needs titling.
-		if (isNewThread || isFirstMessage) {
+		// Auto-title threads that don't have a title yet.
+		// Set an immediate fallback title from the user's message so the thread
+		// is never stuck as "New conversation". The background titling action
+		// will overwrite it with an AI-generated title if it succeeds.
+		const currentTitle: string | null = await ctx.runQuery(
+			internal.ai.chatQueries.getThreadTitle,
+			{ threadId: resolvedThreadId },
+		);
+		if (!currentTitle) {
+			// Immediate fallback: first 60 chars of the user's message
+			const fallbackTitle =
+				prompt.trim().length <= 60
+					? prompt.trim()
+					: `${prompt.trim().slice(0, 60).trim()}\u2026`;
+			if (fallbackTitle) {
+				await ctx.runMutation(internal.ai.threads.internalSetThreadTitle, {
+					threadId: resolvedThreadId,
+					title: fallbackTitle,
+				});
+			}
+			// Background: generate a better AI title (overwrites the fallback)
 			await ctx.scheduler.runAfter(0, generateThreadTitle, {
 				threadId: resolvedThreadId,
 				prompt,
@@ -694,6 +731,7 @@ export const sendMessage = action({
 					`id:${traceId}`,
 					`model:${modelIdForRequest}`,
 					`mcp:${mcpResult ? Object.keys(mcpResult.tools).length : 0}`,
+					`error:${errorInfo?.type ?? "none"}`,
 					`timings:${JSON.stringify(stageTimings)}`,
 				].join(" | "),
 			});
@@ -706,6 +744,7 @@ export const sendMessage = action({
 			requestId: traceId,
 			timings: stageTimings,
 			errorInfo,
+			errorMessage,
 		};
 	},
 });

@@ -290,7 +290,9 @@ async function buildDocumentContext(
 	return wrapContextBlock(lines.join("\n"));
 }
 
-// ── Whiteboard Context (~200 tokens) ──────────────────────────────────────
+// ── Whiteboard Context (~400 tokens) ──────────────────────────────────────
+
+const MAX_BOARD_ELEMENTS = 60;
 
 async function buildWhiteboardContext(
 	ctx: ActionCtx,
@@ -308,11 +310,144 @@ async function buildWhiteboardContext(
 		lines.push(`  Last modified: ${formatRelativeTime(board.updatedAt)}`);
 	}
 
+	// Parse and summarize board content so the AI can "see" what's on the canvas
+	const contentSummary = summarizeBoardContent(board.sceneData);
+	if (contentSummary) {
+		lines.push("");
+		lines.push("  Board contents:");
+		lines.push(contentSummary);
+	} else {
+		lines.push("  Board contents: Empty canvas (no elements)");
+	}
+
+	lines.push("");
 	lines.push(
-		"  For generation requests, call the write tool `generateWhiteboardDiagram` and pass this exact whiteboard ID.",
+		"  You can see the full board contents above. For diagram generation requests, call the write tool `generateWhiteboardDiagram` and pass this exact whiteboard ID.",
 	);
 
 	return wrapContextBlock(lines.join("\n"));
+}
+
+/**
+ * Parse Excalidraw sceneData JSON and produce a human-readable summary
+ * of shapes, text, and connections on the board.
+ */
+function summarizeBoardContent(sceneData?: string): string | null {
+	if (!sceneData) return null;
+
+	try {
+		const parsed = JSON.parse(sceneData) as unknown;
+		if (!Array.isArray(parsed)) return null;
+
+		type SceneElement = {
+			id: string;
+			type: string;
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+			text?: string;
+			isDeleted?: boolean;
+			containerId?: string;
+			boundElements?: Array<{ id: string; type: string }>;
+			startBinding?: { elementId?: string };
+			endBinding?: { elementId?: string };
+		};
+
+		const elements = (parsed as SceneElement[]).filter(
+			(el) => el && typeof el === "object" && !el.isDeleted && el.type,
+		);
+
+		if (elements.length === 0) return null;
+
+		// Build a lookup for bound text extraction
+		const elementMap = new Map(elements.map((el) => [el.id, el]));
+
+		function getBoundText(el: SceneElement): string | null {
+			if (el.text) return el.text;
+			const textBinding = el.boundElements?.find((b) => b.type === "text");
+			if (!textBinding) return null;
+			const textEl = elementMap.get(textBinding.id);
+			return textEl?.text ?? null;
+		}
+
+		const shapes = elements.filter(
+			(e) =>
+				e.type === "rectangle" ||
+				e.type === "ellipse" ||
+				e.type === "diamond" ||
+				e.type === "freedraw" ||
+				e.type === "image" ||
+				e.type === "frame",
+		);
+		const standaloneText = elements.filter(
+			(e) => e.type === "text" && !e.containerId,
+		);
+		const arrows = elements.filter(
+			(e) => e.type === "arrow" || e.type === "line",
+		);
+
+		const lines: string[] = [];
+		lines.push(`    ${elements.length} elements total`);
+
+		if (shapes.length > 0) {
+			lines.push("    Shapes:");
+			for (const shape of shapes.slice(0, MAX_BOARD_ELEMENTS)) {
+				const label = getBoundText(shape);
+				const labelStr = label ? ` "${truncate(label, 50)}"` : "";
+				lines.push(
+					`      - ${shape.type}${labelStr} at (${Math.round(shape.x)},${Math.round(shape.y)}) size ${Math.round(shape.width)}x${Math.round(shape.height)}`,
+				);
+			}
+			if (shapes.length > MAX_BOARD_ELEMENTS) {
+				lines.push(
+					`      ... and ${shapes.length - MAX_BOARD_ELEMENTS} more shapes`,
+				);
+			}
+		}
+
+		if (standaloneText.length > 0) {
+			lines.push("    Text:");
+			for (const t of standaloneText.slice(0, 20)) {
+				lines.push(
+					`      - "${truncate(t.text ?? "", 60)}" at (${Math.round(t.x)},${Math.round(t.y)})`,
+				);
+			}
+			if (standaloneText.length > 20) {
+				lines.push(
+					`      ... and ${standaloneText.length - 20} more text elements`,
+				);
+			}
+		}
+
+		if (arrows.length > 0) {
+			lines.push("    Connections:");
+			for (const arrow of arrows.slice(0, 20)) {
+				const fromEl = arrow.startBinding?.elementId
+					? elementMap.get(arrow.startBinding.elementId)
+					: null;
+				const toEl = arrow.endBinding?.elementId
+					? elementMap.get(arrow.endBinding.elementId)
+					: null;
+				const fromLabel = fromEl ? getBoundText(fromEl) : null;
+				const toLabel = toEl ? getBoundText(toEl) : null;
+				const fromStr = fromLabel
+					? `"${truncate(fromLabel, 30)}"`
+					: (arrow.startBinding?.elementId?.slice(0, 8) ?? "?");
+				const toStr = toLabel
+					? `"${truncate(toLabel, 30)}"`
+					: (arrow.endBinding?.elementId?.slice(0, 8) ?? "?");
+				lines.push(`      - ${fromStr} -> ${toStr}`);
+			}
+			if (arrows.length > 20) {
+				lines.push(`      ... and ${arrows.length - 20} more connections`);
+			}
+		}
+
+		return lines.join("\n");
+	} catch {
+		return null;
+	}
 }
 
 // ── Fallback Context ──────────────────────────────────────────────────────

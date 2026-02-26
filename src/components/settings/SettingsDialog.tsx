@@ -8,8 +8,10 @@
 
 import {
 	Bell,
+	ChatCircleText,
 	FileText,
 	Globe,
+	Microphone,
 	Robot,
 	ShieldCheck,
 	SlidersHorizontal,
@@ -21,6 +23,8 @@ import {
 
 export { AccountSettingsPane } from "./AccountPane";
 export { ClaveAISettingsPane, SlashCommandsSettingsPane } from "./ClaveAIPane";
+export { DictationClipboardPane } from "./DictationPane";
+export { GoogleChatIntegrationsPane } from "./GoogleChatIntegrationsPane";
 export { IdentitySettingsPane } from "./IdentityPane";
 export { McpServersSettingsPane } from "./McpServersPane";
 export { NotificationsSettingsPane } from "./NotificationsPane";
@@ -46,6 +50,7 @@ export const settingsSections = [
 		items: [
 			{ id: "account", label: "Account" },
 			{ id: "notifications", label: "Notifications" },
+			{ id: "dictation", label: "Dictation" },
 		],
 	},
 	{
@@ -60,6 +65,7 @@ export const settingsSections = [
 			{ id: "agents", label: "Agents" },
 			{ id: "skills", label: "Skills" },
 			{ id: "mcp-servers", label: "MCP Servers" },
+			{ id: "google-chat", label: "Google Chat" },
 		],
 	},
 ] as const;
@@ -78,6 +84,8 @@ export const settingsItemIcons: Record<
 	agents: Robot,
 	skills: Sparkle,
 	"mcp-servers": Globe,
+	"google-chat": ChatCircleText,
+	dictation: Microphone,
 };
 
 export type SettingsItemId =

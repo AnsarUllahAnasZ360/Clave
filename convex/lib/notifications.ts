@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { enqueueGoogleChatRelayForNotification } from "../chatRelay";
 
 type NotificationType =
 	// Issue-centric types (preferred)
@@ -171,7 +172,7 @@ export async function createNotification(
 		const entityType = args.entityType ?? derivedEntity?.entityType;
 		const entityId = args.entityId ?? derivedEntity?.entityId;
 
-		await ctx.db.insert("notifications", {
+		const notificationId = await ctx.db.insert("notifications", {
 			userId: args.userId,
 			workspaceId: args.workspaceId,
 			type: args.type,
@@ -196,6 +197,21 @@ export async function createNotification(
 			dedupeKey: args.dedupeKey,
 			isRead: false,
 		});
+
+		try {
+			await enqueueGoogleChatRelayForNotification(ctx, {
+				notificationId,
+				workspaceId: args.workspaceId,
+				userId: args.userId,
+				eventType: args.eventType ?? args.type,
+			});
+		} catch (relayError) {
+			// Relay enqueue failures should not block in-app notification writes.
+			console.error(
+				"Failed to enqueue Google Chat relay for notification:",
+				relayError,
+			);
+		}
 		return true;
 	} catch (_error) {
 		// Notification creation must never break parent mutations

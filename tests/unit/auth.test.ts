@@ -353,7 +353,7 @@ describe("auth helpers", () => {
 				name: "Updated Org",
 			});
 
-			const org = await t.query(api.organizations.getById, {
+			const org = await admin.query(api.organizations.getById, {
 				organizationId: fx.organizationId,
 			});
 			expect(org?.name).toBe("Updated Org");
@@ -369,7 +369,7 @@ describe("auth helpers", () => {
 				description: "Owner updated",
 			});
 
-			const org = await t.query(api.organizations.getById, {
+			const org = await owner.query(api.organizations.getById, {
 				organizationId: fx.organizationId,
 			});
 			expect(org?.description).toBe("Owner updated");
@@ -401,7 +401,7 @@ describe("auth helpers", () => {
 				organizationId: fx.organizationId,
 			});
 
-			const org = await t.query(api.organizations.getById, {
+			const org = await owner.query(api.organizations.getById, {
 				organizationId: fx.organizationId,
 			});
 			expect(org).toBeNull();

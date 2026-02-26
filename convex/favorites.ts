@@ -2,9 +2,22 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireWorkspaceMember } from "./lib/auth";
 
+const DEFAULT_FAVORITES_LIMIT = 50;
+const MAX_FAVORITES_LIMIT = 200;
+
+const favoriteEntityTypeValidator = v.union(
+	v.literal("project"),
+	v.literal("story"),
+	v.literal("client"),
+	v.literal("document"),
+	v.literal("whiteboard"),
+	v.literal("issue"),
+);
+
 export const list = query({
 	args: {
 		workspaceId: v.id("workspaces"),
+		limit: v.optional(v.number()),
 	},
 	returns: v.array(
 		v.object({
@@ -18,12 +31,18 @@ export const list = query({
 	),
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		const limit = Math.max(
+			1,
+			Math.min(args.limit ?? DEFAULT_FAVORITES_LIMIT, MAX_FAVORITES_LIMIT),
+		);
+
 		const favorites = await ctx.db
 			.query("favorites")
 			.withIndex("by_user_workspace", (q) =>
 				q.eq("userId", userId).eq("workspaceId", args.workspaceId),
 			)
-			.collect();
+			.order("desc")
+			.take(limit);
 
 		// Resolve entity names for display
 		const resolved = await Promise.all(
@@ -74,17 +93,49 @@ export const list = query({
 	},
 });
 
+export const hasAny = query({
+	args: {
+		workspaceId: v.id("workspaces"),
+	},
+	returns: v.boolean(),
+	handler: async (ctx, args) => {
+		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		const firstFavorite = await ctx.db
+			.query("favorites")
+			.withIndex("by_user_workspace", (q) =>
+				q.eq("userId", userId).eq("workspaceId", args.workspaceId),
+			)
+			.first();
+		return firstFavorite !== null;
+	},
+});
+
+export const isFavorited = query({
+	args: {
+		workspaceId: v.id("workspaces"),
+		entityType: favoriteEntityTypeValidator,
+		entityId: v.string(),
+	},
+	returns: v.boolean(),
+	handler: async (ctx, args) => {
+		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		const existing = await ctx.db
+			.query("favorites")
+			.withIndex("by_user_entity", (q) =>
+				q
+					.eq("userId", userId)
+					.eq("entityType", args.entityType)
+					.eq("entityId", args.entityId),
+			)
+			.unique();
+		return existing !== null && existing.workspaceId === args.workspaceId;
+	},
+});
+
 export const toggle = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
-		entityType: v.union(
-			v.literal("project"),
-			v.literal("story"),
-			v.literal("client"),
-			v.literal("document"),
-			v.literal("whiteboard"),
-			v.literal("issue"),
-		),
+		entityType: favoriteEntityTypeValidator,
 		entityId: v.string(),
 	},
 	returns: v.object({
@@ -109,17 +160,15 @@ export const toggle = mutation({
 			return { action: "removed" as const };
 		}
 
-		// Get max sort order for new favorite
-		const userFavorites = await ctx.db
+		// Sort order is append-only in current behavior; newest record carries the max.
+		const lastFavorite = await ctx.db
 			.query("favorites")
 			.withIndex("by_user_workspace", (q) =>
 				q.eq("userId", userId).eq("workspaceId", args.workspaceId),
 			)
-			.collect();
-		const maxSort = userFavorites.reduce(
-			(max, f) => Math.max(max, f.sortOrder ?? 0),
-			0,
-		);
+			.order("desc")
+			.first();
+		const maxSort = lastFavorite?.sortOrder ?? 0;
 
 		await ctx.db.insert("favorites", {
 			userId,

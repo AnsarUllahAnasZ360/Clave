@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
+const PRESENCE_TOUCH_FRESH_MS = 8000;
+
 export interface WhiteboardActiveUser {
 	userId: Id<"users">;
 	name: string;
@@ -34,6 +36,7 @@ export function useWhiteboardPresence(
 	leaveRef.current = leavePresence;
 	const whiteboardIdRef = useRef(whiteboardId);
 	whiteboardIdRef.current = whiteboardId;
+	const lastPresenceWriteAtRef = useRef(0);
 
 	// Upsert on mount to register presence immediately — skip when no authenticated user
 	useEffect(() => {
@@ -41,6 +44,9 @@ export function useWhiteboardPresence(
 		upsertRef
 			.current({
 				whiteboardId: whiteboardIdRef.current,
+			})
+			.then(() => {
+				lastPresenceWriteAtRef.current = Date.now();
 			})
 			.catch(() => {});
 	}, [currentUserId]);
@@ -50,9 +56,18 @@ export function useWhiteboardPresence(
 		if (!currentUserId) return;
 		const interval = setInterval(
 			() => {
+				if (
+					Date.now() - lastPresenceWriteAtRef.current <
+					PRESENCE_TOUCH_FRESH_MS
+				) {
+					return;
+				}
 				heartbeatRef
 					.current({
 						whiteboardId: whiteboardIdRef.current,
+					})
+					.then(() => {
+						lastPresenceWriteAtRef.current = Date.now();
 					})
 					.catch(() => {});
 			},

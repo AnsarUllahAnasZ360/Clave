@@ -16,10 +16,12 @@ import {
 import { AppSidebar } from "@/components/app-sidebar";
 import { WhatsNewPopup } from "@/components/changelog/WhatsNewPopup";
 import { CommandPalette } from "@/components/command-palette";
+import { DemoWorkspacePopup } from "@/components/demo/DemoWorkspacePopup";
 import { IssueCreateProvider } from "@/components/issues/IssueCreateContext";
 import { IssueCreateModals } from "@/components/issues/IssueCreateModals";
 import { PropertyShortcutPicker } from "@/components/issues/PropertyShortcutPicker";
 import { PixelLogo } from "@/components/marketing/pixel-logo";
+import { GlobalDictationProvider } from "@/components/providers/global-dictation-provider";
 import { useOrganization } from "@/components/providers/organization-context";
 import { WorkspaceProvider } from "@/components/providers/workspace-context";
 import { WorkspaceDataProvider } from "@/components/providers/workspace-data-context";
@@ -87,6 +89,7 @@ export default function WorkspaceLayout({
 	}, [user]);
 
 	const activeContextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const unauthRedirectedRef = useRef(false);
 	useEffect(() => {
 		if (!isAuthenticated || !workspaceId) return;
 		if (activeContextTimer.current) clearTimeout(activeContextTimer.current);
@@ -103,6 +106,33 @@ export default function WorkspaceLayout({
 		};
 	}, [isAuthenticated, workspaceId, organizationId, setActiveContext]);
 
+	const onboardingRedirectedRef = useRef(false);
+
+	useEffect(() => {
+		if (user !== null) {
+			unauthRedirectedRef.current = false;
+			return;
+		}
+		if (unauthRedirectedRef.current) return;
+		unauthRedirectedRef.current = true;
+		router.replace("/sign-in");
+	}, [user, router]);
+
+	// Onboarding guard: redirect users who haven't joined any workspace yet
+	useEffect(() => {
+		if (user === undefined || user === null) return;
+		if (workspace === undefined) return;
+		if (workspace !== null) {
+			onboardingRedirectedRef.current = false;
+			return;
+		}
+		if (!user.lastActiveWorkspaceId) {
+			if (onboardingRedirectedRef.current) return;
+			onboardingRedirectedRef.current = true;
+			router.replace("/onboarding");
+		}
+	}, [user, workspace, router]);
+
 	const workspaceContextValue = useMemo(
 		() => ({
 			workspaceId: workspace?._id ?? ("" as unknown as Id<"workspaces">),
@@ -110,8 +140,16 @@ export default function WorkspaceLayout({
 			workspaceName: workspace?.name ?? "",
 			orgSlug,
 			logoUrl: logoUrl ?? null,
+			isDemo: workspace?.isDemo ?? false,
 		}),
-		[workspace?._id, workspace?.slug, workspace?.name, orgSlug, logoUrl],
+		[
+			workspace?._id,
+			workspace?.slug,
+			workspace?.name,
+			orgSlug,
+			logoUrl,
+			workspace?.isDemo,
+		],
 	);
 
 	// Still loading
@@ -137,7 +175,6 @@ export default function WorkspaceLayout({
 
 	// Not authenticated
 	if (user === null) {
-		router.replace("/sign-in");
 		return null;
 	}
 
@@ -164,57 +201,60 @@ export default function WorkspaceLayout({
 	return (
 		<WorkspaceProvider value={workspaceContextValue}>
 			<WorkspaceDataProvider>
-				<ShortcutProvider>
-					<IssueCreateProvider>
-						<AIChatPanelProvider>
-							<InlineAIPromptProvider>
-								<AIActionMenuProvider>
-									<RightPanelProvider>
-										<SidebarProvider
-											open={sidebarOpen}
-											onOpenChange={(open) => {
-												setSidebarOpen(open);
-												void updateUser({ sidebarCollapsed: !open });
-											}}
-										>
-											<AppSidebar />
-											<SidebarInset>
-												<div className="relative flex flex-1 flex-col min-h-0">
-													<Suspense
-														fallback={
-															<div className="flex flex-1 flex-col gap-4 p-6">
-																<Skeleton className="h-8 w-48" />
-																<Skeleton className="h-px w-full" />
-																<Skeleton className="h-64 w-full" />
-																<Skeleton className="h-32 w-full" />
-															</div>
-														}
-													>
-														{children}
-													</Suspense>
-													{!isChatRoute ? (
-														<>
-															<AIChatTrigger />
-															<BrandingWordmark />
-														</>
-													) : null}
-												</div>
-											</SidebarInset>
-											{!isChatRoute ? <AIChatSidebar /> : null}
-											<WhatsNewPopup />
-										</SidebarProvider>
-									</RightPanelProvider>
-									<InlineAIPrompt />
-									<AIActionMenuDialog />
-								</AIActionMenuProvider>
-							</InlineAIPromptProvider>
-						</AIChatPanelProvider>
-						<CommandPalette />
-						<IssueCreateModals />
-					</IssueCreateProvider>
-					<ShortcutsHelpOverlay />
-					<PropertyShortcutPicker />
-				</ShortcutProvider>
+				<GlobalDictationProvider>
+					<ShortcutProvider>
+						<IssueCreateProvider>
+							<AIChatPanelProvider>
+								<InlineAIPromptProvider>
+									<AIActionMenuProvider>
+										<RightPanelProvider>
+											<SidebarProvider
+												open={sidebarOpen}
+												onOpenChange={(open) => {
+													setSidebarOpen(open);
+													void updateUser({ sidebarCollapsed: !open });
+												}}
+											>
+												<AppSidebar />
+												<SidebarInset>
+													<div className="relative flex flex-1 flex-col min-h-0">
+														<Suspense
+															fallback={
+																<div className="flex flex-1 flex-col gap-4 p-6">
+																	<Skeleton className="h-8 w-48" />
+																	<Skeleton className="h-px w-full" />
+																	<Skeleton className="h-64 w-full" />
+																	<Skeleton className="h-32 w-full" />
+																</div>
+															}
+														>
+															{children}
+														</Suspense>
+														{!isChatRoute ? (
+															<>
+																<AIChatTrigger />
+																<BrandingWordmark />
+															</>
+														) : null}
+													</div>
+												</SidebarInset>
+												{!isChatRoute ? <AIChatSidebar /> : null}
+												<WhatsNewPopup />
+												<DemoWorkspacePopup />
+											</SidebarProvider>
+										</RightPanelProvider>
+										<InlineAIPrompt />
+										<AIActionMenuDialog />
+									</AIActionMenuProvider>
+								</InlineAIPromptProvider>
+							</AIChatPanelProvider>
+							<CommandPalette />
+							<IssueCreateModals />
+						</IssueCreateProvider>
+						<ShortcutsHelpOverlay />
+						<PropertyShortcutPicker />
+					</ShortcutProvider>
+				</GlobalDictationProvider>
 			</WorkspaceDataProvider>
 		</WorkspaceProvider>
 	);

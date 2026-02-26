@@ -5,14 +5,7 @@ import { EyeOff, Search, SquarePen } from "lucide-react";
 import type { Route } from "next";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-	useTransition,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ChatWelcomeScreen,
 	SUGGESTION_CHIPS,
@@ -23,7 +16,12 @@ import { McpActionMenuItems } from "@/components/ai/McpConnectorPicker";
 import { MentionAutocomplete } from "@/components/ai/MentionAutocomplete";
 import { SkillsActionMenuItems } from "@/components/ai/SkillsActionMenuItems";
 import { SubAgentActionMenuItems } from "@/components/ai/SubAgentActionMenuItems";
-import { ChatHeader, ContextChip, ModelSelector } from "@/components/ai/shared";
+import {
+	ChatHeader,
+	ContextChip,
+	ConversationView,
+	ModelSelector,
+} from "@/components/ai/shared";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useAIChat } from "@/hooks/use-ai-chat";
@@ -83,9 +81,12 @@ export default function ChatPage() {
 	const [contextCleared, setContextCleared] = useState(false);
 	const prevContextKeyRef = useRef<string | null>(null);
 	const [threadBrowserOpen, setThreadBrowserOpen] = useState(false);
-	const hasNavigatedRef = useRef(false);
 	const prefetchedRoutesRef = useRef(new Set<string>());
-	const [, startNavigationTransition] = useTransition();
+
+	// Show conversation view as soon as sending starts (even before thread
+	// creation resolves) so the optimistic user message appears instantly
+	// without a layout shift from unmounting the welcome screen.
+	const showConversation = Boolean(chat.activeThreadId) || chat.isSending;
 
 	// Reset cleared state when route context changes
 	const contextKey = routeContext
@@ -115,23 +116,16 @@ export default function ChatPage() {
 		void prefetchThreadRoute(seedThreadId);
 	}, [chat.threads, prefetchThreadRoute]);
 
-	// Navigate to thread when activeThreadId becomes set (after first message)
+	// Once the first message creates a thread, update the URL silently
+	// (no Next.js navigation) so the browser address bar reflects the thread
+	// but no page unmount/remount occurs — eliminating the visual flash.
+	const hasUpdatedUrlRef = useRef(false);
 	useEffect(() => {
-		if (!chat.activeThreadId || hasNavigatedRef.current) return;
-		hasNavigatedRef.current = true;
-		const targetRoute =
-			`/${orgSlug}/${workspaceSlug}/chat/${chat.activeThreadId}` as Route;
-		prefetchThreadRoute(chat.activeThreadId);
-		startNavigationTransition(() => {
-			router.replace(targetRoute);
-		});
-	}, [
-		chat.activeThreadId,
-		orgSlug,
-		workspaceSlug,
-		router,
-		prefetchThreadRoute,
-	]);
+		if (!chat.activeThreadId || hasUpdatedUrlRef.current) return;
+		hasUpdatedUrlRef.current = true;
+		const targetPath = `/${orgSlug}/${workspaceSlug}/chat/${chat.activeThreadId}`;
+		window.history.replaceState(window.history.state, "", targetPath);
+	}, [chat.activeThreadId, orgSlug, workspaceSlug]);
 
 	const pageRef = useRef<HTMLDivElement>(null);
 
@@ -221,6 +215,44 @@ export default function ChatPage() {
 		<ContextChip context={effectiveContext} onClear={handleClearContext} />
 	) : undefined;
 
+	// Shared input props to avoid duplication between welcome/conversation views
+	const inputProps = {
+		workspaceId,
+		onSubmit: handleSubmit,
+		context: slashCommandContext,
+		onStop: chat.stop,
+		disabled: chat.hasPendingApproval,
+		isSending: chat.isSending,
+		isStreaming: chat.isStreaming,
+		placeholder: "Ask your AI teammate..." as const,
+		footerLeft: (
+			<ModelSelector
+				value={chat.selectedModel}
+				onValueChange={chat.setThreadModel}
+				disabled={chat.isSending || chat.isStreaming}
+			/>
+		),
+		actionMenuItems: (
+			<>
+				<SkillsActionMenuItems
+					skills={chat.skills}
+					selectedIds={chat.selectedSkillIds}
+					onChange={chat.setSelectedSkillIds}
+				/>
+				<SubAgentActionMenuItems
+					subAgents={chat.subAgents}
+					selectedId={chat.selectedSubAgentId}
+					onChange={chat.setSelectedSubAgentId}
+				/>
+				<McpActionMenuItems
+					servers={chat.mcpServers}
+					selectedIds={chat.selectedMcpServerIds}
+					onChange={chat.setThreadMcpServers}
+				/>
+			</>
+		),
+	};
+
 	return (
 		<div ref={pageRef} className="flex h-full flex-1 flex-col">
 			{/* Header */}
@@ -265,8 +297,15 @@ export default function ChatPage() {
 			{/* Connection banner */}
 			<ConnectionBanner status={connectionStatus} />
 
-			{/* Centered landing — branding and input */}
-			<div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-8">
+			{/* Welcome screen — hidden (not unmounted) when conversation is active.
+			   Using CSS display:none instead of conditional rendering prevents the
+			   DOM tree swap that caused the persistent flickering. */}
+			<div
+				className={cn(
+					"flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-8",
+					showConversation && "hidden",
+				)}
+			>
 				<ChatWelcomeScreen />
 
 				{chat.modelWarning && (
@@ -278,49 +317,42 @@ export default function ChatPage() {
 				)}
 
 				<div className="w-full max-w-3xl">
-					<MentionAutocomplete
-						workspaceId={workspaceId}
-						onSubmit={handleSubmit}
-						context={slashCommandContext}
-						onStop={chat.stop}
-						disabled={chat.hasPendingApproval}
-						isSending={chat.isSending}
-						isStreaming={chat.isStreaming}
-						placeholder="Ask your AI teammate..."
-						footerLeft={
-							<ModelSelector
-								value={chat.selectedModel}
-								onValueChange={chat.setThreadModel}
-								disabled={chat.isSending || chat.isStreaming}
-							/>
-						}
-						actionMenuItems={
-							<>
-								<SkillsActionMenuItems
-									skills={chat.skills}
-									selectedIds={chat.selectedSkillIds}
-									onChange={chat.setSelectedSkillIds}
-								/>
-								<SubAgentActionMenuItems
-									subAgents={chat.subAgents}
-									selectedId={chat.selectedSubAgentId}
-									onChange={chat.setSelectedSubAgentId}
-								/>
-								<McpActionMenuItems
-									servers={chat.mcpServers}
-									selectedIds={chat.selectedMcpServerIds}
-									onChange={chat.setThreadMcpServers}
-								/>
-							</>
-						}
-					/>
+					<MentionAutocomplete {...inputProps} />
 				</div>
 
-				{/* Deferred suggestion chips — appear after page load */}
 				<DeferredSuggestions
 					onSelect={handleSuggestionClick}
 					className="max-w-3xl"
 				/>
+			</div>
+
+			{/* Conversation — hidden until active, then stays visible.
+			   Both views remain in the DOM; only CSS visibility changes. */}
+			<div
+				className={cn(
+					"mx-auto flex w-full max-w-4xl flex-1 flex-col min-h-0",
+					!showConversation && "hidden",
+				)}
+			>
+				<ConversationView
+					messages={chat.messages}
+					isSending={chat.isSending}
+					isStreaming={chat.isStreaming}
+					isLoadingMessages={chat.isLoadingMessages}
+					error={chat.error}
+					onRetry={chat.retry}
+					className="flex-1"
+				/>
+
+				{chat.modelWarning && (
+					<div className="mb-3 px-4">
+						<p className="rounded border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200">
+							{chat.modelWarning}
+						</p>
+					</div>
+				)}
+
+				<MentionAutocomplete {...inputProps} />
 			</div>
 
 			{/* Thread browser popup */}

@@ -805,22 +805,22 @@ export function IssueBoardView({
 				</div>
 
 				{/* Custom horizontal scrollbar — always visible */}
-				{canHScroll && (
-					<div
-						ref={trackRef}
-						className="shrink-0 h-3 mx-3 mb-1.5 rounded-full bg-muted/60 cursor-pointer relative"
-						onClick={handleTrackClick}
-					>
+				<div
+					ref={trackRef}
+					className="shrink-0 h-4 mx-4 mb-2 mt-1 rounded-full bg-muted cursor-pointer relative"
+					onClick={handleTrackClick}
+				>
+					{canHScroll && (
 						<div
-							className="absolute top-0.5 bottom-0.5 rounded-full bg-foreground/30 hover:bg-foreground/50 active:bg-foreground/60 cursor-grab active:cursor-grabbing transition-colors"
+							className="absolute top-1 bottom-1 rounded-full bg-foreground/40 hover:bg-foreground/60 active:bg-foreground/70 cursor-grab active:cursor-grabbing transition-colors"
 							style={{
 								left: scrollThumbLeft,
 								width: scrollThumbWidth,
 							}}
 							onMouseDown={handleThumbMouseDown}
 						/>
-					</div>
-				)}
+					)}
+				</div>
 			</div>
 
 			{/* Drag overlay */}

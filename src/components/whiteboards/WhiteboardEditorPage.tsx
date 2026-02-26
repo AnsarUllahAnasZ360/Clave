@@ -42,6 +42,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { SaveStatus } from "@/components/whiteboards/WhiteboardEditor";
 import { WhiteboardEditorDynamic } from "@/components/whiteboards/WhiteboardEditorDynamic";
 import { useWhiteboardPresence } from "@/hooks/use-whiteboard-presence";
 import { formatRelativeTime } from "@/lib/format";
@@ -95,6 +96,7 @@ export function WhiteboardEditorPage({
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 	const [isShareOpen, setIsShareOpen] = useState(false);
 	const [commentMode, setCommentMode] = useState(false);
+	const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 	const [editingTitle, setEditingTitle] = useState(false);
 	const [titleValue, setTitleValue] = useState("");
 	const titleInputRef = useRef<HTMLInputElement>(null);
@@ -275,8 +277,20 @@ export function WhiteboardEditorPage({
 					{/* Presence avatar stack */}
 					<PresenceAvatarStack users={presenceUsers} />
 
-					<span className="text-xs text-muted-foreground hidden sm:block">
-						Edited {lastEditedLabel}
+					<span className="text-xs text-muted-foreground hidden sm:flex items-center gap-1.5">
+						{saveStatus === "saving" ? (
+							<>
+								<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sienna-9" />
+								Saving...
+							</>
+						) : saveStatus === "saved" ? (
+							<>
+								<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+								Saved
+							</>
+						) : (
+							<>Edited {lastEditedLabel}</>
+						)}
 					</span>
 
 					{/* Comment mode toggle */}
@@ -348,6 +362,7 @@ export function WhiteboardEditorPage({
 					workspaceId={whiteboard.workspaceId}
 					currentUserId={currentUser?._id}
 					workspaceSlug={workspaceSlug}
+					onSaveStatusChange={setSaveStatus}
 				/>
 			</div>
 

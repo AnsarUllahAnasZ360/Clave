@@ -79,7 +79,7 @@ export function Navbar() {
 						Sign in
 					</Link>
 					<Link
-						href={"/sign-in" as never}
+						href={"/sign-up" as never}
 						prefetch={false}
 						className="rounded-md bg-sienna-500 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-sienna-600 hover:scale-[1.03] hover:shadow-[0_0_16px_2px_rgba(194,106,58,0.25)] active:scale-100"
 					>
@@ -173,7 +173,7 @@ export function Navbar() {
 								Sign in
 							</Link>
 							<Link
-								href={"/sign-in" as never}
+								href={"/sign-up" as never}
 								prefetch={false}
 								className="flex min-h-[44px] items-center justify-center rounded-md bg-sienna-500 px-4 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-sienna-600"
 							>

@@ -24,6 +24,12 @@ export function NotificationsSettingsPane() {
 			description: "You will receive emails about events",
 			field: "notifyEmail" as const,
 		},
+		{
+			id: "google-chat" as const,
+			title: "Google Chat",
+			description: "Relay eligible notifications to your linked Google Chat DM",
+			field: "notifyGoogleChat" as const,
+		},
 	];
 
 	return (

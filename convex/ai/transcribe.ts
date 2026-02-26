@@ -285,72 +285,135 @@ async function transcribeViaAzureRest(
 	const preferredResponseFormat =
 		runtimeConfig.mode === "diarized" ? "diarized_json" : "verbose_json";
 
-	const fileExtension = extensionForMimeType(mimeType);
-	const blob = new Blob([audioBuffer], { type: mimeType || "audio/webm" });
-
 	const attempts: Array<{
 		responseFormat: "diarized_json" | "verbose_json" | "json";
 		useChunking: boolean;
-	}> = [
-		{
-			responseFormat: preferredResponseFormat,
-			useChunking: runtimeConfig.chunkingStrategy === "server_vad",
-		},
-		{
-			responseFormat: "json",
-			useChunking: false,
-		},
-	];
+	}> =
+		preferredResponseFormat === "diarized_json" &&
+		runtimeConfig.chunkingStrategy === "server_vad"
+			? [
+					{
+						responseFormat: "diarized_json",
+						useChunking: true,
+					},
+					{
+						responseFormat: "diarized_json",
+						useChunking: false,
+					},
+					{
+						responseFormat: "json",
+						useChunking: false,
+					},
+				]
+			: [
+					{
+						responseFormat: preferredResponseFormat,
+						useChunking: runtimeConfig.chunkingStrategy === "server_vad",
+					},
+					{
+						responseFormat: "json",
+						useChunking: false,
+					},
+				];
+
+	const fileExtension = extensionForMimeType(mimeType);
+	const blob = new Blob([audioBuffer], { type: mimeType || "audio/webm" });
 
 	let lastError: Error | null = null;
 
 	for (const attempt of attempts) {
-		const formData = new FormData();
-		formData.append("model", runtimeConfig.deployment);
-		formData.append("file", blob, `recording.${fileExtension}`);
-		formData.append("response_format", attempt.responseFormat);
-		if (options.prompt) formData.append("prompt", options.prompt);
-		if (options.language) formData.append("language", options.language);
-		if (
-			(attempt.responseFormat === "verbose_json" ||
-				attempt.responseFormat === "diarized_json") &&
-			attempt.useChunking
-		) {
-			formData.append("timestamp_granularities[]", "segment");
-			formData.append(
-				"chunking_strategy",
-				JSON.stringify({ type: "server_vad" }),
-			);
+		try {
+			const formData = new FormData();
+			formData.append("model", runtimeConfig.deployment);
+			formData.append("file", blob, `recording.${fileExtension}`);
+			formData.append("response_format", attempt.responseFormat);
+			if (options.prompt) formData.append("prompt", options.prompt);
+			if (options.language) formData.append("language", options.language);
+
+			const shouldUseServerVad =
+				runtimeConfig.chunkingStrategy === "server_vad" && attempt.useChunking;
+
+			if (
+				attempt.responseFormat === "diarized_json" &&
+				runtimeConfig.mode === "diarized"
+			) {
+				formData.append(
+					"chunking_strategy",
+					shouldUseServerVad ? JSON.stringify({ type: "server_vad" }) : "auto",
+				);
+			} else if (
+				attempt.responseFormat === "verbose_json" &&
+				shouldUseServerVad
+			) {
+				formData.append("timestamp_granularities[]", "segment");
+				formData.append(
+					"chunking_strategy",
+					JSON.stringify({ type: "server_vad" }),
+				);
+			}
+
+			const response = await fetch(url, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${apiKey}`,
+				},
+				body: formData,
+			});
+
+			const contentType = response.headers.get("content-type") ?? "";
+			const bodyText = await response.text();
+			if (!response.ok) {
+				lastError = new Error(
+					`REST transcription failed for ${attempt.responseFormat}: ${response.status} ${response.statusText} ${extractErrorDetails(bodyText).slice(0, 240)}`,
+				);
+				continue;
+			}
+
+			let payload: unknown = bodyText;
+			if (contentType.includes("application/json")) {
+				try {
+					payload = JSON.parse(bodyText);
+				} catch {
+					// Keep raw text if JSON parsing fails.
+				}
+			}
+
+			return normalizeTranscriptionPayload(payload, attempt.responseFormat);
+		} catch (error) {
+			lastError =
+				error instanceof Error ? error : new Error(toErrorMessage(error));
 		}
-
-		const response = await fetch(url, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-			},
-			body: formData,
-		});
-
-		if (!response.ok) {
-			const body = await response.text();
-			lastError = new Error(
-				`REST transcription failed for ${attempt.responseFormat}: ${response.status} ${response.statusText} ${body.slice(0, 240)}`,
-			);
-			continue;
-		}
-
-		const contentType = response.headers.get("content-type") ?? "";
-		const payload = contentType.includes("application/json")
-			? await response.json()
-			: await response.text();
-
-		return normalizeTranscriptionPayload(payload, attempt.responseFormat);
 	}
 
 	throw (
 		lastError ??
 		new Error("REST transcription failed without a specific error message")
 	);
+}
+
+function extractErrorDetails(body: string): string {
+	const trimmed = body.trim();
+	if (!trimmed) return "No response body";
+
+	const parsed = asRecord(tryParseJson(trimmed));
+	if (!parsed) return trimmed;
+
+	const nestedError = asRecord(parsed.error);
+	const nestedErrorMessage = asString(nestedError?.message);
+	if (nestedErrorMessage) return nestedErrorMessage;
+
+	const topLevelMessage = asString(parsed.message);
+	if (topLevelMessage) return topLevelMessage;
+
+	return trimmed.slice(0, 200);
+}
+
+function tryParseJson(value: string): unknown | null {
+	try {
+		return JSON.parse(value);
+	} catch {
+		return null;
+	}
 }
 
 /**

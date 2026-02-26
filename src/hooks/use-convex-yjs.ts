@@ -12,13 +12,19 @@ import {
 import type { Id } from "../../convex/_generated/dataModel";
 
 // Register the 'convex' provider type with Plate's YjsPlugin
-registerProviderType("convex", ConvexYjsProvider);
+let providerTypeRegistered = false;
+if (!providerTypeRegistered) {
+	registerProviderType("convex", ConvexYjsProvider);
+	providerTypeRegistered = true;
+}
 
 interface UseConvexYjsOptions {
 	/** The document ID to sync */
 	documentId: Id<"documents">;
+	/** Optional stable session identifier for this browser tab */
+	clientSessionId?: string;
 	/** User info for awareness cursors */
-	user?: { name: string; color: string };
+	user?: { name: string; color: string; isGuest?: boolean };
 }
 
 interface UseConvexYjsReturn {
@@ -53,6 +59,7 @@ interface UseConvexYjsReturn {
  */
 export function useConvexYjs({
 	documentId,
+	clientSessionId,
 	user,
 }: UseConvexYjsOptions): UseConvexYjsReturn {
 	const client = useConvex();
@@ -63,6 +70,20 @@ export function useConvexYjs({
 	// Stable reference for user info
 	const userRef = useRef(user);
 	userRef.current = user;
+	const effectiveSessionId = useMemo(() => {
+		if (clientSessionId) return clientSessionId;
+		if (typeof window === "undefined") {
+			return `server-${documentId}`;
+		}
+		const key = `yjs-session:${documentId}`;
+		const existing = window.sessionStorage.getItem(key);
+		if (existing) return existing;
+		const created =
+			window.crypto?.randomUUID?.() ??
+			`${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+		window.sessionStorage.setItem(key, created);
+		return created;
+	}, [clientSessionId, documentId]);
 
 	// Create Y.Doc (using documentId as guid) and Awareness, recreated when documentId changes
 	const { doc, awareness } = useMemo(() => {
@@ -76,6 +97,7 @@ export function useConvexYjs({
 		const options: ConvexYjsProviderOptions = {
 			client,
 			documentId,
+			clientSessionId: effectiveSessionId,
 			user: userRef.current,
 		};
 
@@ -91,7 +113,7 @@ export function useConvexYjs({
 			onError: (err) => setError(err),
 			onSyncChange: (synced) => setIsSynced(synced),
 		});
-	}, [documentId, client, doc, awareness]);
+	}, [documentId, client, doc, awareness, effectiveSessionId]);
 
 	// Connect on mount, disconnect on unmount
 	useEffect(() => {

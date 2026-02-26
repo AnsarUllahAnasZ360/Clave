@@ -87,6 +87,8 @@ function isSnoozed(n: { snoozedUntil?: number }): boolean {
 	return n.snoozedUntil !== undefined && n.snoozedUntil > Date.now();
 }
 
+const UNSNOOZE_BATCH_SIZE = 5000;
+
 // ── Queries ─────────────────────────────────────────────────────────────────
 
 export const list = query({
@@ -582,7 +584,13 @@ export const markAsRead = mutation({
 			throw new ConvexError("Notification not found");
 		}
 
-		await requireWorkspaceMember(ctx, notification.workspaceId);
+		const { userId } = await requireWorkspaceMember(
+			ctx,
+			notification.workspaceId,
+		);
+		if (notification.userId !== userId) {
+			throw new ConvexError("Not your notification");
+		}
 
 		if (!notification.isRead) {
 			await ctx.db.patch(args.notificationId, {
@@ -630,7 +638,13 @@ export const toggleRead = mutation({
 			throw new ConvexError("Notification not found");
 		}
 
-		await requireWorkspaceMember(ctx, notification.workspaceId);
+		const { userId } = await requireWorkspaceMember(
+			ctx,
+			notification.workspaceId,
+		);
+		if (notification.userId !== userId) {
+			throw new ConvexError("Not your notification");
+		}
 
 		await ctx.db.patch(args.notificationId, {
 			isRead: !notification.isRead,
@@ -651,7 +665,13 @@ export const snooze = mutation({
 			throw new ConvexError("Notification not found");
 		}
 
-		await requireWorkspaceMember(ctx, notification.workspaceId);
+		const { userId } = await requireWorkspaceMember(
+			ctx,
+			notification.workspaceId,
+		);
+		if (notification.userId !== userId) {
+			throw new ConvexError("Not your notification");
+		}
 
 		await ctx.db.patch(args.notificationId, {
 			snoozedUntil: args.snoozedUntil,
@@ -672,7 +692,13 @@ export const unsnooze = mutation({
 			throw new ConvexError("Notification not found");
 		}
 
-		await requireWorkspaceMember(ctx, notification.workspaceId);
+		const { userId } = await requireWorkspaceMember(
+			ctx,
+			notification.workspaceId,
+		);
+		if (notification.userId !== userId) {
+			throw new ConvexError("Not your notification");
+		}
 
 		await ctx.db.patch(args.notificationId, {
 			snoozedUntil: undefined,
@@ -691,7 +717,13 @@ export const deleteNotification = mutation({
 			throw new ConvexError("Notification not found");
 		}
 
-		await requireWorkspaceMember(ctx, notification.workspaceId);
+		const { userId } = await requireWorkspaceMember(
+			ctx,
+			notification.workspaceId,
+		);
+		if (notification.userId !== userId) {
+			throw new ConvexError("Not your notification");
+		}
 
 		await ctx.db.patch(args.notificationId, {
 			deletedAt: Date.now(),
@@ -763,7 +795,13 @@ export const archive = mutation({
 			throw new ConvexError("Notification not found");
 		}
 
-		await requireWorkspaceMember(ctx, notification.workspaceId);
+		const { userId } = await requireWorkspaceMember(
+			ctx,
+			notification.workspaceId,
+		);
+		if (notification.userId !== userId) {
+			throw new ConvexError("Not your notification");
+		}
 
 		await ctx.db.patch(args.notificationId, {
 			isArchived: true,
@@ -774,34 +812,41 @@ export const archive = mutation({
 // ── Internal: Un-snooze cron handler ────────────────────────────────────────
 
 export const unsnoozeExpired = internalMutation({
+	args: {},
+	returns: v.object({
+		scanned: v.number(),
+		unsnoozed: v.number(),
+		hasMore: v.boolean(),
+	}),
 	handler: async (ctx) => {
 		const now = Date.now();
 
-		// Find notifications where snoozedUntil has passed.
-		// This is bounded but intentionally large; if there are more, the next cron tick picks up the rest.
+		// Process a bounded batch each minute. The cron cadence handles backlog safely.
 		const candidates = await ctx.db
 			.query("notifications")
-			.withIndex("by_snoozed_until", (q) => q.lte("snoozedUntil", now))
-			.take(50000);
+			.withIndex("by_snoozed_until", (q) =>
+				q.gte("snoozedUntil", 0).lte("snoozedUntil", now),
+			)
+			.take(UNSNOOZE_BATCH_SIZE);
 
-		let count = 0;
+		let unsnoozed = 0;
 		for (const n of candidates) {
-			if (
-				n.snoozedUntil !== undefined &&
-				n.snoozedUntil <= now &&
-				!n.deletedAt
-			) {
-				await ctx.db.patch(n._id, {
-					snoozedUntil: undefined,
-					isRead: false,
-				});
-				count++;
-			}
+			if (n.deletedAt) continue;
+
+			await ctx.db.patch(n._id, {
+				snoozedUntil: undefined,
+				...(n.isRead ? { isRead: false } : {}),
+			});
+			unsnoozed++;
 		}
 
-		if (count > 0) {
-			console.log(`Unsnoozed ${count} notifications`);
+		const hasMore = candidates.length === UNSNOOZE_BATCH_SIZE;
+		if (unsnoozed > 0) {
+			console.log(
+				`Unsnoozed ${unsnoozed} notifications${hasMore ? " (batch limit reached; continuing next tick)" : ""}`,
+			);
 		}
+		return { scanned: candidates.length, unsnoozed, hasMore };
 	},
 });
 

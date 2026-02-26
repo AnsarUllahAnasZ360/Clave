@@ -51,8 +51,11 @@ export function UserFooterMenu({
 	const [changelogOpen, setChangelogOpen] = useState(false);
 
 	const handleSignOut = async () => {
-		await signOut();
-		router.push("/sign-in");
+		try {
+			await signOut();
+		} finally {
+			window.location.assign("/");
+		}
 	};
 
 	const userName = user?.name || "User";

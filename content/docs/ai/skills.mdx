@@ -1,0 +1,83 @@
+---
+title: Skills
+description: Composable AI instruction sets that shape how the AI behaves in your workspace.
+---
+
+Skills are reusable instruction sets that tell the AI how to behave in specific situations. When a skill is enabled, its instructions are automatically included in every AI request in your workspace. Skills let you encode your team's conventions, workflows, and preferences into the AI without having to repeat yourself in every message.
+
+## What skills do
+
+Each skill is a piece of markdown that the AI reads as part of its system context. Examples of what skills can encode:
+
+- "Always use conventional commit messages"
+- "When writing issue descriptions, follow this template: …"
+- "Our brand voice is direct, plain, and never uses jargon"
+- "When triaging bugs, always ask for reproduction steps"
+
+When skills are enabled, the AI incorporates their guidance into every response — without you having to mention it.
+
+## Browsing and managing skills
+
+Go to **Workspace settings** → **Skills** to see all skills in your workspace.
+
+Each skill shows its name, category, description, and whether it is currently enabled.
+
+## Enabling and disabling skills
+
+Click the toggle next to any skill to enable or disable it. Disabled skills are not included in AI requests. Changes take effect immediately.
+
+You and workspace admins can toggle skills. If a skill is shared, an admin must enable or disable it.
+
+## Importing skills from the catalog
+
+Clave connects to a public skills catalog at skills.sh. From the skills settings page, click **Browse catalog** to search for community-built skills you can import into your workspace.
+
+When you import a skill from the catalog, it appears in your workspace skills list as enabled by default. If the skill is updated in the catalog, you can re-import it to get the latest version.
+
+## Creating custom skills
+
+You can write your own skills for your team's specific needs.
+
+### How to create a skill
+
+1. Go to **Workspace settings** → **Skills**.
+2. Click **New skill**.
+3. Fill in:
+   - **Name** — a short, descriptive name (must be unique in the workspace)
+   - **Description** — what this skill does and when it applies
+   - **Category** — group similar skills together (e.g., "Writing", "Issues", "Code")
+   - **Content** — the skill instructions written in markdown
+4. Click **Save**. The skill is enabled by default.
+
+### Writing effective skill content
+
+Skill content is read by the AI as instructions. Write it in clear, direct language:
+
+- Use imperative statements: "Always…", "When you see…", "Format output as…"
+- Be specific about triggers: "When creating issues…", "When writing documentation…"
+- Include examples where helpful — the AI responds well to "for example: …"
+- Keep each skill focused on one topic. Multiple small skills are easier to manage than one large one.
+
+## Attaching skills to sub-agents
+
+Skills can be attached to specific sub-agents so that an agent always has particular instructions. This is useful when a skill only makes sense in the context of one agent's job.
+
+To attach a skill to an agent:
+1. Go to **Workspace settings** → **Sub-agents**.
+2. Open the agent you want to configure.
+3. Under **Skills**, select the skills to attach.
+4. Save.
+
+Attached skills are included in that agent's context in addition to any workspace-wide enabled skills.
+
+## Skill permissions
+
+- Only you can edit or delete a skill you created.
+- Workspace admins can edit or delete any skill in the workspace.
+- Toggling a skill requires you to be the creator or an admin.
+
+## When skills take effect
+
+Enabled skills are included in every AI message sent in the workspace. If you enable a skill mid-conversation, the next message you send will include it. The AI does not retroactively apply skills to earlier messages in the same thread.
+
+![Skills settings page](/docs/screenshots/ai-skills.png)

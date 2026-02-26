@@ -310,21 +310,28 @@ function createKimiReasoningAwareFetch(
 	};
 }
 
-// ── Azure provider ───────────────────────────────────────────────────────
+// ── Azure provider (lazy — created on first use to avoid top-level env checks) ─
 
-const azure = createAzure({
-	...(process.env.AZURE_BASE_URL
-		? { baseURL: process.env.AZURE_BASE_URL }
-		: { resourceName: requireEnv("AZURE_RESOURCE_NAME") }),
-	apiKey: requireEnv("AZURE_API_KEY"),
-	fetch: createKimiReasoningAwareFetch(
-		(input, init) => fetch(input, init),
-		process.env.AZURE_CHAT_MODEL_KIMI_25 ?? null,
-	),
-	...(process.env.AZURE_CHAT_API_VERSION
-		? { apiVersion: process.env.AZURE_CHAT_API_VERSION }
-		: {}),
-});
+let _azure: ReturnType<typeof createAzure> | null = null;
+
+function getAzure() {
+	if (!_azure) {
+		_azure = createAzure({
+			...(process.env.AZURE_BASE_URL
+				? { baseURL: process.env.AZURE_BASE_URL }
+				: { resourceName: requireEnv("AZURE_RESOURCE_NAME") }),
+			apiKey: requireEnv("AZURE_API_KEY"),
+			fetch: createKimiReasoningAwareFetch(
+				(input, init) => fetch(input, init),
+				process.env.AZURE_CHAT_MODEL_KIMI_25 ?? null,
+			),
+			...(process.env.AZURE_CHAT_API_VERSION
+				? { apiVersion: process.env.AZURE_CHAT_API_VERSION }
+				: {}),
+		});
+	}
+	return _azure;
+}
 
 // ── Deployment name mapping (env → Azure deployment IDs) ─────────────────
 
@@ -343,7 +350,7 @@ const MODEL_API_ENV_VARS: Record<ChatModelId, string> = {
 
 const DEFAULT_MODEL_API_VARIANTS: Record<ChatModelId, ModelApiVariant> = {
 	"kimi-k2.5": "chat",
-	"gpt-5.2": "chat",
+	"gpt-5.2": "responses",
 };
 const SUPPORTS_TEMPERATURE_BY_MODEL: Record<ChatModelId, boolean> = {
 	"kimi-k2.5": true,
@@ -436,13 +443,71 @@ const normalizeUnsupportedWarningsMiddleware: LanguageModelMiddleware = {
 	},
 };
 
+// ── Cross-model message sanitization ─────────────────────────────────────
+//
+// When switching models mid-conversation, the message history may contain
+// reasoning parts from a previous model. These are incompatible across API
+// types (Responses API vs Chat Completions):
+//   - Chat Completions silently drops reasoning parts (no handler)
+//   - Responses API rejects reasoning parts without providerOptions.openai.itemId
+//
+// Rather than trying to convert between formats, we strip ALL reasoning parts
+// from older messages in the prompt. The current model will generate its own
+// reasoning if it supports it; old reasoning just wastes tokens and breaks
+// cross-model requests.
+
+const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
+	specificationVersion: "v3",
+	transformParams: async ({ params }) => {
+		const prompt = params.prompt;
+		if (!prompt || prompt.length === 0) return params;
+
+		// Only strip from messages before the last user message (historical context).
+		// The very last assistant message (if any) is the current generation target.
+		let lastUserIdx = -1;
+		for (let i = prompt.length - 1; i >= 0; i--) {
+			if (prompt[i].role === "user") {
+				lastUserIdx = i;
+				break;
+			}
+		}
+
+		const sanitized = prompt.map((msg, idx) => {
+			// Only sanitize assistant messages in history (before the last user message)
+			if (msg.role !== "assistant" || idx >= lastUserIdx) return msg;
+			if (!Array.isArray(msg.content)) return msg;
+
+			const filtered = msg.content.filter((part) => part.type !== "reasoning");
+
+			// If all content was reasoning, replace with a placeholder text part
+			// to avoid sending an empty assistant message
+			if (filtered.length === 0) {
+				return {
+					...msg,
+					content: [{ type: "text" as const, text: "[reasoning omitted]" }],
+				};
+			}
+
+			// Only create a new object if we actually filtered something
+			if (filtered.length === msg.content.length) return msg;
+			return { ...msg, content: filtered };
+		});
+
+		return { ...params, prompt: sanitized };
+	},
+};
+
 function createLanguageModel(modelId: ChatModelId, deployment: string) {
 	const apiVariant = getModelApiVariant(modelId);
 	const baseModel =
-		apiVariant === "responses" ? azure(deployment) : azure.chat(deployment);
+		apiVariant === "responses"
+			? getAzure()(deployment)
+			: getAzure().chat(deployment);
 
 	const middlewares: LanguageModelMiddleware[] = [
 		normalizeUnsupportedWarningsMiddleware,
+		// Strip reasoning parts from history to prevent cross-model API errors
+		stripReasoningFromHistoryMiddleware,
 	];
 
 	// Kimi chat models emit thinking in `<think>...</think>` after fetch rewrite.
@@ -461,25 +526,38 @@ function createLanguageModel(modelId: ChatModelId, deployment: string) {
 	});
 }
 
-// Validate default model is configured at startup
-const defaultDeployment = getDeploymentName(DEFAULT_CHAT_MODEL_ID);
-if (!defaultDeployment) {
-	throw new Error(
-		`[providers] Default model "${DEFAULT_CHAT_MODEL_ID}" is not configured. ` +
-			`Set env var: npx convex env set ${DEPLOYMENT_ENV_VARS[DEFAULT_CHAT_MODEL_ID][0]} <deployment-name>`,
-	);
+// Lazy initialization to avoid top-level env checks during Convex module analysis.
+// Preview deployments run module analysis before env vars are available.
+
+let _chatModel: ReturnType<typeof createLanguageModel> | null = null;
+let _embeddingModel: ReturnType<
+	ReturnType<typeof createAzure>["embeddingModel"]
+> | null = null;
+
+/** Default chat model instance (lazy-initialized) */
+export function chatModel() {
+	if (!_chatModel) {
+		const defaultDeployment = getDeploymentName(DEFAULT_CHAT_MODEL_ID);
+		if (!defaultDeployment) {
+			throw new Error(
+				`[providers] Default model "${DEFAULT_CHAT_MODEL_ID}" is not configured. ` +
+					`Set env var: npx convex env set ${DEPLOYMENT_ENV_VARS[DEFAULT_CHAT_MODEL_ID][0]} <deployment-name>`,
+			);
+		}
+		_chatModel = createLanguageModel(DEFAULT_CHAT_MODEL_ID, defaultDeployment);
+	}
+	return _chatModel;
 }
 
-/** Default chat model instance */
-export const chatModel = createLanguageModel(
-	DEFAULT_CHAT_MODEL_ID,
-	defaultDeployment,
-);
-
-/** Embedding model instance */
-export const embeddingModel = azure.embeddingModel(
-	process.env.AZURE_EMBEDDING_DEPLOYMENT ?? "text-embedding-3-large",
-);
+/** Embedding model instance (lazy-initialized) */
+export function embeddingModel() {
+	if (!_embeddingModel) {
+		_embeddingModel = getAzure().embeddingModel(
+			process.env.AZURE_EMBEDDING_DEPLOYMENT ?? "text-embedding-3-large",
+		);
+	}
+	return _embeddingModel;
+}
 
 // ── Model resolution (action-context only) ───────────────────────────────
 

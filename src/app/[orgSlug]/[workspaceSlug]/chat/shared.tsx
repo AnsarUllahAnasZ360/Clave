@@ -15,7 +15,9 @@ import type { WorkspaceContext } from "@/lib/ai/slash-commands";
 export function useChatPageShared(threadId?: string) {
 	const router = useRouter();
 	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
-	const chat = useAIChat(workspaceId, threadId);
+	const chat = useAIChat(workspaceId, threadId, {
+		deferFirstSendUntilThreadActivation: !threadId,
+	});
 	const routeContext = useAIContext();
 	const [contextCleared, setContextCleared] = useState(false);
 	const prevContextKeyRef = useRef<string | null>(null);

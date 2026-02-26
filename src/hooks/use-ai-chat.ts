@@ -145,6 +145,15 @@ type FailedMessagePayload = {
 	files?: ChatAttachmentInput[];
 };
 
+type PendingSendPayload = {
+	prompt: string;
+	context?: AIContext;
+	systemPromptSuffix?: string;
+	mentions?: MentionReference[];
+	files?: ChatAttachmentInput[];
+	selectedServerIdsOverride?: Id<"mcpServers">[];
+};
+
 type ChatMentionEntityType = "document" | "issue" | "user";
 
 function isChatMentionEntityType(
@@ -179,15 +188,34 @@ export function toChatMentions(mentions?: MentionReference[]): {
 }
 
 const pendingMessageHandoff = new Map<string, PendingUserMessage>();
+const pendingSendHandoff = new Map<string, PendingSendPayload>();
+const threadModelSelectionHandoff = new Map<string, string>();
+const workspaceModelSelection = new Map<string, string>();
 
-function takePendingMessageHandoff(
+/** Peek without deleting — safe for React Strict Mode double-mount. */
+function peekPendingMessageHandoff(
 	threadId: string | null | undefined,
 ): PendingUserMessage | null {
 	if (!threadId) return null;
-	const pending = pendingMessageHandoff.get(threadId);
-	if (!pending) return null;
-	pendingMessageHandoff.delete(threadId);
-	return pending;
+	return pendingMessageHandoff.get(threadId) ?? null;
+}
+
+/** Delete after confirmed consumption. */
+function clearPendingMessageHandoff(threadId: string | null | undefined) {
+	if (threadId) pendingMessageHandoff.delete(threadId);
+}
+
+/** Peek without deleting — safe for React Strict Mode double-mount. */
+function peekPendingSendHandoff(
+	threadId: string | null | undefined,
+): PendingSendPayload | null {
+	if (!threadId) return null;
+	return pendingSendHandoff.get(threadId) ?? null;
+}
+
+/** Delete after confirmed consumption. */
+function clearPendingSendHandoff(threadId: string | null | undefined) {
+	if (threadId) pendingSendHandoff.delete(threadId);
 }
 
 function isRequiredExcalidrawServer(server: {
@@ -290,7 +318,11 @@ export type UseAIChatReturn = {
 export function useAIChat(
 	workspaceId: Id<"workspaces">,
 	initialThreadId?: string | null,
+	options?: { deferFirstSendUntilThreadActivation?: boolean },
 ): UseAIChatReturn {
+	const deferFirstSendUntilThreadActivation =
+		options?.deferFirstSendUntilThreadActivation ?? false;
+	const workspaceModelKey = String(workspaceId);
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(
 		initialThreadId ?? null,
 	);
@@ -301,16 +333,24 @@ export function useAIChat(
 	const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
 	const [pendingUserMessage, setPendingUserMessage] =
 		useState<PendingUserMessage | null>(() =>
-			takePendingMessageHandoff(initialThreadId ?? null),
+			peekPendingMessageHandoff(initialThreadId ?? null),
 		);
 	const [lastFailedPayload, setLastFailedPayload] =
 		useState<FailedMessagePayload | null>(null);
-	const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_ID);
+	const [selectedModel, setSelectedModel] = useState<string>(() => {
+		const threadSeed =
+			initialThreadId && threadModelSelectionHandoff.get(initialThreadId);
+		return (
+			threadSeed ??
+			workspaceModelSelection.get(workspaceModelKey) ??
+			DEFAULT_MODEL_ID
+		);
+	});
 	const [modelWarning, setModelWarning] = useState<string | null>(null);
 	const [selectedMcpServerIds, setSelectedMcpServerIds] = useState<
 		Id<"mcpServers">[]
 	>([]);
-	const selectedModelRef = useRef<string>(DEFAULT_MODEL_ID);
+	const selectedModelRef = useRef<string>(selectedModel);
 	const selectedMcpServerIdsRef = useRef<Id<"mcpServers">[]>([]);
 	const normalizeModelId = useCallback((modelId: string | undefined) => {
 		if (!modelId) return DEFAULT_MODEL_ID;
@@ -318,10 +358,22 @@ export function useAIChat(
 			? modelId
 			: DEFAULT_MODEL_ID;
 	}, []);
-	const setSelectedModelState = useCallback((modelId: string) => {
-		selectedModelRef.current = modelId;
-		setSelectedModel(modelId);
-	}, []);
+	const activeThreadIdRef = useRef<string | null>(initialThreadId ?? null);
+	useEffect(() => {
+		activeThreadIdRef.current = activeThreadId;
+	}, [activeThreadId]);
+	const setSelectedModelState = useCallback(
+		(modelId: string) => {
+			selectedModelRef.current = modelId;
+			workspaceModelSelection.set(workspaceModelKey, modelId);
+			const threadId = activeThreadIdRef.current;
+			if (threadId) {
+				threadModelSelectionHandoff.set(threadId, modelId);
+			}
+			setSelectedModel(modelId);
+		},
+		[workspaceModelKey],
+	);
 	const setSelectedMcpServerIdsState = useCallback(
 		(serverIds: Id<"mcpServers">[]) => {
 			selectedMcpServerIdsRef.current = serverIds;
@@ -331,6 +383,16 @@ export function useAIChat(
 	);
 	const prevInitialThreadIdRef = useRef<string | null>(initialThreadId ?? null);
 	const ensuredSystemServerWorkspaceRef = useRef<Id<"workspaces"> | null>(null);
+
+	// Clean up the initial pendingMessageHandoff after mount commits.
+	// Peek was used in useState initializer (safe for Strict Mode double-mount),
+	// so we delete here once the value has been consumed.
+	useEffect(() => {
+		return () => {
+			clearPendingMessageHandoff(initialThreadId ?? null);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [initialThreadId]);
 
 	// Keep hook state aligned with route-driven thread changes while avoiding
 	// stale-url feedback loops during in-app thread switches.
@@ -389,8 +451,16 @@ export function useAIChat(
 	const subAgentsRaw = useQuery(api.ai.subAgents.list, { workspaceId });
 	const subAgents = (subAgentsRaw ?? []) as SubAgentSummary[];
 	const [selectedSkillIds, setSelectedSkillIds] = useState<Id<"skills">[]>([]);
+	const selectedSkillIdsRef = useRef<Id<"skills">[]>([]);
 	const [selectedSubAgentId, setSelectedSubAgentId] =
 		useState<Id<"subAgents"> | null>(null);
+	const selectedSubAgentIdRef = useRef<Id<"subAgents"> | null>(null);
+	useEffect(() => {
+		selectedSkillIdsRef.current = selectedSkillIds;
+	}, [selectedSkillIds]);
+	useEffect(() => {
+		selectedSubAgentIdRef.current = selectedSubAgentId;
+	}, [selectedSubAgentId]);
 	const requiredMcpServerIds = useMemo(
 		() =>
 			mcpServers
@@ -432,11 +502,18 @@ export function useAIChat(
 		[activeServerIdSet, requiredServerIdSet],
 	);
 
-	// Derive isStreaming from message statuses, respecting client-side force-stop
-	const isStreaming = useMemo(
-		() => !isForceStopped && rawMessages.some((m) => m.status === "streaming"),
-		[rawMessages, isForceStopped],
-	);
+	// Derive isStreaming from the message subscription status alone.
+	// The Convex useUIMessages hook reports status="streaming" on assistant
+	// messages while the backend DeltaStreamer is writing deltas. This is
+	// the authoritative signal — decoupled from the action in-flight state
+	// to avoid gaps during the deferred-first-send navigation handoff.
+	const isStreaming = useMemo(() => {
+		if (isForceStopped) return false;
+		const lastAssistant = [...rawMessages]
+			.reverse()
+			.find((m) => m.role === "assistant");
+		return lastAssistant?.status === "streaming";
+	}, [rawMessages, isForceStopped]);
 
 	// Merge pending optimistic user message with real messages.
 	// Once the real messages include the user's prompt, clear the pending state.
@@ -576,10 +653,15 @@ export function useAIChat(
 
 	useEffect(() => {
 		if (pendingUserMessage || !activeThreadId) return;
-		const transferred = takePendingMessageHandoff(activeThreadId);
+		const transferred = peekPendingMessageHandoff(activeThreadId);
 		if (transferred) {
 			setPendingUserMessage(transferred);
 		}
+		// Cleanup: delete after confirmed consumption (safe under Strict Mode
+		// since the second mount will still see the value before this cleanup runs).
+		return () => {
+			clearPendingMessageHandoff(activeThreadId);
+		};
 	}, [activeThreadId, pendingUserMessage]);
 
 	// ── Tool approvals subscription ──────────────────────────────────────
@@ -674,15 +756,27 @@ export function useAIChat(
 					const createdThreadId = created.threadId;
 					threadIdForAction = createdThreadId;
 					isFirstMessage = true;
+					threadModelSelectionHandoff.set(createdThreadId, effectiveModelId);
 					pendingMessageHandoff.set(createdThreadId, {
 						files: normalizedFiles,
 						prompt: trimmedPrompt,
 					});
 					// Activate subscription immediately — streaming will be visible
 					setActiveThreadId(createdThreadId);
+					if (deferFirstSendUntilThreadActivation) {
+						pendingSendHandoff.set(createdThreadId, {
+							prompt: trimmedPrompt,
+							context,
+							systemPromptSuffix,
+							mentions,
+							files: normalizedFiles,
+							selectedServerIdsOverride: effectiveSelectedMcpServerIds,
+						});
+						return;
+					}
 				}
 
-				const result = (await sendMessageAction({
+				const actionPromise = sendMessageAction({
 					workspaceId,
 					threadId: threadIdForAction,
 					prompt: trimmedPrompt,
@@ -698,11 +792,13 @@ export function useAIChat(
 							}
 						: {}),
 					selectedMcpServerIds: effectiveSelectedMcpServerIds,
-					...(selectedSkillIds.length > 0 ? { selectedSkillIds } : {}),
-					...(selectedSubAgentId
+					...(selectedSkillIdsRef.current.length > 0
+						? { selectedSkillIds: selectedSkillIdsRef.current }
+						: {}),
+					...(selectedSubAgentIdRef.current
 						? {
 								aiTeammateId:
-									selectedSubAgentId as unknown as Id<"aiTeammates">,
+									selectedSubAgentIdRef.current as unknown as Id<"aiTeammates">,
 							}
 						: {}),
 					...(context
@@ -726,7 +822,9 @@ export function useAIChat(
 								debugRequestId,
 							}
 						: {}),
-				})) as {
+				});
+
+				const result = (await actionPromise) as {
 					threadId: string;
 					resolvedModelId?: string;
 					modelWarning?: string;
@@ -740,9 +838,14 @@ export function useAIChat(
 						totalMs: number;
 					};
 					errorInfo?: ErrorInfo;
+					errorMessage?: string;
 				};
 
 				if (result.resolvedModelId) {
+					threadModelSelectionHandoff.set(
+						result.threadId,
+						normalizeModelId(result.resolvedModelId),
+					);
 					setSelectedModelState(normalizeModelId(result.resolvedModelId));
 				}
 				setModelWarning(result.modelWarning ?? null);
@@ -750,12 +853,24 @@ export function useAIChat(
 				if (result.errorInfo) {
 					setErrorInfo(result.errorInfo);
 				}
+				if (result.errorMessage) {
+					setPendingUserMessage(null);
+					setError(result.errorMessage);
+					setLastFailedPayload({
+						prompt: trimmedPrompt,
+						context,
+						systemPromptSuffix,
+						mentions,
+						files: normalizedFiles,
+					});
+				}
 				if (CHAT_DEBUG_TIMING) {
 					console.info("[ai-chat:send:done]", {
 						...requestContext,
 						requestId: result.requestId ?? debugRequestId,
 						serverTimingsMs: result.timings,
 						clientLatencyMs: Date.now() - requestStartAt,
+						streamErrorType: result.errorInfo?.type,
 					});
 				}
 			} catch (err) {
@@ -784,8 +899,27 @@ export function useAIChat(
 			normalizeMcpSelection,
 			setSelectedModelState,
 			hasPendingApproval,
+			deferFirstSendUntilThreadActivation,
 		],
 	);
+
+	// Resume a deferred first-send after landing page navigates into /chat/[threadId].
+	useEffect(() => {
+		if (deferFirstSendUntilThreadActivation || !activeThreadId) return;
+		if (isSendingRef.current) return;
+		const deferred = peekPendingSendHandoff(activeThreadId);
+		if (!deferred) return;
+		// Clear immediately before sending to prevent double-fire on Strict Mode remount.
+		clearPendingSendHandoff(activeThreadId);
+		void sendMessage(
+			deferred.prompt,
+			deferred.context,
+			deferred.systemPromptSuffix,
+			deferred.mentions,
+			deferred.files,
+			deferred.selectedServerIdsOverride,
+		);
+	}, [activeThreadId, deferFirstSendUntilThreadActivation, sendMessage]);
 
 	const createNewThread = useCallback(async (): Promise<string | undefined> => {
 		setError(null);
@@ -796,6 +930,10 @@ export function useAIChat(
 				model: selectedModelRef.current,
 				selectedMcpServerIds: selectedMcpServerIdsRef.current,
 			});
+			threadModelSelectionHandoff.set(
+				result.threadId,
+				selectedModelRef.current,
+			);
 			setActiveThreadId(result.threadId);
 			return result.threadId;
 		} catch (err) {
@@ -817,6 +955,10 @@ export function useAIChat(
 				model: selectedModelRef.current,
 				selectedMcpServerIds: selectedMcpServerIdsRef.current,
 			});
+			threadModelSelectionHandoff.set(
+				result.threadId,
+				selectedModelRef.current,
+			);
 			setActiveThreadId(result.threadId);
 			return result.threadId;
 		} catch (err) {
@@ -927,6 +1069,11 @@ export function useAIChat(
 
 	const stop = useCallback(() => {
 		setIsForceStopped(true);
+		// Unblock sending so the user can immediately send a new message
+		// after stopping. The backend action may still be running, but
+		// the user intent is clear: abandon the current response.
+		isSendingRef.current = false;
+		setIsSending(false);
 	}, []);
 
 	const approveTool = useCallback(

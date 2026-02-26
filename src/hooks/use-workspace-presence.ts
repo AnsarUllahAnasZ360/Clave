@@ -12,7 +12,8 @@ export interface OnlineUser {
 	lastActiveAt: number;
 }
 
-const HEARTBEAT_INTERVAL = 10_000;
+const HEARTBEAT_INTERVAL = 20_000;
+const PRESENCE_TOUCH_FRESH_MS = 8000;
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 4000];
 
@@ -33,6 +34,7 @@ export function useWorkspacePresence(
 	leaveRef.current = leavePresence;
 	const workspaceIdRef = useRef(workspaceId);
 	workspaceIdRef.current = workspaceId;
+	const lastPresenceWriteAtRef = useRef(0);
 
 	// Retry a heartbeat with exponential backoff
 	const sendHeartbeatWithRetry = useCallback(
@@ -41,6 +43,7 @@ export function useWorkspacePresence(
 				if (signal?.aborted) return;
 				try {
 					await heartbeatRef.current({ workspaceId: wsId });
+					lastPresenceWriteAtRef.current = Date.now();
 					return;
 				} catch (err) {
 					if (process.env.NODE_ENV === "development") {
@@ -69,7 +72,7 @@ export function useWorkspacePresence(
 		[],
 	);
 
-	// Heartbeat interval (10s) -- requires both workspaceId AND currentUserId
+	// Heartbeat interval (~20-24s with jitter) -- requires both workspaceId AND currentUserId
 	useEffect(() => {
 		if (!workspaceId || !currentUserId) return;
 
@@ -82,11 +85,22 @@ export function useWorkspacePresence(
 			() => {
 				const wsId = workspaceIdRef.current;
 				if (wsId) {
-					heartbeatRef.current({ workspaceId: wsId }).catch((err) => {
-						if (process.env.NODE_ENV === "development") {
-							console.warn("[workspace-presence] Heartbeat failed", err);
-						}
-					});
+					if (
+						Date.now() - lastPresenceWriteAtRef.current <
+						PRESENCE_TOUCH_FRESH_MS
+					) {
+						return;
+					}
+					heartbeatRef
+						.current({ workspaceId: wsId })
+						.then(() => {
+							lastPresenceWriteAtRef.current = Date.now();
+						})
+						.catch((err) => {
+							if (process.env.NODE_ENV === "development") {
+								console.warn("[workspace-presence] Heartbeat failed", err);
+							}
+						});
 				}
 			},
 			HEARTBEAT_INTERVAL + Math.random() * 4000,

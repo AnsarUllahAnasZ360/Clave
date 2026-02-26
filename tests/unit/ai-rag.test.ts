@@ -25,10 +25,11 @@ describe("RAG_SOURCE_TYPES", () => {
 		expect(RAG_SOURCE_TYPES).toContain("document");
 		expect(RAG_SOURCE_TYPES).toContain("comment");
 		expect(RAG_SOURCE_TYPES).toContain("github_file");
+		expect(RAG_SOURCE_TYPES).toContain("doc_page");
 	});
 
-	it("has exactly 4 source types", () => {
-		expect(RAG_SOURCE_TYPES).toHaveLength(4);
+	it("has exactly 5 source types", () => {
+		expect(RAG_SOURCE_TYPES).toHaveLength(5);
 	});
 });
 

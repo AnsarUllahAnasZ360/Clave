@@ -1,0 +1,77 @@
+---
+title: Sub-issues and Relations
+description: Break large issues into sub-issues and link related work with issue relations.
+---
+
+Complex issues often need to be broken down or connected to other pieces of work. Clave provides two tools for this: **sub-issues** for hierarchical decomposition, and **relations** for expressing dependencies and connections.
+
+## Sub-issues
+
+### What are sub-issues?
+
+A sub-issue is a child issue nested under a parent. This lets you break a large feature or task into smaller, trackable pieces. The parent and children are independent issues — each has its own status, assignee, priority, and identifier.
+
+For example, a parent issue "Set up authentication" might have sub-issues "Design sign-in page", "Implement OAuth flow", and "Write auth unit tests".
+
+### Creating a sub-issue
+
+**From the parent issue's detail page:**
+
+1. Open the parent issue.
+2. Find the **Sub-issues** section below the description.
+3. Click **Add sub-issue**.
+4. A quick-create form appears. Type the title of the child issue and press **Enter** or click **Create**.
+
+The new sub-issue is automatically linked to the parent and inherits the parent's project.
+
+**Adding an existing issue as a sub-issue:**
+
+In the sub-issues section, you can search for an existing issue by title or identifier and link it as a child.
+
+### Viewing the hierarchy
+
+In the **list view**, enable **Show sub-issues** in the Display panel to see child issues indented under their parent in the list.
+
+In the board view, sub-issues appear as regular cards — their relationship to the parent is visible from the sub-issue indicator badge.
+
+Opening a sub-issue shows the parent's identifier in the breadcrumb at the top of the detail page. Clicking the parent identifier navigates back up to the parent issue.
+
+### Sub-issue progress
+
+The parent issue's detail page shows a count of how many sub-issues exist and how many are complete, giving you a quick read on progress without opening each one.
+
+## Relations
+
+Relations link two separate issues that have a meaningful connection but are not in a parent-child relationship.
+
+### Relation types
+
+| Type | Meaning |
+|------|---------|
+| **Blocks** | This issue must be resolved before the related issue can proceed. |
+| **Blocked by** | This issue cannot proceed until the related issue is resolved. |
+| **Related to** | A general association — useful for cross-referencing without implying a dependency. |
+| **Duplicate of** | This issue is a duplicate of another. |
+
+### Adding a relation
+
+1. Open an issue's detail page.
+2. Find the **Relations** section below the sub-issues section.
+3. Click **Add relation**.
+4. In the dialog, choose a relation type from the dropdown.
+5. Search for the target issue by title or identifier.
+6. Select the target issue and click **Add**.
+
+The relation appears in the Relations section, grouped by type.
+
+### How relations affect workflows
+
+**Blocking relations** are surfaced in the project dashboard as "Blocked open" issues. When an issue is marked as blocked, it's excluded from assignment during sprint planning until the blocker is resolved.
+
+**Duplicate relations** help you identify and consolidate duplicate reports. When you mark an issue as a duplicate, both issues remain open — you decide which one to resolve and close.
+
+### Removing a relation
+
+In the Relations section, hover over any relation entry to reveal the **X** button. Click it to remove the relation. Removing a relation doesn't affect either issue's status or data.
+
+![Sub-issues and relations on issue detail](/docs/screenshots/issue-relations.png)

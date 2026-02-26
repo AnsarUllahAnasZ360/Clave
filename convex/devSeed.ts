@@ -155,7 +155,7 @@ export const seed = internalMutation({
 		) {
 			const existing = await ctx.db
 				.query("users")
-				.withIndex("by_email", (q) => q.eq("email", email))
+				.withIndex("email", (q) => q.eq("email", email))
 				.unique();
 			if (existing) {
 				await ctx.db.patch(existing._id, data);
@@ -4117,7 +4117,7 @@ export const clearSeed = internalMutation({
 		for (const email of seedEmails) {
 			const users = await ctx.db
 				.query("users")
-				.withIndex("by_email", (q) => q.eq("email", email))
+				.withIndex("email", (q) => q.eq("email", email))
 				.collect();
 			for (const user of users) {
 				await ctx.db.delete(user._id);

@@ -18,6 +18,8 @@ const MAX_RETRY_COUNT = 3;
 const MAX_RECORDING_SECONDS = 20 * 60;
 const TRANSCRIPTION_CHUNK_SECONDS = 120;
 const MAX_AUDIO_SIZE_BYTES = 25 * 1024 * 1024;
+const TRANSCRIPTION_POLL_INTERVAL_MS = 700;
+const TRANSCRIPTION_POLL_TIMEOUT_MS = 180_000;
 
 function normalizeMimeType(audioBlob: Blob): string {
 	const mimeType = audioBlob.type?.trim().toLowerCase();
@@ -31,6 +33,10 @@ function normalizeMimeType(audioBlob: Blob): string {
 		return "audio/mp4";
 	}
 	return "audio/webm";
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function VoiceButton({
@@ -80,6 +86,27 @@ export function VoiceButton({
 		};
 	}, [toggleRecording]);
 
+	const waitForTerminalTranscription = useCallback(
+		async (recordingId: Id<"audioRecordings">) => {
+			const deadline = Date.now() + TRANSCRIPTION_POLL_TIMEOUT_MS;
+			while (Date.now() <= deadline) {
+				const recording = await convex.query(api.audioRecordings.get, {
+					id: recordingId,
+				});
+				if (!recording) return null;
+				if (
+					recording.status === "transcribed" ||
+					recording.status === "failed"
+				) {
+					return recording;
+				}
+				await sleep(TRANSCRIPTION_POLL_INTERVAL_MS);
+			}
+			return null;
+		},
+		[convex],
+	);
+
 	const handleAudioRecorded = useCallback(
 		async (audioBlob: Blob): Promise<string> => {
 			if (audioBlob.size === 0) {
@@ -121,22 +148,18 @@ export function VoiceButton({
 				});
 
 				await transcribeAudio({ audioRecordingId: recordingId });
-				let recording = await convex.query(api.audioRecordings.get, {
-					id: recordingId,
-				});
+				let recording = await waitForTerminalTranscription(recordingId);
 
 				while (
-					recording?.status === "failed" &&
+					recording &&
+					recording.status === "failed" &&
 					recording.retryCount < MAX_RETRY_COUNT
 				) {
 					await retryTranscription({ audioRecordingId: recordingId });
-					recording = await convex.query(api.audioRecordings.get, {
-						id: recordingId,
-					});
+					recording = await waitForTerminalTranscription(recordingId);
 				}
 
 				if (recording?.status === "transcribed" && recording.transcript) {
-					// Best-effort cleanup to avoid recording buildup.
 					void deleteRecording({ id: recordingId }).catch(() => {});
 					return recording.transcript;
 				}
@@ -168,12 +191,12 @@ export function VoiceButton({
 			}
 		},
 		[
-			convex,
 			createRecording,
 			deleteRecording,
 			generateUploadUrl,
 			retryTranscription,
 			transcribeAudio,
+			waitForTerminalTranscription,
 			workspaceId,
 		],
 	);

@@ -10,25 +10,32 @@ crons.interval(
 	internal.notifications.unsnoozeExpired,
 );
 
-// Clean up stale document presence records every 30 seconds
+// Clean up stale document presence records every 2 minutes
 crons.interval(
 	"cleanup stale document presence",
-	{ seconds: 30 },
+	{ minutes: 2 },
 	internal.documentPresence.cleanupStale,
 );
 
-// Clean up stale whiteboard presence records every 30 seconds
+// Clean up stale whiteboard presence records every 2 minutes
 crons.interval(
 	"cleanup stale whiteboard presence",
-	{ seconds: 30 },
+	{ minutes: 2 },
 	internal.whiteboardPresence.cleanupStale,
 );
 
-// Clean up stale workspace presence records every 30 seconds
+// Clean up stale workspace presence records every 2 minutes
 crons.interval(
 	"cleanup stale workspace presence",
-	{ seconds: 30 },
+	{ minutes: 2 },
 	internal.workspacePresence.cleanupStale,
+);
+
+// Clean up stale Yjs V3 presence records every 30 seconds
+crons.interval(
+	"cleanup stale yjs v3 presence",
+	{ seconds: 30 },
+	internal.yjsPresenceV3.cleanupStalePresence,
 );
 
 // Send due-date reminder notifications daily at 9:00 AM UTC
@@ -50,6 +57,13 @@ crons.cron(
 	"cleanup old audio recordings",
 	"0 3 * * *",
 	internal.audioRecordings.cleanupStale,
+);
+
+// Clean up expired demo workspaces daily at 4:00 AM UTC
+crons.cron(
+	"cleanup expired demo workspaces",
+	"0 4 * * *",
+	internal.demo.cleanup.cleanupExpiredDemos,
 );
 
 export default crons;

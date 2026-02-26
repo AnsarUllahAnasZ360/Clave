@@ -79,6 +79,12 @@ export default defineSchema({
 		name: v.optional(v.string()),
 		email: v.optional(v.string()),
 		image: v.optional(v.string()),
+		// Fields required by @convex-dev/auth
+		emailVerificationTime: v.optional(v.number()),
+		phone: v.optional(v.string()),
+		phoneVerificationTime: v.optional(v.number()),
+		isAnonymous: v.optional(v.boolean()),
+		// App-specific fields
 		avatarStorageId: v.optional(v.id("_storage")),
 		role: v.optional(v.string()),
 		timezone: v.optional(v.string()),
@@ -98,6 +104,7 @@ export default defineSchema({
 		notifyEmail: v.optional(v.boolean()),
 		notifyPush: v.optional(v.boolean()),
 		notifyInApp: v.optional(v.boolean()),
+		notifyGoogleChat: v.optional(v.boolean()),
 		aiAboutMe: v.optional(v.string()),
 		aiHowToWorkWithMe: v.optional(v.string()),
 		personalSlashCommands: v.optional(v.array(slashCommandValidator)),
@@ -106,7 +113,14 @@ export default defineSchema({
 		lastActiveWorkspaceId: v.optional(v.id("workspaces")),
 		lastActiveContextAt: v.optional(v.number()),
 		suspended: v.optional(v.boolean()),
-	}).index("by_email", ["email"]),
+		// Demo workspace fields
+		isDemoUser: v.optional(v.boolean()),
+		demoOnboardingDismissed: v.optional(v.boolean()),
+		// Account lifecycle
+		deletedAt: v.optional(v.number()),
+	})
+		.index("email", ["email"])
+		.index("phone", ["phone"]),
 
 	workspaces: defineTable({
 		name: v.string(),
@@ -116,13 +130,26 @@ export default defineSchema({
 		visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
 		description: v.optional(v.string()),
 		logoStorageId: v.optional(v.id("_storage")),
+		// Demo workspace fields
+		isDemo: v.optional(v.boolean()),
+		demoExpiresAt: v.optional(v.number()),
+		demoSeedStatus: v.optional(
+			v.union(
+				v.literal("pending"),
+				v.literal("seeding"),
+				v.literal("complete"),
+				v.literal("failed"),
+			),
+		),
 		createdAt: v.optional(v.number()),
 		updatedAt: v.optional(v.number()),
 		deletedAt: v.optional(v.number()),
 	})
 		.index("by_owner", ["ownerId"])
 		.index("by_slug", ["slug"])
-		.index("by_organization", ["organizationId"]),
+		.index("by_organization", ["organizationId"])
+		.index("by_org_slug", ["organizationId", "slug"])
+		.index("by_demo_expires", ["isDemo", "demoExpiresAt"]),
 
 	workspaceMembers: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -890,9 +917,11 @@ export default defineSchema({
 		errorMessage: v.optional(v.string()),
 		retryCount: v.number(),
 		createdAt: v.number(),
+		audioCleanedAt: v.optional(v.number()),
 	})
 		.index("by_workspace_user", ["workspaceId", "userId"])
-		.index("by_created_at", ["createdAt"]),
+		.index("by_created_at", ["createdAt"])
+		.index("by_user", ["userId"]),
 
 	// ── AI Audit Log ─────────────────────────────────────────────────────────
 
@@ -979,6 +1008,7 @@ export default defineSchema({
 			v.literal("note"),
 			v.literal("comment"),
 			v.literal("github_file"),
+			v.literal("doc_page"),
 		),
 		sourceId: v.string(),
 		contentHash: v.string(),
@@ -995,6 +1025,23 @@ export default defineSchema({
 		.index("by_project_source", ["projectId", "sourceType", "sourceId"])
 		.index("by_status", ["status"])
 		.index("by_project", ["projectId"]),
+
+	/** Sync tracking for global doc pages (not project-scoped) */
+	docPageSyncStatus: defineTable({
+		slug: v.string(),
+		contentHash: v.string(),
+		lastSyncedAt: v.number(),
+		chunkCount: v.number(),
+		status: v.union(
+			v.literal("synced"),
+			v.literal("pending"),
+			v.literal("error"),
+		),
+		errorMessage: v.optional(v.string()),
+		ragEntryId: v.optional(v.string()),
+	})
+		.index("by_slug", ["slug"])
+		.index("by_status", ["status"]),
 
 	ragBackfillJobs: defineTable({
 		projectId: v.id("projects"),
@@ -1017,6 +1064,315 @@ export default defineSchema({
 		completedPhases: v.optional(v.array(v.string())),
 		error: v.optional(v.string()),
 	}).index("by_project", ["projectId"]),
+
+	// ── Chat Integrations ───────────────────────────────────────────────────
+
+	chatConnections: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		status: v.union(
+			v.literal("connected"),
+			v.literal("disconnected"),
+			v.literal("error"),
+		),
+		webhookUrl: v.optional(v.string()),
+		authAudience: v.optional(v.string()),
+		externalAppId: v.optional(v.string()),
+		externalAppName: v.optional(v.string()),
+		installedBy: v.id("users"),
+		installedAt: v.number(),
+		disconnectedAt: v.optional(v.number()),
+		lastHealthcheckAt: v.optional(v.number()),
+		lastHealthcheckStatus: v.optional(
+			v.union(v.literal("ok"), v.literal("error"), v.literal("unknown")),
+		),
+		lastHealthcheckMessage: v.optional(v.string()),
+		lastWebhookEventAt: v.optional(v.number()),
+		lastWebhookEventId: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_provider", ["workspaceId", "provider"])
+		.index("by_provider_status", ["provider", "status"]),
+
+	chatUserLinks: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		chatUserId: v.string(),
+		chatDisplayName: v.optional(v.string()),
+		chatEmail: v.optional(v.string()),
+		userId: v.id("users"),
+		linkedBy: v.id("users"),
+		linkedAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_user", ["userId"])
+		.index("by_workspace_provider_chat_user_id", [
+			"workspaceId",
+			"provider",
+			"chatUserId",
+		])
+		.index("by_workspace_provider_user_id", [
+			"workspaceId",
+			"provider",
+			"userId",
+		]),
+
+	chatConversations: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		spaceName: v.string(),
+		conversationKey: v.string(),
+		chatThreadName: v.optional(v.string()),
+		chatMessageName: v.optional(v.string()),
+		chatUserId: v.optional(v.string()),
+		aiThreadId: v.string(),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+		lastMessageAt: v.optional(v.number()),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_provider_conversation_key", [
+			"workspaceId",
+			"provider",
+			"conversationKey",
+		])
+		.index("by_workspace_provider_ai_thread", [
+			"workspaceId",
+			"provider",
+			"aiThreadId",
+		])
+		.index("by_workspace_provider_space_name", [
+			"workspaceId",
+			"provider",
+			"spaceName",
+		]),
+
+	chatSubscriptions: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		targetType: v.union(v.literal("dm"), v.literal("space")),
+		targetId: v.string(),
+		eventType: v.string(),
+		enabled: v.boolean(),
+		createdBy: v.id("users"),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_provider_target", [
+			"workspaceId",
+			"provider",
+			"targetType",
+			"targetId",
+		])
+		.index("by_workspace_provider_event_type", [
+			"workspaceId",
+			"provider",
+			"eventType",
+		])
+		.index("by_workspace_provider_target_event_type", [
+			"workspaceId",
+			"provider",
+			"targetType",
+			"targetId",
+			"eventType",
+		]),
+
+	chatDeliveryLogs: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		targetType: v.union(v.literal("dm"), v.literal("space")),
+		targetId: v.string(),
+		eventType: v.string(),
+		status: v.union(
+			v.literal("queued"),
+			v.literal("sent"),
+			v.literal("failed"),
+			v.literal("dropped"),
+		),
+		idempotencyKey: v.string(),
+		notificationId: v.optional(v.id("notifications")),
+		attemptCount: v.number(),
+		maxAttempts: v.number(),
+		lastAttemptAt: v.optional(v.number()),
+		nextAttemptAt: v.optional(v.number()),
+		errorMessage: v.optional(v.string()),
+		errorCode: v.optional(v.string()),
+		providerMessageName: v.optional(v.string()),
+		providerThreadName: v.optional(v.string()),
+		deliveredAt: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_provider_status", [
+			"workspaceId",
+			"provider",
+			"status",
+		])
+		.index("by_workspace_provider_notification", [
+			"workspaceId",
+			"provider",
+			"notificationId",
+		])
+		.index("by_workspace_provider_status_next_attempt_at", [
+			"workspaceId",
+			"provider",
+			"status",
+			"nextAttemptAt",
+		])
+		.index("by_workspace_provider_idempotency_key", [
+			"workspaceId",
+			"provider",
+			"idempotencyKey",
+		])
+		.index("by_workspace_provider_created_at", [
+			"workspaceId",
+			"provider",
+			"createdAt",
+		]),
+
+	chatDeliveryDeadLetters: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		deliveryLogId: v.optional(v.id("chatDeliveryLogs")),
+		notificationId: v.optional(v.id("notifications")),
+		targetType: v.union(v.literal("dm"), v.literal("space")),
+		targetId: v.string(),
+		eventType: v.string(),
+		idempotencyKey: v.string(),
+		attemptCount: v.number(),
+		maxAttempts: v.number(),
+		reason: v.string(),
+		errorCode: v.optional(v.string()),
+		lastAttemptAt: v.optional(v.number()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace_provider_created_at", [
+			"workspaceId",
+			"provider",
+			"createdAt",
+		])
+		.index("by_workspace_provider_idempotency_key", [
+			"workspaceId",
+			"provider",
+			"idempotencyKey",
+		]),
+
+	chatDeliveryHealthSnapshots: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		status: v.union(
+			v.literal("healthy"),
+			v.literal("degraded"),
+			v.literal("open_circuit"),
+			v.literal("throttled"),
+		),
+		consecutiveFailures: v.number(),
+		circuitOpenedAt: v.optional(v.number()),
+		circuitOpenUntil: v.optional(v.number()),
+		throttleUntil: v.optional(v.number()),
+		rateWindowStartedAt: v.number(),
+		rateWindowCount: v.number(),
+		totalSent: v.number(),
+		totalFailed: v.number(),
+		totalDropped: v.number(),
+		totalDeadLettered: v.number(),
+		totalRetried: v.number(),
+		lastDeliveryAt: v.optional(v.number()),
+		lastFailureAt: v.optional(v.number()),
+		lastErrorCode: v.optional(v.string()),
+		lastErrorMessage: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace_provider", ["workspaceId", "provider"])
+		.index("by_provider_status", ["provider", "status"]),
+
+	chatActionAuditLogs: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		eventId: v.string(),
+		idempotencyKey: v.string(),
+		actionType: v.string(),
+		actionKind: v.union(
+			v.literal("issue"),
+			v.literal("triage"),
+			v.literal("approval"),
+			v.literal("unknown"),
+		),
+		actorUserId: v.optional(v.id("users")),
+		chatUserId: v.optional(v.string()),
+		entityType: v.optional(v.string()),
+		entityId: v.optional(v.string()),
+		result: v.union(
+			v.literal("accepted"),
+			v.literal("duplicate"),
+			v.literal("invalid_auth"),
+			v.literal("invalid_payload"),
+			v.literal("unsupported_action"),
+			v.literal("permission_denied"),
+			v.literal("error"),
+		),
+		message: v.optional(v.string()),
+		metadata: v.optional(v.string()),
+		createdAt: v.number(),
+	})
+		.index("by_workspace_provider_created_at", [
+			"workspaceId",
+			"provider",
+			"createdAt",
+		])
+		.index("by_workspace_actor_user_id_created_at", [
+			"workspaceId",
+			"actorUserId",
+			"createdAt",
+		])
+		.index("by_workspace_provider_result_created_at", [
+			"workspaceId",
+			"provider",
+			"result",
+			"createdAt",
+		])
+		.index("by_idempotency_key", ["workspaceId", "idempotencyKey"]),
+
+	chatPolicies: defineTable({
+		workspaceId: v.id("workspaces"),
+		provider: v.literal("google-chat"),
+		enabled: v.boolean(),
+		allowDirectMessages: v.boolean(),
+		allowSpaces: v.boolean(),
+		requireIdentityLink: v.boolean(),
+		allowedIssueActionIds: v.optional(v.array(v.string())),
+		requireActionConfirmation: v.optional(v.boolean()),
+		// Rollout fields kept in schema for backward compat (out-of-scope code reads them).
+		// No longer written to by chatIntegrations.ts. Will be removed in a follow-up.
+		rolloutState: v.optional(
+			v.union(
+				v.literal("disabled"),
+				v.literal("canary"),
+				v.literal("general"),
+				v.literal("emergency_off"),
+			),
+		),
+		rolloutCanaryTargetIds: v.optional(v.array(v.string())),
+		rolloutUpdatedBy: v.optional(v.id("users")),
+		rolloutUpdatedAt: v.optional(v.number()),
+		emergencyOffReason: v.optional(v.string()),
+		emergencyOffAt: v.optional(v.number()),
+		rolloutOverrideBy: v.optional(v.id("users")),
+		rolloutOverrideAt: v.optional(v.number()),
+		rolloutOverrideReason: v.optional(v.string()),
+		updatedBy: v.id("users"),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_provider", ["workspaceId", "provider"]),
 
 	// ── GitHub Connections ───────────────────────────────────────────────────
 
@@ -1081,4 +1437,42 @@ export default defineSchema({
 	})
 		.index("by_document_client", ["documentId", "clientId"])
 		.index("by_document", ["documentId"]),
+
+	yjsSnapshotsV3: defineTable({
+		documentId: v.id("documents"),
+		snapshot: v.optional(v.bytes()),
+		snapshotVersion: v.number(),
+		updatedAt: v.number(),
+	}).index("by_document", ["documentId"]),
+
+	yjsUpdatesV3: defineTable({
+		documentId: v.id("documents"),
+		update: v.bytes(),
+		clientSessionId: v.string(),
+		createdAt: v.number(),
+	})
+		.index("by_document", ["documentId"])
+		.index("by_document_created", ["documentId", "createdAt"]),
+
+	yjsPresenceV3: defineTable({
+		documentId: v.id("documents"),
+		clientId: v.number(),
+		clientSessionId: v.string(),
+		userId: v.optional(v.id("users")),
+		displayName: v.string(),
+		color: v.string(),
+		isGuest: v.boolean(),
+		awarenessState: v.string(),
+		lastActiveAt: v.number(),
+	})
+		.index("by_document", ["documentId"])
+		.index("by_document_session", ["documentId", "clientSessionId"]),
+
+	// ── Rate Limiting ─────────────────────────────────────────────────────────
+
+	rateLimits: defineTable({
+		key: v.string(),
+		action: v.string(),
+		timestamp: v.number(),
+	}).index("by_key_action", ["key", "action"]),
 });

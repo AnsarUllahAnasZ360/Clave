@@ -48,7 +48,12 @@ function createMockClient() {
 		pushDocumentState: (
 			state: {
 				snapshot?: ArrayBuffer;
-				updates: ArrayBuffer[];
+				updates: Array<{
+					_id: string;
+					update: ArrayBuffer;
+					clientSessionId: string;
+					createdAt: number;
+				}>;
 				snapshotVersion: number;
 			} | null,
 		) => {
@@ -60,7 +65,14 @@ function createMockClient() {
 		},
 		/** Simulate a server awareness state update (targets 2nd watchQuery = index 1) */
 		pushAwarenessState: (
-			entries: Array<{ clientId: number; awarenessState: string }>,
+			entries: Array<{
+				clientId: number;
+				clientSessionId: string;
+				displayName: string;
+				color: string;
+				isGuest: boolean;
+				awarenessState: string;
+			}>,
 		) => {
 			const awarenessWatch = watchEntries[1];
 			if (awarenessWatch) {
@@ -73,6 +85,23 @@ function createMockClient() {
 	};
 }
 
+let remoteUpdateSeq = 0;
+
+function createRemoteUpdate(update: ArrayBuffer): {
+	_id: string;
+	update: ArrayBuffer;
+	clientSessionId: string;
+	createdAt: number;
+} {
+	remoteUpdateSeq += 1;
+	return {
+		_id: `remote-update-${remoteUpdateSeq}`,
+		update,
+		clientSessionId: `remote-session-${remoteUpdateSeq}`,
+		createdAt: Date.now() + remoteUpdateSeq,
+	};
+}
+
 /** Helper: create a Yjs update that sets text content. */
 function createTextUpdate(text: string): ArrayBuffer {
 	const doc = new Y.Doc();
@@ -81,6 +110,20 @@ function createTextUpdate(text: string): ArrayBuffer {
 	const update = Y.encodeStateAsUpdate(doc);
 	doc.destroy();
 	return update.buffer as ArrayBuffer;
+}
+
+function getPushUpdateCalls(calls: unknown[][]): unknown[][] {
+	return calls.filter((call) => {
+		const args = call[1] as Record<string, unknown> | undefined;
+		return args && "update" in args && "documentId" in args;
+	});
+}
+
+function getPresenceUpsertCalls(calls: unknown[][]): unknown[][] {
+	return calls.filter((call) => {
+		const args = call[1] as Record<string, unknown> | undefined;
+		return args && "awarenessState" in args && "documentId" in args;
+	});
 }
 
 describe("ConvexYjsProvider", () => {
@@ -166,7 +209,7 @@ describe("ConvexYjsProvider", () => {
 
 		const update = createTextUpdate("hello world");
 		pushDocumentState({
-			updates: [update],
+			updates: [createRemoteUpdate(update)],
 			snapshotVersion: 0,
 		});
 
@@ -201,7 +244,7 @@ describe("ConvexYjsProvider", () => {
 
 		pushDocumentState({
 			snapshot,
-			updates: [incrementalUpdate],
+			updates: [createRemoteUpdate(incrementalUpdate)],
 			snapshotVersion: 1,
 		});
 
@@ -264,6 +307,58 @@ describe("ConvexYjsProvider", () => {
 		vi.useRealTimers();
 	});
 
+	it("uses V3 sync payload contracts for active document and presence writes", async () => {
+		vi.useFakeTimers();
+		const { client, mockClient } = createMockClient();
+		const doc = new Y.Doc();
+		const awareness = new Awareness(doc);
+
+		const provider = new ConvexYjsProvider({
+			options: {
+				client,
+				documentId: TEST_DOC_ID,
+				user: { name: "Alice", color: "#ff0000", isGuest: false },
+			},
+			doc,
+			awareness,
+		});
+
+		provider.connect();
+		expect(mockClient.watchQuery).toHaveBeenCalledTimes(2);
+		const watchCalls = mockClient.watchQuery.mock.calls as unknown[][];
+		expect(watchCalls[0]?.[1]).toEqual({
+			documentId: TEST_DOC_ID,
+		});
+		expect(watchCalls[1]?.[1]).toEqual({
+			documentId: TEST_DOC_ID,
+		});
+
+		doc.getText("content").insert(0, "x");
+		await vi.advanceTimersByTimeAsync(200);
+
+		const pushCalls = getPushUpdateCalls(mockClient.mutation.mock.calls);
+		expect(pushCalls).toHaveLength(1);
+		expect(
+			(pushCalls[0][1] as Record<string, unknown>).clientSessionId,
+		).toEqual(expect.any(String));
+
+		const presenceCalls = getPresenceUpsertCalls(
+			mockClient.mutation.mock.calls,
+		);
+		expect(presenceCalls.length).toBeGreaterThanOrEqual(1);
+		expect(presenceCalls[0][1]).toMatchObject({
+			documentId: TEST_DOC_ID,
+			displayName: "Alice",
+			color: "#ff0000",
+			isGuest: false,
+			clientSessionId: expect.any(String),
+		});
+
+		provider.destroy();
+		doc.destroy();
+		vi.useRealTimers();
+	});
+
 	it("buffers updates on mutation failure and retries", async () => {
 		vi.useFakeTimers();
 		const { client, pushDocumentState, mockClient } = createMockClient();
@@ -314,6 +409,85 @@ describe("ConvexYjsProvider", () => {
 		vi.useRealTimers();
 	});
 
+	it("trips a contract circuit breaker on function-not-found and stops retries", async () => {
+		vi.useFakeTimers();
+		const { client, pushDocumentState, mockClient } = createMockClient();
+		const doc = new Y.Doc();
+		const awareness = new Awareness(doc);
+		const onError = vi.fn();
+
+		const provider = new ConvexYjsProvider({
+			options: { client, documentId: TEST_DOC_ID },
+			doc,
+			awareness,
+			onError,
+		});
+
+		provider.connect();
+		pushDocumentState({ updates: [], snapshotVersion: 0 });
+
+		mockClient.mutation.mockRejectedValueOnce(
+			new Error("Could not find public function for 'yjsV3:pushUpdate'"),
+		);
+
+		doc.getText("content").insert(0, "a");
+		await vi.advanceTimersByTimeAsync(200);
+
+		const pushCallsAfterFailure = getPushUpdateCalls(
+			mockClient.mutation.mock.calls,
+		);
+		expect(pushCallsAfterFailure).toHaveLength(1);
+
+		expect(onError).toHaveBeenCalledOnce();
+		expect(onError.mock.calls[0][0].message).toContain(
+			"Yjs backend contract unavailable while calling yjsV3.pushUpdate",
+		);
+
+		await vi.advanceTimersByTimeAsync(6_000);
+		expect(getPushUpdateCalls(mockClient.mutation.mock.calls)).toHaveLength(1);
+
+		doc.getText("content").insert(1, "b");
+		await vi.advanceTimersByTimeAsync(200);
+		expect(getPushUpdateCalls(mockClient.mutation.mock.calls)).toHaveLength(1);
+
+		provider.destroy();
+		doc.destroy();
+		vi.useRealTimers();
+	});
+
+	it("does not emit disconnect cleanup mutations after contract circuit trips", async () => {
+		vi.useFakeTimers();
+		const { client, pushDocumentState, mockClient } = createMockClient();
+		const doc = new Y.Doc();
+		const awareness = new Awareness(doc);
+
+		const provider = new ConvexYjsProvider({
+			options: { client, documentId: TEST_DOC_ID },
+			doc,
+			awareness,
+		});
+
+		provider.connect();
+		pushDocumentState({ updates: [], snapshotVersion: 0 });
+
+		mockClient.mutation.mockRejectedValueOnce(
+			new Error("Function not found: yjsV3.pushUpdate"),
+		);
+
+		doc.getText("content").insert(0, "x");
+		await vi.advanceTimersByTimeAsync(200);
+
+		const callsBeforeDisconnect = mockClient.mutation.mock.calls.length;
+		provider.disconnect();
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(mockClient.mutation.mock.calls.length).toBe(callsBeforeDisconnect);
+
+		provider.destroy();
+		doc.destroy();
+		vi.useRealTimers();
+	});
+
 	it("flushes pending buffer when remote state arrives", async () => {
 		vi.useFakeTimers();
 		const { client, pushDocumentState, mockClient } = createMockClient();
@@ -341,7 +515,7 @@ describe("ConvexYjsProvider", () => {
 		// Simulate remote state arriving (connection restored)
 		const remoteUpdate = createTextUpdate("remote");
 		pushDocumentState({
-			updates: [remoteUpdate],
+			updates: [createRemoteUpdate(remoteUpdate)],
 			snapshotVersion: 0,
 		});
 
@@ -378,7 +552,7 @@ describe("ConvexYjsProvider", () => {
 
 		const update = createTextUpdate("remote content");
 		pushDocumentState({
-			updates: [update],
+			updates: [createRemoteUpdate(update)],
 			snapshotVersion: 0,
 		});
 
@@ -411,14 +585,17 @@ describe("ConvexYjsProvider", () => {
 
 		const update1 = createTextUpdate("a");
 		const update2 = createTextUpdate("b");
+		const remoteUpdate1 = createRemoteUpdate(update1);
+		const remoteUpdate2 = createRemoteUpdate(update2);
 		pushDocumentState({
-			updates: [update1, update2],
+			updates: [remoteUpdate1, remoteUpdate2],
 			snapshotVersion: 0,
 		});
 
 		const update3 = createTextUpdate("c");
+		const remoteUpdate3 = createRemoteUpdate(update3);
 		pushDocumentState({
-			updates: [update1, update2, update3],
+			updates: [remoteUpdate1, remoteUpdate2, remoteUpdate3],
 			snapshotVersion: 0,
 		});
 
@@ -489,6 +666,113 @@ describe("ConvexYjsProvider", () => {
 		doc.destroy();
 	});
 
+	it("deduplicates unchanged awareness writes within heartbeat window", async () => {
+		vi.useFakeTimers();
+		const { client, mockClient } = createMockClient();
+		const doc = new Y.Doc();
+		const awareness = new Awareness(doc);
+
+		const provider = new ConvexYjsProvider({
+			options: {
+				client,
+				documentId: TEST_DOC_ID,
+				user: { name: "Alice", color: "#ff0000" },
+			},
+			doc,
+			awareness,
+		});
+
+		provider.connect();
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			1,
+		);
+
+		awareness.setLocalStateField("cursor", { x: 1, y: 2 });
+		await vi.advanceTimersByTimeAsync(300);
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			2,
+		);
+
+		awareness.setLocalStateField("cursor", { x: 1, y: 2 });
+		await vi.advanceTimersByTimeAsync(300);
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			2,
+		);
+
+		provider.destroy();
+		doc.destroy();
+		vi.useRealTimers();
+	});
+
+	it("refreshes unchanged awareness on heartbeat interval", async () => {
+		vi.useFakeTimers();
+		const { client, mockClient } = createMockClient();
+		const doc = new Y.Doc();
+		const awareness = new Awareness(doc);
+
+		const provider = new ConvexYjsProvider({
+			options: {
+				client,
+				documentId: TEST_DOC_ID,
+				user: { name: "Alice", color: "#ff0000" },
+			},
+			doc,
+			awareness,
+		});
+
+		provider.connect();
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			1,
+		);
+
+		await vi.advanceTimersByTimeAsync(10_100);
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			2,
+		);
+
+		provider.destroy();
+		doc.destroy();
+		vi.useRealTimers();
+	});
+
+	it("does not send redundant heartbeat write right after a local presence push", async () => {
+		vi.useFakeTimers();
+		const { client, mockClient } = createMockClient();
+		const doc = new Y.Doc();
+		const awareness = new Awareness(doc);
+
+		const provider = new ConvexYjsProvider({
+			options: {
+				client,
+				documentId: TEST_DOC_ID,
+				user: { name: "Alice", color: "#ff0000" },
+			},
+			doc,
+			awareness,
+		});
+
+		provider.connect();
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			1,
+		);
+
+		await vi.advanceTimersByTimeAsync(9_600);
+		awareness.setLocalStateField("cursor", { x: 7, y: 9 });
+		await vi.advanceTimersByTimeAsync(300);
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			2,
+		);
+
+		await vi.advanceTimersByTimeAsync(400);
+		expect(getPresenceUpsertCalls(mockClient.mutation.mock.calls)).toHaveLength(
+			2,
+		);
+
+		provider.destroy();
+		doc.destroy();
+		vi.useRealTimers();
+	});
+
 	it("cleans up remote awareness states for departed clients", () => {
 		const { client, pushAwarenessState } = createMockClient();
 		const doc = new Y.Doc();
@@ -506,10 +790,18 @@ describe("ConvexYjsProvider", () => {
 		pushAwarenessState([
 			{
 				clientId: 100,
+				clientSessionId: "remote-100",
+				displayName: "Alice",
+				color: "#ff0000",
+				isGuest: false,
 				awarenessState: JSON.stringify({ user: { name: "Alice" } }),
 			},
 			{
 				clientId: 200,
+				clientSessionId: "remote-200",
+				displayName: "Bob",
+				color: "#00ff00",
+				isGuest: false,
 				awarenessState: JSON.stringify({ user: { name: "Bob" } }),
 			},
 		]);
@@ -521,6 +813,10 @@ describe("ConvexYjsProvider", () => {
 		pushAwarenessState([
 			{
 				clientId: 100,
+				clientSessionId: "remote-100",
+				displayName: "Alice",
+				color: "#ff0000",
+				isGuest: false,
 				awarenessState: JSON.stringify({ user: { name: "Alice" } }),
 			},
 		]);

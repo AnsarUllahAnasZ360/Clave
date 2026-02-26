@@ -21,7 +21,7 @@ import {
 	chunkText,
 	computeContentHash,
 	getProjectNamespace,
-	rag,
+	getRag,
 } from "../rag";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -101,12 +101,12 @@ export async function syncContent(
 
 		const { entryId, replacedEntry } =
 			chunks.length === 1
-				? await rag.add(ctx, { ...ragArgs, text: chunks[0] })
-				: await rag.add(ctx, { ...ragArgs, chunks });
+				? await getRag().add(ctx, { ...ragArgs, text: chunks[0] })
+				: await getRag().add(ctx, { ...ragArgs, chunks });
 
 		// Clean up replaced entry
 		if (replacedEntry) {
-			await rag.delete(ctx, { entryId: replacedEntry.entryId });
+			await getRag().delete(ctx, { entryId: replacedEntry.entryId });
 		}
 
 		// Update sync status
@@ -159,7 +159,7 @@ export async function removeFromRag(
 
 		if (ragEntryId) {
 			// biome-ignore lint/suspicious/noExplicitAny: RAG branded EntryId type requires cast
-			await rag.delete(ctx as any, { entryId: ragEntryId as any });
+			await getRag().delete(ctx as any, { entryId: ragEntryId as any });
 		}
 	} catch (error) {
 		console.error(

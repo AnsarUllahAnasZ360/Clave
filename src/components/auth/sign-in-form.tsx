@@ -2,63 +2,65 @@
 
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+	buildAuthCallbackRedirect,
+	sanitizeInternalRedirect,
+} from "@/lib/auth/redirect";
 
-type AuthFlow = "signIn" | "signUp";
+type AuthFlow =
+	| "signIn"
+	| "signUp"
+	| "forgot"
+	| "reset-verification"
+	| "email-verification";
 
-function sanitizeRedirect(redirect: string | null): string {
-	if (!redirect) {
-		return "/boot";
-	}
-
-	try {
-		const url = new URL(redirect, window.location.origin);
-		if (url.origin !== window.location.origin) {
-			return "/boot";
-		}
-
-		const pathname = url.pathname || "/";
-		const search = url.search || "";
-		const hash = url.hash || "";
-		return `${pathname}${search}${hash}`;
-	} catch {
-		return "/boot";
-	}
-}
-
-export function SignInForm() {
+export function SignInForm({
+	defaultFlow = "signIn",
+}: {
+	defaultFlow?: "signIn" | "signUp";
+}) {
 	const { signIn } = useAuthActions();
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const [flow, setFlow] = useState<AuthFlow>("signIn");
+	const [flow, setFlow] = useState<AuthFlow>(defaultFlow);
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [newPassword, setNewPassword] = useState("");
 	const [name, setName] = useState("");
+	const [code, setCode] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const redirectTo = useMemo(
-		() => sanitizeRedirect(searchParams.get("redirect")),
-		[searchParams],
-	);
+	const [info, setInfo] = useState<string | null>(null);
 
 	const emailIsValid =
 		email.trim().length > 3 && email.includes("@") && email.includes(".");
-	const passwordIsValid = password.length >= 6;
-	const formIsValid =
-		emailIsValid &&
-		passwordIsValid &&
-		(flow === "signIn" || name.trim().length > 0);
+	const passwordIsValid = password.length >= 8;
+	const safeRedirectQuery = sanitizeInternalRedirect(
+		searchParams.get("redirect"),
+		"",
+	);
+	const postLoginDestination = buildAuthCallbackRedirect(safeRedirectQuery);
+	const signInHref = safeRedirectQuery
+		? `/sign-in?redirect=${encodeURIComponent(safeRedirectQuery)}`
+		: "/sign-in";
+	const signUpHref = safeRedirectQuery
+		? `/sign-up?redirect=${encodeURIComponent(safeRedirectQuery)}`
+		: "/sign-up";
 
 	const handleGoogleSignIn = async () => {
 		setError(null);
 		setIsLoading(true);
 		try {
-			const result = await signIn("google", { redirectTo });
+			const result = await signIn("google", {
+				redirectTo: postLoginDestination,
+			});
 			if (result.redirect) {
 				window.location.href = result.redirect.toString();
 			}
@@ -70,17 +72,23 @@ export function SignInForm() {
 	};
 
 	const handleEmailSignIn = async () => {
-		if (!formIsValid) return;
+		if (!emailIsValid || !passwordIsValid) return;
+		if (flow === "signUp" && !name.trim()) return;
 		setError(null);
 		setIsLoading(true);
 		try {
-			await signIn("password", {
+			const result = await signIn("password", {
 				email: email.trim(),
 				password,
 				...(flow === "signUp" ? { name: name.trim() } : {}),
-				flow,
+				flow: flow === "signUp" ? "signUp" : "signIn",
 			});
-			router.replace(redirectTo as never);
+			if (flow === "signUp" && result.signingIn === false) {
+				setFlow("email-verification");
+				setInfo("Check your email for a verification code.");
+				return;
+			}
+			router.replace(postLoginDestination as never);
 		} catch {
 			setError(
 				flow === "signIn"
@@ -92,108 +100,259 @@ export function SignInForm() {
 		}
 	};
 
-	const toggleFlow = () => {
-		setFlow(flow === "signIn" ? "signUp" : "signIn");
+	const handleForgotPassword = async () => {
+		if (!emailIsValid) return;
 		setError(null);
+		setIsLoading(true);
+		try {
+			await signIn("password", {
+				email: email.trim(),
+				flow: "reset",
+			});
+			setFlow("reset-verification");
+			setInfo("Check your email for a reset code.");
+		} catch {
+			setError("Could not send reset code. Check your email address.");
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
+	const handleResetVerification = async () => {
+		if (!code.trim() || newPassword.length < 8) return;
+		setError(null);
+		setIsLoading(true);
+		try {
+			await signIn("password", {
+				email: email.trim(),
+				code: code.trim(),
+				newPassword,
+				flow: "reset-verification",
+			});
+			router.replace(postLoginDestination as never);
+		} catch {
+			setError("Invalid or expired code. Please try again.");
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
+	const handleEmailVerification = async () => {
+		if (!code.trim()) return;
+		setError(null);
+		setIsLoading(true);
+		try {
+			await signIn("password", {
+				email: email.trim(),
+				code: code.trim(),
+				flow: "email-verification",
+			});
+			router.replace(postLoginDestination as never);
+		} catch {
+			setError("Invalid or expired code. Please try again.");
+		} finally {
+			setIsLoading(false);
+		}
+	};
+
+	const switchFlow = (target: AuthFlow) => {
+		setFlow(target);
+		setError(null);
+		setInfo(null);
+		setCode("");
+		setNewPassword("");
+	};
+
+	const title: Record<AuthFlow, string> = {
+		signIn: "Welcome back",
+		signUp: "Create your account",
+		forgot: "Reset your password",
+		"reset-verification": "Enter reset code",
+		"email-verification": "Verify your email",
+	};
+
+	const subtitle: Record<AuthFlow, string> = {
+		signIn: "Sign in to continue to Clave",
+		signUp: "Get started with Clave",
+		forgot: "Enter your email to receive a reset code.",
+		"reset-verification": "Enter the code sent to your email.",
+		"email-verification": "Enter the verification code sent to your email.",
 	};
 
 	return (
-		<div className="w-full max-w-[460px] rounded-3xl border border-border bg-card shadow-2xl">
-			<div className="px-6 pt-7 pb-6">
-				<div className="flex flex-col items-center text-center">
-					<div className="flex h-12 w-12 items-center justify-center rounded-full bg-sienna-600 text-white shadow-[inset_0_-5px_6.6px_0_rgba(0,0,0,0.25)]">
-						<span className="text-lg font-bold">C</span>
-					</div>
-					<h2 className="mt-4 text-xl font-semibold">
-						{flow === "signIn" ? "Sign in to Clave" : "Create your account"}
-					</h2>
-					<p className="mt-1 text-sm text-muted-foreground">
-						{flow === "signIn"
-							? "Welcome back! Please sign in to continue."
-							: "Get started with Clave."}
-					</p>
-				</div>
+		<div className="w-full max-w-[400px]">
+			<div className="mb-8">
+				<h2 className="text-2xl font-semibold tracking-tight">{title[flow]}</h2>
+				<p className="mt-2 text-sm text-muted-foreground">{subtitle[flow]}</p>
+			</div>
 
-				<div className="mt-6 space-y-4">
-					<Button
-						type="button"
-						variant="outline"
-						className="h-11 w-full justify-center gap-2 rounded-xl border-border bg-muted/20"
-						onClick={handleGoogleSignIn}
-						disabled={isLoading}
-					>
-						<GoogleIcon className="h-4 w-4" />
-						Continue with Google
-					</Button>
+			<div className="space-y-4">
+				{/* Google sign-in — only on signIn / signUp */}
+				{(flow === "signIn" || flow === "signUp") && (
+					<>
+						<Button
+							type="button"
+							variant="outline"
+							className="h-11 w-full justify-center gap-2"
+							onClick={handleGoogleSignIn}
+							disabled={isLoading}
+						>
+							<GoogleIcon className="h-4 w-4" />
+							Continue with Google
+						</Button>
 
-					<div className="flex items-center gap-3">
-						<Separator className="flex-1" />
-						<span className="text-xs text-muted-foreground">
-							or continue with email
-						</span>
-						<Separator className="flex-1" />
-					</div>
-
-					{flow === "signUp" && (
-						<div className="space-y-2">
-							<Label htmlFor="sign-in-name">Name</Label>
-							<Input
-								id="sign-in-name"
-								type="text"
-								placeholder="Your name"
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-								autoComplete="name"
-								className="h-11 rounded-xl"
-								disabled={isLoading}
-							/>
+						<div className="flex items-center gap-3">
+							<Separator className="flex-1" />
+							<span className="text-xs text-muted-foreground">or</span>
+							<Separator className="flex-1" />
 						</div>
-					)}
+					</>
+				)}
 
+				{/* Name field — signUp only */}
+				{flow === "signUp" && (
 					<div className="space-y-2">
-						<Label htmlFor="sign-in-email">Email address</Label>
+						<Label htmlFor="sign-in-name">Full name</Label>
 						<Input
-							id="sign-in-email"
-							type="email"
-							placeholder="Enter your email address"
-							value={email}
-							onChange={(event) => setEmail(event.target.value)}
-							autoComplete="email"
-							className="h-11 rounded-xl"
+							id="sign-in-name"
+							type="text"
+							placeholder="Your name"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+							autoComplete="name"
+							className="h-10"
 							disabled={isLoading}
 						/>
 					</div>
+				)}
 
+				{/* Email field — signIn, signUp, forgot */}
+				{(flow === "signIn" || flow === "signUp" || flow === "forgot") && (
 					<div className="space-y-2">
-						<Label htmlFor="sign-in-password">Password</Label>
+						<Label htmlFor="sign-in-email">Email</Label>
+						<Input
+							id="sign-in-email"
+							type="email"
+							placeholder="name@example.com"
+							value={email}
+							onChange={(event) => setEmail(event.target.value)}
+							autoComplete="email"
+							className="h-10"
+							disabled={isLoading}
+						/>
+					</div>
+				)}
+
+				{/* Password field — signIn, signUp */}
+				{(flow === "signIn" || flow === "signUp") && (
+					<div className="space-y-2">
+						<div className="flex items-center justify-between">
+							<Label htmlFor="sign-in-password">Password</Label>
+							{flow === "signIn" && (
+								<button
+									type="button"
+									className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+									onClick={() => switchFlow("forgot")}
+								>
+									Forgot password?
+								</button>
+							)}
+						</div>
 						<Input
 							id="sign-in-password"
 							type="password"
 							placeholder={
-								flow === "signUp" ? "At least 6 characters" : "Your password"
+								flow === "signUp" ? "At least 8 characters" : "Your password"
 							}
 							value={password}
 							onChange={(event) => setPassword(event.target.value)}
 							onKeyDown={(event) => {
-								if (event.key === "Enter" && formIsValid && !isLoading) {
+								if (
+									event.key === "Enter" &&
+									emailIsValid &&
+									passwordIsValid &&
+									!isLoading
+								) {
 									handleEmailSignIn();
 								}
 							}}
 							autoComplete={
 								flow === "signUp" ? "new-password" : "current-password"
 							}
-							className="h-11 rounded-xl"
+							className="h-10"
+							disabled={isLoading}
+						/>
+						{flow === "signUp" && (
+							<p className="text-xs text-muted-foreground">
+								At least 8 characters with a mix of letters and numbers
+							</p>
+						)}
+					</div>
+				)}
+
+				{/* Verification code — reset-verification, email-verification */}
+				{(flow === "reset-verification" || flow === "email-verification") && (
+					<div className="space-y-2">
+						<Label htmlFor="otp-code">Verification code</Label>
+						<Input
+							id="otp-code"
+							type="text"
+							inputMode="numeric"
+							placeholder="12345678"
+							value={code}
+							onChange={(event) =>
+								setCode(event.target.value.replace(/\D/g, "").slice(0, 8))
+							}
+							className="h-10 font-mono text-center text-lg tracking-widest"
+							maxLength={8}
+							disabled={isLoading}
+							autoFocus
+						/>
+					</div>
+				)}
+
+				{/* New password — reset-verification only */}
+				{flow === "reset-verification" && (
+					<div className="space-y-2">
+						<Label htmlFor="new-password">New password</Label>
+						<Input
+							id="new-password"
+							type="password"
+							placeholder="At least 8 characters"
+							value={newPassword}
+							onChange={(event) => setNewPassword(event.target.value)}
+							onKeyDown={(event) => {
+								if (
+									event.key === "Enter" &&
+									code.trim() &&
+									newPassword.length >= 8 &&
+									!isLoading
+								) {
+									handleResetVerification();
+								}
+							}}
+							autoComplete="new-password"
+							className="h-10"
 							disabled={isLoading}
 						/>
 					</div>
+				)}
 
-					{error && <p className="text-sm text-destructive">{error}</p>}
+				{info && <p className="text-sm text-emerald-500">{info}</p>}
+				{error && <p className="text-sm text-destructive">{error}</p>}
 
+				{/* Action buttons */}
+				{(flow === "signIn" || flow === "signUp") && (
 					<Button
 						type="button"
-						className="h-11 w-full rounded-xl"
+						className="h-10 w-full"
 						onClick={handleEmailSignIn}
-						disabled={!formIsValid || isLoading}
+						disabled={
+							!emailIsValid ||
+							!passwordIsValid ||
+							(flow === "signUp" && !name.trim()) ||
+							isLoading
+						}
 					>
 						{isLoading
 							? "Please wait..."
@@ -202,43 +361,90 @@ export function SignInForm() {
 								: "Create account"}
 						{!isLoading && <ArrowRight className="ml-1 h-4 w-4" />}
 					</Button>
-				</div>
+				)}
+
+				{flow === "forgot" && (
+					<Button
+						type="button"
+						className="h-10 w-full"
+						onClick={handleForgotPassword}
+						disabled={!emailIsValid || isLoading}
+					>
+						{isLoading ? "Sending..." : "Send reset code"}
+					</Button>
+				)}
+
+				{flow === "reset-verification" && (
+					<Button
+						type="button"
+						className="h-10 w-full"
+						onClick={handleResetVerification}
+						disabled={!code.trim() || newPassword.length < 8 || isLoading}
+					>
+						{isLoading ? "Resetting..." : "Reset password"}
+					</Button>
+				)}
+
+				{flow === "email-verification" && (
+					<Button
+						type="button"
+						className="h-10 w-full"
+						onClick={handleEmailVerification}
+						disabled={!code.trim() || isLoading}
+					>
+						{isLoading ? "Verifying..." : "Verify email"}
+					</Button>
+				)}
 			</div>
 
-			<div className="border-t border-border/70 bg-muted/40 px-6 py-4 text-center text-sm text-muted-foreground">
-				{flow === "signIn" ? (
+			{/* Footer — flow toggle */}
+			<div className="mt-6 text-center text-sm text-muted-foreground">
+				{flow === "signIn" && (
 					<>
 						Don&apos;t have an account?{" "}
-						<button
-							type="button"
+						<Link
+							href={signUpHref as never}
+							prefetch={false}
 							className="font-medium text-foreground hover:underline"
-							onClick={toggleFlow}
 						>
 							Sign up
-						</button>
+						</Link>
 					</>
-				) : (
+				)}
+				{flow === "signUp" && (
 					<>
 						Already have an account?{" "}
-						<button
-							type="button"
+						<Link
+							href={signInHref as never}
+							prefetch={false}
 							className="font-medium text-foreground hover:underline"
-							onClick={toggleFlow}
 						>
 							Sign in
-						</button>
+						</Link>
 					</>
+				)}
+				{(flow === "forgot" ||
+					flow === "reset-verification" ||
+					flow === "email-verification") && (
+					<button
+						type="button"
+						className="font-medium text-foreground hover:underline"
+						onClick={() => switchFlow("signIn")}
+					>
+						Back to sign in
+					</button>
 				)}
 			</div>
 
 			{process.env.NEXT_PUBLIC_DEV_MODE === "true" && (
-				<div className="border-t border-amber-500/20 bg-amber-500/5 px-6 py-3 text-center">
-					<a
+				<div className="mt-6 text-center">
+					<Link
 						href="/dev-login"
+						prefetch={false}
 						className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs font-medium text-amber-500 transition-colors hover:bg-amber-500/10"
 					>
 						Development mode — use dev login
-					</a>
+					</Link>
 				</div>
 			)}
 		</div>

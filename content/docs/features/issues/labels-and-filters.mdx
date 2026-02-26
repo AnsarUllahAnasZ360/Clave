@@ -1,0 +1,79 @@
+---
+title: Labels and Filters
+description: Use labels to categorize issues and filters to find exactly what you need.
+---
+
+Labels let you tag issues with categories that are meaningful to your team — things like "frontend", "needs-design", or "customer-reported". Filters let you narrow down the issue list to show only what's relevant right now.
+
+## Labels
+
+### What labels are for
+
+Labels are free-form tags that you define for your workspace. Unlike status or priority (which have fixed options), you create labels to match your team's workflow. An issue can have multiple labels.
+
+### Creating labels
+
+Labels are managed in workspace settings:
+
+1. Open the workspace settings from the sidebar (Settings icon, or navigate to Settings > Labels).
+2. Click **New label**.
+3. Enter a name for the label.
+4. Choose a color — this color appears as a dot or badge wherever the label is shown.
+5. Click **Create** to save.
+
+### Applying labels to issues
+
+**When creating an issue:** In the full create modal, click the **Labels** field in the properties panel on the right. A picker opens showing all workspace labels. Click labels to toggle them on or off. Multiple labels can be selected.
+
+**From the issue detail page:** In the properties sidebar, click the **Labels** row. The same label picker appears. You can search for labels by name using the search field.
+
+**From the board or list view:** Click on an issue to open a quick-edit sidebar, or open the full detail page.
+
+### Label colors
+
+Each label has a color that appears as a colored dot badge on issue cards and rows. Colors help you quickly spot certain categories without reading the label name.
+
+## Filters
+
+### Opening filters
+
+Click the **Filter** button in the issues toolbar to open the filter panel. Active filters appear as chips in the toolbar row so you can see at a glance what's applied.
+
+### Available filter dimensions
+
+You can filter issues by:
+
+| Filter | Options |
+|--------|---------|
+| **Status** | Any combination of Triage, Backlog, Todo, In progress, In review, Done, Cancelled |
+| **Priority** | Urgent, High, Medium, Low, No priority |
+| **Assignee** | Any workspace member, or "Unassigned" |
+| **Label** | Any workspace label |
+| **Type** | Issue, Bug, Improvement, Feature |
+| **Sprint** | Any project sprint, or "No sprint" |
+| **Project** | Any workspace project |
+
+### Combining filters
+
+All filters work together with AND logic — selecting "High priority" AND "Bug" type shows only high-priority bugs. Within a single filter dimension (like Status), selecting multiple values uses OR logic — "Todo" OR "In progress" shows issues in either state.
+
+### Removing a filter
+
+Click the X on any active filter chip in the toolbar to remove that filter. Click **Clear all** to remove all active filters at once.
+
+## Display options
+
+Beyond filtering, the **Display** panel (gear icon) gives you additional ways to customize the view:
+
+- **Grouping** — Organize issues into groups by status, priority, assignee, project, or sprint.
+- **Ordering** — Sort within groups by manual order, priority, status, created date, updated date, or due date.
+- **Sub-issues toggle** — Show or hide child issues inline within the list.
+- **Empty groups toggle** — Show or hide group headers when the group has no issues.
+
+These display settings work alongside filters and are remembered per view context.
+
+## My issues filter
+
+The **My issues** view in the sidebar shows issues assigned to you across all projects. From this view, you can filter by status to see your active work, your backlog, or recently completed items.
+
+![Label picker on issue detail](/docs/screenshots/issue-labels.png)

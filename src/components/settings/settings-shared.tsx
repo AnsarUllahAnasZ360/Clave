@@ -53,7 +53,7 @@ export function SettingRow({
 	children: ReactNode;
 }) {
 	return (
-		<div className="flex flex-col gap-10 sm:grid sm:grid-cols-[minmax(0,250px)_minmax(0,1fr)] sm:items-center sm:gap-6">
+		<div className="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,250px)_minmax(0,1fr)] sm:items-center sm:gap-6">
 			<div className="space-y-1">
 				<div className="text-sm font-medium text-foreground">{label}</div>
 				{description && (

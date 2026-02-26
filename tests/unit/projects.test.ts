@@ -368,6 +368,85 @@ describe("projects", () => {
 		});
 	});
 
+	describe("getWorkspaceProjectSummaries", () => {
+		it("returns counts for accessible projects only and excludes deleted/sub-issues", async () => {
+			const t = createBackend();
+			const fx = await seedFixture(t);
+			const admin = t.withIdentity({ subject: fx.adminId });
+			const member = t.withIdentity({ subject: fx.memberId });
+
+			const adminProjectId = await admin.mutation(api.projects.create, {
+				workspaceId: fx.workspaceId,
+				name: "Admin Only",
+				status: "active",
+			});
+			const memberProjectId = await member.mutation(api.projects.create, {
+				workspaceId: fx.workspaceId,
+				name: "Member Project",
+				status: "active",
+			});
+
+			const topLevelA = await admin.mutation(api.issues.create, {
+				workspaceId: fx.workspaceId,
+				projectId: memberProjectId,
+				title: "Top Level A",
+				status: "backlog",
+			});
+			await admin.mutation(api.issues.create, {
+				workspaceId: fx.workspaceId,
+				projectId: memberProjectId,
+				title: "Top Level B",
+				status: "done",
+			});
+			await admin.mutation(api.issues.create, {
+				workspaceId: fx.workspaceId,
+				projectId: adminProjectId,
+				title: "Admin Issue",
+				status: "done",
+			});
+			await admin.mutation(api.issues.createSubIssue, {
+				parentId: topLevelA.issueId,
+				title: "Child issue",
+				status: "done",
+			});
+			const deletedIssue = await admin.mutation(api.issues.create, {
+				workspaceId: fx.workspaceId,
+				projectId: memberProjectId,
+				title: "Deleted issue",
+				status: "done",
+			});
+			await admin.mutation(api.issues.remove, {
+				issueId: deletedIssue.issueId,
+			});
+
+			const memberSummaries = await member.query(
+				api.projects.getWorkspaceProjectSummaries,
+				{
+					workspaceId: fx.workspaceId,
+				},
+			);
+			expect(Object.keys(memberSummaries)).toEqual([memberProjectId]);
+			expect(memberSummaries[memberProjectId]?.issueCount).toBe(2);
+			expect(memberSummaries[memberProjectId]?.doneCount).toBe(1);
+			expect(
+				memberSummaries[memberProjectId]?.members.some(
+					(profile) => profile.name === "Member",
+				),
+			).toBe(true);
+
+			const adminSummaries = await admin.query(
+				api.projects.getWorkspaceProjectSummaries,
+				{
+					workspaceId: fx.workspaceId,
+				},
+			);
+			expect(adminSummaries[adminProjectId]?.issueCount).toBe(1);
+			expect(adminSummaries[adminProjectId]?.doneCount).toBe(1);
+			expect(adminSummaries[memberProjectId]?.issueCount).toBe(2);
+			expect(adminSummaries[memberProjectId]?.doneCount).toBe(1);
+		});
+	});
+
 	describe("update", () => {
 		it("updates project fields", async () => {
 			const t = createBackend();

@@ -1,0 +1,61 @@
+---
+title: Sharing Documents
+description: Share documents with teammates or publish them publicly with a link.
+---
+
+By default, documents are private — only workspace members can access them. You can change visibility to share with the whole workspace or create a public link for external viewers.
+
+## Open the Share dialog
+
+Click the **Share** button in the document header. The Share dialog opens.
+
+You can also share from the Documents list by right-clicking a document card and selecting **Share**.
+
+## Visibility settings
+
+Choose who can access the document:
+
+| Visibility | Who can view |
+|------------|--------------|
+| **Private** | Only you and people you explicitly share with |
+| **Workspace** | Anyone in the workspace can view the document |
+| **Public** | Anyone with the share link can view — no login required |
+
+Select the visibility level from the dropdown in the Share dialog.
+
+## Copy the share link
+
+Once you have set visibility to **Workspace** or **Public**, a share link appears in the dialog. Click **Copy link** to copy it to your clipboard.
+
+- For **Public** documents, the link is a standalone shareable URL that opens a clean read-only view of the document.
+- For **Private** documents, copying the link copies the internal URL — only workspace members who are signed in can open it.
+
+## Share with specific people
+
+In the Share dialog, you can also share with individual workspace members:
+
+1. Search for a teammate by name in the search field.
+2. Select them to add them to the shared list.
+3. Use the permission dropdown next to their name to set their access level (view or edit).
+
+Shared members appear in the people list within the Share dialog.
+
+## Revoke access
+
+**To remove a specific person's access:** Find them in the Share dialog and click the remove icon next to their name.
+
+**To revoke all public access:** Change the visibility back to **Private** in the visibility dropdown.
+
+## Regenerate the share token
+
+If you need to invalidate an existing public link (for example, if it was shared by mistake), click **Regenerate link** in the Share dialog. This creates a new token and makes the old link invalid.
+
+## What external viewers see
+
+Public documents open in a clean read-only view at `/share/[token]`. External viewers see:
+
+- The document title and cover image
+- All document content formatted normally
+- No editing controls, no sidebar, no workspace navigation
+
+Comments are not visible to external viewers.

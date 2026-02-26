@@ -17,10 +17,11 @@ describe("RAG_CONTENT_TYPES", () => {
 		expect(RAG_CONTENT_TYPES).toContain("document");
 		expect(RAG_CONTENT_TYPES).toContain("comment");
 		expect(RAG_CONTENT_TYPES).toContain("github_file");
+		expect(RAG_CONTENT_TYPES).toContain("doc_page");
 	});
 
-	it("has exactly 4 content types", () => {
-		expect(RAG_CONTENT_TYPES).toHaveLength(4);
+	it("has exactly 5 content types", () => {
+		expect(RAG_CONTENT_TYPES).toHaveLength(5);
 	});
 
 	it("is a readonly tuple", () => {

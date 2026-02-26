@@ -97,11 +97,6 @@ export default function ChatThreadPage() {
 
 	const handleClearContext = useCallback(() => setContextCleared(true), []);
 
-	// Sync activeThreadId from URL param
-	useEffect(() => {
-		chat.setActiveThreadId(threadId);
-	}, [threadId, chat.setActiveThreadId]);
-
 	const pageRef = useRef<HTMLDivElement>(null);
 
 	const handleSubmit = useCallback(

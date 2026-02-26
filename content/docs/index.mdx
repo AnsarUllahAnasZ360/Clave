@@ -1,84 +1,37 @@
 ---
-title: Getting started
-description: Get up and running with Clave, the AI-native workspace for teams that ship.
+title: Welcome to Clave
+description: Clave is an AI-native project management and collaboration platform. This guide covers everything you need to know to get started and get the most out of Clave.
 ---
 
 ## What is Clave?
 
-Clave is an AI-native project management workspace that combines Linear-style issue tracking, rich documents, whiteboards, and autonomous AI teammates in one platform.
+Clave is a thinking workspace where your team and AI work together. It combines issue tracking, rich documents, real-time whiteboards, and a deeply integrated AI layer in one place.
 
-It is built for small to mid-size engineering teams who want a fast, integrated tool to plan, build, and ship software together.
+Whether you are managing a sprint, writing a spec, or asking the AI to triage a backlog, Clave keeps everything connected.
 
-## Key features
+## What you can do in Clave
 
-- **Projects and issues** -- create, assign, and track work with Kanban boards, timelines, and card views
-- **Sprints** -- time-boxed cycles to organize and ship iteratively
-- **AI teammates** -- assign tasks to Claude agents that autonomously execute work in sandboxed environments
-- **Real-time collaboration** -- live sync across all content types via Convex subscriptions
-- **Clients CRM** -- manage client relationships alongside your projects
-- **Notes** -- rich text documentation integrated into your workflow
-- **Notifications** -- stay informed with real-time inbox and activity feeds
+- **Track work** — Create projects, manage issues across kanban boards, lists, and timelines. Organize work into sprints and milestones.
+- **Write together** — Draft documents with a rich editor, collaborate in real time with teammates, and leave threaded comments.
+- **Draw and diagram** — Use whiteboards for brainstorming, system diagrams, and anything visual. Share boards publicly with a link.
+- **Manage clients** — Keep a lightweight CRM alongside your work. Link client contacts to projects.
+- **Talk to your AI** — Open the AI chat to ask questions, create issues, search your workspace, and get things done using natural language.
+- **Stay informed** — The unified inbox collects all notifications and @mentions. The AI can summarize what you missed.
 
-## Prerequisites
+## How Clave is organized
 
-Before you begin, ensure you have the following installed:
+Clave uses a two-level hierarchy:
 
-- [Bun](https://bun.sh) (v1.1+)
-- [Node.js](https://nodejs.org) (v20+)
-- A [Convex](https://convex.dev) account
-- A Google OAuth app (for authentication)
+- **Organizations** are the top-level container. A company, team, or personal account lives in one organization.
+- **Workspaces** live inside organizations. Each workspace has its own projects, issues, docs, boards, and settings.
 
-## Quickstart
+You can belong to multiple organizations and switch between them from the sidebar.
 
-### 1. Clone the repository
+## Where to start
 
-```bash
-git clone https://github.com/your-org/clave.git
-cd clave
-```
-
-### 2. Install dependencies
-
-```bash
-bun install
-```
-
-### 3. Set up environment variables
-
-Copy the example environment file and fill in your credentials:
-
-```bash
-cp .env.example .env.local
-```
-
-Required variables:
-
-| Variable | Description |
-|---|---|
-| `CONVEX_DEPLOYMENT` | Your Convex deployment URL |
-| `NEXT_PUBLIC_CONVEX_URL` | Public Convex URL for the client |
-| `AUTH_GOOGLE_ID` | Google OAuth client ID |
-| `AUTH_GOOGLE_SECRET` | Google OAuth client secret |
-
-### 4. Start the development servers
-
-In one terminal, start the Convex backend:
-
-```bash
-npx convex dev
-```
-
-In another terminal, start the Next.js frontend:
-
-```bash
-bun run dev
-```
-
-The app will be available at [http://localhost:4000](http://localhost:4000).
-
-## Next steps
-
-- Follow the [Getting Started](/docs/guides/getting-started) guide for a full walkthrough
-- Try the [Quick Start](/docs/guides/quickstart) for the fastest path to running Clave
-- Read the [Architecture overview](/docs/documentation/architecture) to understand how Clave is built
-- Check the [Contributing guide](/docs/documentation/contributing) to learn how to contribute
+<Cards>
+  <Card title="Sign up" href="/docs/getting-started/signing-up" description="Create your account and sign in for the first time." />
+  <Card title="Create an organization" href="/docs/getting-started/creating-an-organization" description="Set up your team's organization." />
+  <Card title="Invite teammates" href="/docs/getting-started/inviting-teammates" description="Bring your team into Clave." />
+  <Card title="Navigate the app" href="/docs/getting-started/navigating-the-app" description="Learn the sidebar, command palette, and shortcuts." />
+</Cards>

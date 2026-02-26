@@ -6,6 +6,8 @@ import { useCallback } from "react";
 import {
 	AccountSettingsPane,
 	ClaveAISettingsPane,
+	DictationClipboardPane,
+	GoogleChatIntegrationsPane,
 	IdentitySettingsPane,
 	McpServersSettingsPane,
 	NotificationsSettingsPane,
@@ -27,6 +29,7 @@ import { cn } from "@/lib/utils";
 const paneComponents: Record<SettingsItemId, React.ComponentType> = {
 	account: AccountSettingsPane,
 	notifications: NotificationsSettingsPane,
+	dictation: DictationClipboardPane,
 	teammates: TeammatesSettingsPane,
 	identity: IdentitySettingsPane,
 	types: TypesSettingsPane,
@@ -35,6 +38,7 @@ const paneComponents: Record<SettingsItemId, React.ComponentType> = {
 	agents: SubAgentsSettingsPane,
 	skills: SkillsSettingsPane,
 	"mcp-servers": McpServersSettingsPane,
+	"google-chat": GoogleChatIntegrationsPane,
 };
 
 export default function SettingsPage() {
@@ -67,8 +71,8 @@ export default function SettingsPage() {
 	const ActivePane = paneComponents[activeItemId] ?? PlaceholderSettingsPane;
 
 	return (
-		<div className="flex flex-1 flex-col bg-background mx-2 my-2 border border-border rounded-lg min-w-0">
-			<header className="flex items-center gap-3 border-b border-border px-4 py-3">
+		<div className="flex flex-1 flex-col bg-background mx-2 my-2 border border-border rounded-lg min-w-0 min-h-0 overflow-hidden">
+			<header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
 				<SidebarTrigger className="h-8 w-8 rounded-lg hover:bg-accent text-muted-foreground" />
 				<Button
 					variant="ghost"
@@ -81,7 +85,7 @@ export default function SettingsPage() {
 				<h1 className="text-base font-medium text-foreground">Settings</h1>
 			</header>
 
-			<div className="flex flex-1 min-h-0">
+			<div className="flex flex-1 min-h-0 overflow-hidden">
 				<aside className="w-64 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-4 overflow-y-auto">
 					<div className="space-y-4 text-sm">
 						{visibleSections.map((section) => (
@@ -116,7 +120,7 @@ export default function SettingsPage() {
 					</div>
 				</aside>
 
-				<main className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
+				<main className="flex-1 min-h-0 overflow-y-auto px-6 py-6 pb-12">
 					<ActivePane />
 				</main>
 			</div>

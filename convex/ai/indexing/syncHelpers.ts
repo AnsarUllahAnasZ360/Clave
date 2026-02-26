@@ -14,6 +14,7 @@ const sourceTypeValidator = v.union(
 	v.literal("note"),
 	v.literal("comment"),
 	v.literal("github_file"),
+	v.literal("doc_page"),
 );
 
 /**

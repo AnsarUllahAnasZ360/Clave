@@ -2,13 +2,23 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAuth, requireWorkspaceMember } from "./lib/auth";
 
-/** Upsert workspace presence record, touching lastActiveAt (called every 10s) */
+export const PRESENCE_TOUCH_FRESH_MS = 8000;
+
+export function isPresenceTouchFresh(
+	lastActiveAt: number,
+	now: number,
+): boolean {
+	return now - lastActiveAt < PRESENCE_TOUCH_FRESH_MS;
+}
+
+/** Upsert workspace presence record, touching lastActiveAt (called periodically) */
 export const heartbeat = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 	},
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		const now = Date.now();
 
 		const existing = await ctx.db
 			.query("workspacePresence")
@@ -18,14 +28,17 @@ export const heartbeat = mutation({
 			.unique();
 
 		if (existing) {
+			if (isPresenceTouchFresh(existing.lastActiveAt, now)) {
+				return;
+			}
 			await ctx.db.patch(existing._id, {
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		} else {
 			await ctx.db.insert("workspacePresence", {
 				workspaceId: args.workspaceId,
 				userId,
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		}
 	},
@@ -65,7 +78,7 @@ export const listActive = query({
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 
-		const cutoff = Date.now() - 60000; // 60 seconds (matches cron cleanup interval)
+		const cutoff = Date.now() - 60000; // 60 seconds
 		const active = records.filter((r) => r.lastActiveAt > cutoff);
 
 		const enriched = await Promise.all(
@@ -94,7 +107,10 @@ export const cleanupStale = internalMutation({
 	args: {},
 	handler: async (ctx) => {
 		const cutoff = Date.now() - 60000; // 60 seconds
-		const allRecords = await ctx.db.query("workspacePresence").collect();
+		const allRecords = await ctx.db
+			.query("workspacePresence")
+			.withIndex("by_workspace")
+			.collect();
 
 		for (const record of allRecords) {
 			if (record.lastActiveAt < cutoff) {

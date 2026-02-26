@@ -1,0 +1,88 @@
+---
+title: Integrations
+description: Connect GitHub and external MCP servers to extend Clave's capabilities.
+---
+
+Clave integrates with external services to bring your code and tooling into the same workspace as your issues, docs, and AI assistant. All integrations are configured per workspace and require admin access.
+
+## GitHub integration
+
+Connecting a GitHub repository lets Clave index your code, sync issues between systems, and surface relevant context in the AI assistant.
+
+### Connecting a repository
+
+1. Open **Settings → Integrations** (or navigate to the GitHub section of your workspace settings).
+2. Click **Connect GitHub**.
+3. Authorize the Clave GitHub app for your organization or personal account.
+4. Select the repository you want to connect.
+
+After authorization, Clave begins indexing the repository. The initial index may take a few minutes depending on the repository size.
+
+### What syncs
+
+Once connected:
+
+- **Repository indexing** — file contents and commit history are indexed and made searchable by the AI assistant.
+- **Issue sync** — GitHub issues can be viewed alongside Clave issues, keeping your team in one place.
+- **Webhooks** — Clave receives push events, pull request events, and issue events from GitHub to keep its index current.
+
+### Access token setup
+
+The GitHub integration uses OAuth to authenticate. If your organization uses private repositories, ensure you grant the Clave app access to those repositories during the authorization flow.
+
+If you need to reconnect or reauthorize (for example, after access is revoked), click **Reconnect GitHub** and go through the authorization flow again.
+
+## Google Chat integration
+
+Connecting Google Chat lets Clave send interactive notification cards, respond to AI queries via `@Clave` mentions, and handle issue actions directly from Google Chat spaces and DMs.
+
+For full setup instructions, feature details, and policy configuration, see the dedicated [Google Chat](/docs/settings/google-chat) page.
+
+## MCP servers
+
+Model Context Protocol (MCP) is an open standard for connecting AI assistants to external tools and data sources. In Clave, MCP servers extend what the AI assistant can do in chat — letting it query external APIs, read data from third-party services, or run custom tools.
+
+### The built-in Excalidraw server
+
+Clave includes a built-in Excalidraw MCP server that enables the AI to create and modify whiteboard diagrams. This server is always active and cannot be removed or disabled.
+
+### Adding an MCP server
+
+Adding an MCP server requires admin access.
+
+1. Open **Settings → MCP Servers**.
+2. Click **Add Server**.
+3. Fill in the server details:
+   - **Name** — a display name for the server (for example, "Sentry" or "Jira").
+   - **Server URL** — the URL of the MCP endpoint.
+   - **Transport** — choose **SSE** for legacy server-sent events endpoints, or **HTTP** for streamable HTTP MCP endpoints. Use HTTP for modern MCP servers; use SSE for older ones.
+   - **Authentication** — choose the auth method:
+     - **No authentication** — the server accepts unauthenticated requests.
+     - **API key** — enter your API key. It is stored securely and never exposed in the UI.
+     - **OAuth / configure URL** — for OAuth-based servers, provide an optional access token and configure URL.
+   - **Description** — an optional note about what this server does.
+4. Click **Add Server**.
+
+The server appears in your list immediately. A green dot indicates it is active.
+
+### Testing a connection
+
+After adding a server, click **Test** to verify the connection. The test result shows:
+
+- How many tools the server exposes if the connection succeeds
+- The tool names available
+- An error message if the connection failed
+
+If the server requires additional configuration (for example, an OAuth flow), a **Configure** button appears that links to the server's setup page.
+
+### Enabling and disabling servers
+
+Use the toggle next to each server to enable or disable it. Disabled servers are not available to the AI assistant in chat threads. The Excalidraw server cannot be toggled.
+
+### Editing a server
+
+Click **Edit** next to any custom server to update its name, URL, transport, authentication, or description. Click **Save changes** when done, or **Cancel** to discard.
+
+### Removing a server
+
+Click the trash icon next to a custom server to remove it. This immediately removes the server and its tools from the AI assistant.

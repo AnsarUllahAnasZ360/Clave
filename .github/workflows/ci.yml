@@ -5,10 +5,26 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_release:
+        description: "Run release job after CI passes"
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# ─── Secrets required ─────────────────────────────────────────────────────────
+# CONVEX_DEPLOY_KEY  — Convex deploy key (CI codegen uses the default key;
+#                      Vercel uses scoped production/preview keys)
+# GITHUB_TOKEN       — Auto-provided by GitHub Actions (release job uses it)
+#
+# Vercel handles all deployments via Git integration — no Vercel tokens needed
+# in this workflow. Team members with repo push/PR access control the full
+# CI/CD pipeline without needing Vercel or Convex dashboard access.
+# ──────────────────────────────────────────────────────────────────────────────
 
 jobs:
   ci:
@@ -62,7 +78,9 @@ jobs:
 
   release:
     name: Release
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && inputs.run_release)
     needs: [ci]
     runs-on: ubuntu-latest
     continue-on-error: true

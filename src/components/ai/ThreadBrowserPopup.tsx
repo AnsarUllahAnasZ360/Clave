@@ -164,7 +164,7 @@ const PreviewPanel = memo(function PreviewPanel({
 								)}
 							>
 								{role === "assistant" ? (
-									<MessageResponse className="text-[13px] [&_*]:text-[13px]">
+									<MessageResponse className="text-[13px] [&_*]:text-[13px] [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_li]:my-0.5">
 										{text}
 									</MessageResponse>
 								) : (
@@ -248,17 +248,34 @@ export function ThreadBrowserPopup({
 	const workspace = useWorkspaceOptional();
 	const orgSlug = workspace?.orgSlug;
 	const [search, setSearch] = useState("");
+	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 	const searchInputRef = useRef<HTMLInputElement>(null);
+
+	// Debounce search input before sending to backend
+	useEffect(() => {
+		const timer = setTimeout(() => setDebouncedSearch(search), 300);
+		return () => clearTimeout(timer);
+	}, [search]);
+
+	// Backend search — activated when debounced search is non-empty
+	const backendResults = useQuery(
+		api.ai.threads.searchThreads,
+		workspace?.workspaceId && debouncedSearch.trim()
+			? { workspaceId: workspace.workspaceId, query: debouncedSearch.trim() }
+			: "skip",
+	);
 
 	const filteredThreads = useMemo(() => {
 		const nonIncognito = threads.filter((t) => !t.isIncognito);
 		if (!search.trim()) return nonIncognito;
+		// Use backend results when available; fall back to client-side title filter while loading
+		if (backendResults) return backendResults as AIThread[];
 		const query = search.toLowerCase();
 		return nonIncognito.filter((t) =>
 			(t.title || "New conversation").toLowerCase().includes(query),
 		);
-	}, [threads, search]);
+	}, [threads, search, backendResults]);
 
 	const groupedThreads = useMemo(
 		() => groupThreadsByTimePeriod(filteredThreads),

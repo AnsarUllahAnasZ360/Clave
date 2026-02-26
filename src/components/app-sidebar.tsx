@@ -108,8 +108,16 @@ export function AppSidebar() {
 	const pathname = usePathname();
 	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
 	const user = useCurrentUser();
+	const { sections, toggle } = useSidebarSections({
+		initialSections: user?.sidebarSections,
+	});
+
 	const activeProjects = useQuery(api.projects.listActive, { workspaceId });
-	const favorites = useQuery(api.favorites.list, { workspaceId });
+	const hasFavorites = useQuery(api.favorites.hasAny, { workspaceId });
+	const favorites = useQuery(
+		api.favorites.list,
+		hasFavorites && sections.favorites ? { workspaceId, limit: 50 } : "skip",
+	);
 
 	const unreadCount = useQuery(api.notifications.unreadCount, { workspaceId });
 	const displayUnreadCount =
@@ -120,11 +128,12 @@ export function AppSidebar() {
 		user?._id,
 	);
 
-	const recents = useQuery(api.recents.list, { workspaceId });
-
-	const { sections, toggle } = useSidebarSections({
-		initialSections: user?.sidebarSections,
-	});
+	const recents = useQuery(
+		api.recents.list,
+		sections.recents ? { workspaceId, limit: 5 } : "skip",
+	);
+	const showFavoritesSection =
+		hasFavorites === true || (favorites !== undefined && favorites.length > 0);
 
 	const getHrefForNavItem = (id: NavItemId): LinkProps<string>["href"] => {
 		const base = `/${orgSlug}/${workspaceSlug}`;
@@ -392,7 +401,7 @@ export function AppSidebar() {
 
 				<div className="mx-3 border-b border-border/40" />
 
-				{favorites !== undefined && favorites.length > 0 && (
+				{showFavoritesSection && (
 					<>
 						<Collapsible
 							open={sections.favorites}
@@ -416,68 +425,85 @@ export function AppSidebar() {
 								<CollapsibleContent>
 									<SidebarGroupContent>
 										<SidebarMenu>
-											{favorites.map((fav: FavoriteItem) => {
-												const getFavHref = () => {
-													const base = `/${orgSlug}/${workspaceSlug}`;
-													switch (fav.entityType) {
-														case "project":
-															return `${base}/projects/${fav.entityId}`;
-														case "client":
-															return `${base}/clients/${fav.entityId}`;
-														case "document":
-															return `${base}/docs/${fav.entityId}`;
-														case "whiteboard":
-															return `${base}/boards/${fav.entityId}`;
-														default:
-															return `${base}/projects/${fav.entityId}`;
-													}
-												};
-												const getFavIcon = () => {
-													if (fav.icon) {
-														return (
-															<span className="text-[14px] leading-none flex items-center justify-center w-[18px] h-[18px]">
-																{fav.icon}
-															</span>
-														);
-													}
-													switch (fav.entityType) {
-														case "document":
+											{favorites === undefined ? (
+												<SidebarMenuItem>
+													<div className="flex items-center gap-3 px-3 h-9">
+														<Skeleton className="h-[18px] w-[18px] rounded-full" />
+														<Skeleton className="h-3 flex-1" />
+													</div>
+												</SidebarMenuItem>
+											) : favorites.length === 0 ? (
+												<SidebarMenuItem>
+													<span className="px-3 text-xs text-muted-foreground">
+														No favorites
+													</span>
+												</SidebarMenuItem>
+											) : (
+												favorites.map((fav: FavoriteItem) => {
+													const getFavHref = () => {
+														const base = `/${orgSlug}/${workspaceSlug}`;
+														switch (fav.entityType) {
+															case "project":
+																return `${base}/projects/${fav.entityId}`;
+															case "client":
+																return `${base}/clients/${fav.entityId}`;
+															case "document":
+																return `${base}/docs/${fav.entityId}`;
+															case "whiteboard":
+																return `${base}/boards/${fav.entityId}`;
+															default:
+																return `${base}/projects/${fav.entityId}`;
+														}
+													};
+													const getFavIcon = () => {
+														if (fav.icon) {
 															return (
-																<FileText className="h-[18px] w-[18px] text-muted-foreground" />
-															);
-														case "whiteboard":
-															return (
-																<PenNib className="h-[18px] w-[18px] text-muted-foreground" />
-															);
-														default:
-															return (
-																<Star
-																	className="h-[18px] w-[18px] text-muted-foreground"
-																	weight="fill"
-																/>
-															);
-													}
-												};
-												return (
-													<SidebarMenuItem key={fav._id}>
-														<SidebarMenuButton
-															asChild
-															tooltip={fav.name}
-															className="h-9 rounded-lg px-3 group"
-														>
-															<Link
-																href={getFavHref() as LinkProps<string>["href"]}
-																prefetch={false}
-															>
-																{getFavIcon()}
-																<span className="flex-1 truncate text-sm">
-																	{fav.name}
+																<span className="text-[14px] leading-none flex items-center justify-center w-[18px] h-[18px]">
+																	{fav.icon}
 																</span>
-															</Link>
-														</SidebarMenuButton>
-													</SidebarMenuItem>
-												);
-											})}
+															);
+														}
+														switch (fav.entityType) {
+															case "document":
+																return (
+																	<FileText className="h-[18px] w-[18px] text-muted-foreground" />
+																);
+															case "whiteboard":
+																return (
+																	<PenNib className="h-[18px] w-[18px] text-muted-foreground" />
+																);
+															default:
+																return (
+																	<Star
+																		className="h-[18px] w-[18px] text-muted-foreground"
+																		weight="fill"
+																	/>
+																);
+														}
+													};
+													return (
+														<SidebarMenuItem key={fav._id}>
+															<SidebarMenuButton
+																asChild
+																tooltip={fav.name}
+																className="h-9 rounded-lg px-3 group"
+															>
+																<Link
+																	href={
+																		getFavHref() as LinkProps<string>["href"]
+																	}
+																	prefetch={false}
+																>
+																	{getFavIcon()}
+																	<span className="flex-1 truncate text-sm">
+																		{fav.name}
+																	</span>
+																</Link>
+															</SidebarMenuButton>
+														</SidebarMenuItem>
+													);
+												})
+											)}
 										</SidebarMenu>
 									</SidebarGroupContent>
 								</CollapsibleContent>

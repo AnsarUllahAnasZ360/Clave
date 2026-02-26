@@ -1,8 +1,9 @@
 /**
  * Tests for convex/ai/providers.ts
  *
- * providers.ts requires Azure env vars at module load time. We set process.env
- * directly before the static import is resolved by Vitest's module transform.
+ * providers.ts lazily reads Azure env vars on first function call (not at
+ * module load time). We set process.env before any calls to ensure the
+ * lazy initializers find the required values.
  */
 
 // Set env vars before any imports that depend on them
@@ -89,9 +90,13 @@ describe("ai/providers", () => {
 			expect(result).toBeUndefined();
 		});
 
-		it("returns undefined for gpt-5.2 (chat API by default, reasoning only on responses API)", () => {
+		it("returns reasoning options for gpt-5.2", () => {
 			const result = getReasoningProviderOptions("gpt-5.2");
-			expect(result).toBeUndefined();
+			expect(result).toEqual({
+				azure: {
+					reasoningEffort: "medium",
+				},
+			});
 		});
 	});
 
@@ -110,21 +115,25 @@ describe("ai/providers", () => {
 			expect(usesResponsesApi("kimi-k2.5")).toBe(false);
 		});
 
-		it("returns false for gpt-5.2 (chat API by default)", () => {
-			expect(usesResponsesApi("gpt-5.2")).toBe(false);
+		it("returns true for gpt-5.2", () => {
+			expect(usesResponsesApi("gpt-5.2")).toBe(true);
 		});
 	});
 
 	describe("chatModel", () => {
-		it("is defined and has a model ID", () => {
-			expect(chatModel).toBeDefined();
-			expect(chatModel.modelId).toBeDefined();
+		it("is a function that returns a model with a model ID", () => {
+			expect(typeof chatModel).toBe("function");
+			const model = chatModel();
+			expect(model).toBeDefined();
+			expect(model.modelId).toBeDefined();
 		});
 	});
 
 	describe("embeddingModel", () => {
-		it("is defined", () => {
-			expect(embeddingModel).toBeDefined();
+		it("is a function that returns a model", () => {
+			expect(typeof embeddingModel).toBe("function");
+			const model = embeddingModel();
+			expect(model).toBeDefined();
 		});
 	});
 

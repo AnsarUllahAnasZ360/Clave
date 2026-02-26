@@ -4,6 +4,7 @@ import {
 	AtSignIcon,
 	CalendarIcon,
 	ChevronRightIcon,
+	ClipboardListIcon,
 	Code2,
 	Columns3Icon,
 	Film,
@@ -152,6 +153,19 @@ const groups: Group[] = [
 									editorId: getEditorRuntimeId(editor),
 								},
 							}),
+						);
+					});
+				},
+			},
+			{
+				icon: <ClipboardListIcon />,
+				keywords: ["clipboard", "dictation", "history", "recordings"],
+				label: "AI: Dictation clipboard",
+				value: "ai_clipboard",
+				onSelect: () => {
+					requestAnimationFrame(() => {
+						window.dispatchEvent(
+							new CustomEvent("clave:open-dictation-clipboard"),
 						);
 					});
 				},
@@ -397,6 +411,7 @@ function getFilteredGroups(editor: PlateEditor): Group[] {
 					case "ai_improve":
 					case "ai_translate":
 					case "ai_dictate":
+					case "ai_clipboard":
 						return has("ai-editor");
 					case KEYS.toc:
 						return has("toc");

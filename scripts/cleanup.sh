@@ -82,8 +82,34 @@ is_esbuild_dev_process() {
   [[ "$cmdline" == *"esbuild"*"--service"* ]] || [[ "$cmdline" == *"${PROJECT_DIR}/.next/cache/"* ]]
 }
 
+is_next_server_under_project_stack() {
+  local pid="$1"
+  local -i depth=0
+  local parent_pid
+  local ancestor_cmd
+
+  while (( depth < 12 )); do
+    parent_pid="$(ps -p "$pid" -o ppid= 2>/dev/null | tr -d ' ')"
+    if [[ -z "$parent_pid" || "$parent_pid" == "1" || "$parent_pid" == "$pid" ]]; then
+      return 1
+    fi
+
+    ancestor_cmd="$(ps -p "$parent_pid" -o args= 2>/dev/null || true)"
+    if [[ -n "$ancestor_cmd" ]] && [[ "$ancestor_cmd" == *"$PROJECT_DIR"* ]]; then
+      if [[ "$ancestor_cmd" == *"convex dev"* ]] || [[ "$ancestor_cmd" == *"next dev"* ]] || [[ "$ancestor_cmd" == *"next-server"* ]]; then
+        return 0
+      fi
+    fi
+
+    pid="$parent_pid"
+    ((depth += 1))
+  done
+
+  return 1
+}
+
 # ── Port cleanup ───────────────────────────────────────────────────────────
-if pids=$(lsof -ti:"$PORT" 2>/dev/null); then
+if pids=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null); then
   echo "Killing processes on port $PORT: $(echo "$pids" | tr '\n' ' ')"
   while IFS= read -r pid; do
     if [[ -z "$pid" ]]; then
@@ -91,9 +117,19 @@ if pids=$(lsof -ti:"$PORT" 2>/dev/null); then
     fi
     cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
     if is_project_process "$cmdline" || is_next_dev_process "$cmdline" || is_next_server_process "$cmdline" || is_convex_dev_process "$cmdline"; then
+      if is_next_server_process "$cmdline" && ! is_next_server_under_project_stack "$pid"; then
+        echo "Port ${PORT} is in use by non-project process."
+        echo "PID ${pid}: ${cmdline:-unknown}"
+        continue
+      fi
       kill_pid "$pid" "process on dev port $PORT"
+      continue
+    else
+      echo "Port ${PORT} is in use by non-project process."
+      echo "PID ${pid}: ${cmdline:-unknown}"
+      exit 1
     fi
-  done <<< "$pids"
+done <<< "$pids"
 else
   echo "Port $PORT is free"
 fi
@@ -110,6 +146,16 @@ while IFS= read -r pid; do
     fi
   fi
 done < <(pgrep -f "convex dev" 2>/dev/null || true)
+
+# ── Orphaned next-server processes (not currently listening) ────────────────
+while IFS= read -r pid; do
+  if [[ -n "$pid" ]]; then
+    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+    if is_next_server_process "$cmdline" && is_next_server_under_project_stack "$pid"; then
+      kill_pid "$pid" "orphaned project next-server process"
+    fi
+  fi
+done < <(pgrep -f "next-server" 2>/dev/null || true)
 
 # ── Esbuild zombie cleanup ────────────────────────────────────────────────
 ESBUILD_TOTAL=0

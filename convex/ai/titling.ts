@@ -30,7 +30,7 @@ function cleanTitle(raw: string): string {
 
 async function attemptGenerateTitle(prompt: string): Promise<string | null> {
 	const result = await generateText({
-		model: chatModel,
+		model: chatModel(),
 		prompt: TITLING_PROMPT + prompt,
 	});
 	const title = cleanTitle(result.text ?? "");
@@ -51,13 +51,6 @@ export const generateThreadTitle = internalAction({
 	returns: v.null(),
 	handler: async (ctx, { threadId, prompt }) => {
 		try {
-			// Guard: skip if thread already has a title (user renamed manually)
-			const existingTitle = await ctx.runQuery(
-				internal.ai.chatQueries.getThreadTitle,
-				{ threadId },
-			);
-			if (existingTitle) return null;
-
 			// Attempt 1: AI title generation
 			let title: string | null = null;
 			try {

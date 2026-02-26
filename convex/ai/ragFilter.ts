@@ -28,6 +28,7 @@ export const RAG_CONTENT_TYPES = [
 	"document",
 	"comment",
 	"github_file",
+	"doc_page",
 ] as const;
 
 export type RagContentType = (typeof RAG_CONTENT_TYPES)[number];

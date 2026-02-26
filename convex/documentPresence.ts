@@ -7,6 +7,25 @@ import {
 	tryWorkspaceMember,
 } from "./lib/auth";
 
+export const PRESENCE_TOUCH_FRESH_MS = 8000;
+
+export function isPresenceTouchFresh(
+	lastActiveAt: number,
+	now: number,
+): boolean {
+	return now - lastActiveAt < PRESENCE_TOUCH_FRESH_MS;
+}
+
+export function isDocumentCursorUnchanged(
+	existing: { cursorFrom?: number; cursorTo?: number },
+	next: { cursorFrom: number; cursorTo: number },
+): boolean {
+	return (
+		existing.cursorFrom === next.cursorFrom &&
+		existing.cursorTo === next.cursorTo
+	);
+}
+
 /** Look up a document and return its workspaceId, throwing if not found or deleted */
 async function getDocumentWorkspaceId(
 	ctx: { db: { get: (id: Id<"documents">) => Promise<unknown> } },
@@ -31,6 +50,7 @@ export const upsert = mutation({
 	handler: async (ctx, args) => {
 		const workspaceId = await getDocumentWorkspaceId(ctx, args.documentId);
 		const { userId } = await requireWorkspaceMember(ctx, workspaceId);
+		const now = Date.now();
 
 		const existing = await ctx.db
 			.query("documentPresence")
@@ -40,10 +60,16 @@ export const upsert = mutation({
 			.unique();
 
 		if (existing) {
+			if (
+				isDocumentCursorUnchanged(existing, args) &&
+				isPresenceTouchFresh(existing.lastActiveAt, now)
+			) {
+				return;
+			}
 			await ctx.db.patch(existing._id, {
 				cursorFrom: args.cursorFrom,
 				cursorTo: args.cursorTo,
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		} else {
 			await ctx.db.insert("documentPresence", {
@@ -51,7 +77,7 @@ export const upsert = mutation({
 				userId,
 				cursorFrom: args.cursorFrom,
 				cursorTo: args.cursorTo,
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		}
 	},
@@ -65,6 +91,7 @@ export const heartbeat = mutation({
 	handler: async (ctx, args) => {
 		const workspaceId = await getDocumentWorkspaceId(ctx, args.documentId);
 		const { userId } = await requireWorkspaceMember(ctx, workspaceId);
+		const now = Date.now();
 
 		const existing = await ctx.db
 			.query("documentPresence")
@@ -73,9 +100,9 @@ export const heartbeat = mutation({
 			)
 			.unique();
 
-		if (existing) {
+		if (existing && !isPresenceTouchFresh(existing.lastActiveAt, now)) {
 			await ctx.db.patch(existing._id, {
-				lastActiveAt: Date.now(),
+				lastActiveAt: now,
 			});
 		}
 	},
@@ -150,7 +177,10 @@ export const cleanupStale = internalMutation({
 	args: {},
 	handler: async (ctx) => {
 		const cutoff = Date.now() - 60000; // 60 seconds
-		const allRecords = await ctx.db.query("documentPresence").collect();
+		const allRecords = await ctx.db
+			.query("documentPresence")
+			.withIndex("by_document")
+			.collect();
 
 		for (const record of allRecords) {
 			if (record.lastActiveAt < cutoff) {

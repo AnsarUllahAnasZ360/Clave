@@ -1,0 +1,110 @@
+---
+title: Issue Details
+description: Explore the issue detail page — description, comments, properties, and actions.
+---
+
+The issue detail page is the full-screen view for a single issue. Click any issue title from the board, list, or timeline to open it. The URL uses the issue's identifier (e.g., `/issues/CLV-042`), making it easy to share.
+
+## Layout
+
+The page has two main areas:
+
+- **Left panel** — The issue's title, description, sub-issues, relations, attachments, and activity feed.
+- **Right panel** — The properties sidebar with all issue metadata.
+
+You can collapse the properties sidebar by clicking the panel toggle button in the top-right toolbar.
+
+## Issue identifier and breadcrumb
+
+At the top of the left panel, a breadcrumb shows the path: workspace → project → parent issue (if any) → current identifier. The identifier (e.g., `CLV-042`) is displayed in monospace alongside the current status icon.
+
+## Title
+
+Click the issue title to edit it inline. Press **Enter** to save, or **Escape** to cancel.
+
+## Description
+
+Below the title, the description editor uses a rich-text format with support for headings, bold, italic, code blocks, bullet lists, numbered lists, checkboxes, and more.
+
+Click anywhere in the description area to start editing. The AI **Draft description** button (visible in the description toolbar) can generate a starter description based on the issue title.
+
+## Sub-issues
+
+The **Sub-issues** section below the description lists all child issues of this issue. Click **Add sub-issue** to create a new child issue linked to this one, or search for an existing issue to nest under it.
+
+Sub-issues inherit the parent's project. They appear as separate issues in the board and list views, with an indicator showing they have a parent.
+
+## Relations
+
+The **Relations** section shows how this issue connects to others. Click **Add relation** to link issues with a relation type:
+
+| Relation type | Meaning |
+|--------------|---------|
+| **Blocks** | This issue must be resolved before another can proceed. |
+| **Blocked by** | This issue cannot proceed until another is resolved. |
+| **Related to** | A general, non-blocking connection. |
+| **Duplicate of** | This issue is a duplicate of another. |
+
+Each relation shows the related issue's identifier, title, and current status. Click a related issue's title to open it. Hover over a relation and click the X button to remove it.
+
+## Attachments and linked resources
+
+The **Attachments** section holds files and linked documents or whiteboards connected to this issue. Click **Attach** to:
+
+- Link an existing document or whiteboard from your workspace.
+- Clicking attached documents or boards opens them in their respective editors.
+
+## Activity and comments
+
+The activity section at the bottom of the left panel shows a chronological log of all changes to the issue, including:
+
+- Status changes
+- Assignee changes
+- Priority changes
+- Comments posted by team members
+
+### Posting a comment
+
+Type in the comment box at the bottom of the activity section. Press **Cmd+Enter** to post. You can **@mention** any workspace member to notify them. Mentioned users receive an inbox notification.
+
+## Properties sidebar
+
+The right panel lists all issue properties. Click any property to update it inline.
+
+| Property | Description |
+|----------|-------------|
+| **Status** | Current workflow state. |
+| **Assignee** | The team member responsible for this issue. Click the X next to their name to unassign. |
+| **Priority** | Urgency level. |
+| **Labels** | Applied labels for categorization. |
+| **Project** | The project this issue belongs to. |
+| **Sprint** | The sprint this issue is assigned to (visible when a project is set). |
+| **Type** | Issue, Bug, Improvement, or Feature. |
+| **Estimate** | Story point estimate (Fibonacci: 1–13). |
+| **Due date** | The deadline for this issue. |
+| **Branch** | The Git branch name, if one has been linked via GitHub integration. |
+
+At the bottom of the properties panel, three timestamps show when the issue was created, last updated, and (if applicable) completed.
+
+## Toolbar actions
+
+The top toolbar provides quick actions:
+
+| Action | Description |
+|--------|-------------|
+| **Favorite** | Bookmark this issue for quick access. |
+| **Subscribe / Unsubscribe** | Toggle inbox notifications for this issue. |
+| **Copy link** | Copy the issue URL to the clipboard. |
+| **Copy identifier** | Copy the issue identifier (e.g., CLV-042). |
+| **Toggle properties** | Show or hide the right properties panel. |
+| **Options menu (…)** | Copy link, copy identifier, or delete issue. |
+
+## Subscribing to an issue
+
+Click the **Subscribe** bell icon to receive inbox notifications whenever the issue is updated, commented on, or has its status changed. Click again to unsubscribe.
+
+## Deleting an issue
+
+Open the **Options** menu (three-dot icon) and select **Delete issue**. A confirmation dialog appears. Deleting an issue is permanent and cannot be undone.
+
+![Issue detail page](/docs/screenshots/issue-detail.png)

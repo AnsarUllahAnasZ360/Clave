@@ -22,12 +22,14 @@ export function FavoriteButton({
 	size = "sm",
 }: FavoriteButtonProps) {
 	const { workspaceId } = useWorkspace();
-	const favorites = useQuery(api.favorites.list, { workspaceId });
+	const isFavorited = useQuery(api.favorites.isFavorited, {
+		workspaceId,
+		entityType,
+		entityId,
+	});
 	const toggleFavorite = useMutation(api.favorites.toggle);
 
-	const isFavorited = favorites?.some(
-		(f) => f.entityType === entityType && f.entityId === entityId,
-	);
+	const favorited = isFavorited ?? false;
 
 	const handleToggle = async () => {
 		try {
@@ -51,17 +53,17 @@ export function FavoriteButton({
 			variant="ghost"
 			size={size === "sm" ? "icon-sm" : "icon"}
 			onClick={handleToggle}
-			aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
+			aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
 			className={cn("shrink-0", className)}
 		>
 			<Star
 				className={cn(
 					"h-4 w-4 transition-colors",
-					isFavorited
+					favorited
 						? "text-yellow-500 fill-yellow-500"
 						: "text-muted-foreground",
 				)}
-				weight={isFavorited ? "fill" : "regular"}
+				weight={favorited ? "fill" : "regular"}
 			/>
 		</Button>
 	);
