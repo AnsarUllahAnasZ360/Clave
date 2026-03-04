@@ -84,8 +84,8 @@ function extractMessageText(message: {
 function getLatestAssistantMessage(
 	messages: Array<{ message?: { role?: string } }>,
 ) {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const entry = messages[index];
+	// listMessages returns newest-first, so iterate from the start
+	for (const entry of messages) {
 		if (entry.message?.role === "assistant") {
 			return entry;
 		}

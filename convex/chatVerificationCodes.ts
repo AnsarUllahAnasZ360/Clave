@@ -194,3 +194,103 @@ export const consumeCode = internalMutation({
 		};
 	},
 });
+
+/**
+ * Public mutation for consuming a verification code from the Chat SDK handlers.
+ * The code itself acts as the secret — no auth required.
+ */
+export const consumeCodePublic = mutation({
+	args: {
+		code: v.string(),
+		chatUserId: v.string(),
+		chatDisplayName: v.optional(v.string()),
+		chatEmail: v.optional(v.string()),
+	},
+	returns: v.object({
+		success: v.boolean(),
+		message: v.string(),
+		workspaceId: v.optional(v.id("workspaces")),
+		userId: v.optional(v.id("users")),
+	}),
+	handler: async (ctx, args) => {
+		const now = Date.now();
+
+		const codeDoc = await ctx.db
+			.query("chatVerificationCodes")
+			.withIndex("by_code", (q) => q.eq("code", args.code))
+			.first();
+
+		if (!codeDoc || codeDoc.status !== "pending") {
+			return { success: false, message: "Invalid or expired code" };
+		}
+
+		if (codeDoc.expiresAt < now) {
+			await ctx.db.patch(codeDoc._id, { status: "expired" });
+			return { success: false, message: "Code has expired" };
+		}
+
+		await ctx.db.patch(codeDoc._id, {
+			status: "consumed",
+			consumedByChatUserId: args.chatUserId,
+			consumedAt: now,
+		});
+
+		const provider = "google-chat" as const;
+		const existingByChatUserId = await ctx.db
+			.query("chatUserLinks")
+			.withIndex("by_workspace_provider_chat_user_id", (q) =>
+				q
+					.eq("workspaceId", codeDoc.workspaceId)
+					.eq("provider", provider)
+					.eq("chatUserId", args.chatUserId),
+			)
+			.unique();
+
+		if (existingByChatUserId && existingByChatUserId.userId !== codeDoc.userId) {
+			return {
+				success: false,
+				message:
+					"This Google Chat identity is already linked to another workspace user",
+			};
+		}
+
+		const existingByUserId = await ctx.db
+			.query("chatUserLinks")
+			.withIndex("by_workspace_provider_user_id", (q) =>
+				q
+					.eq("workspaceId", codeDoc.workspaceId)
+					.eq("provider", provider)
+					.eq("userId", codeDoc.userId),
+			)
+			.unique();
+
+		if (existingByUserId) {
+			await ctx.db.patch(existingByUserId._id, {
+				chatUserId: args.chatUserId,
+				chatDisplayName: args.chatDisplayName,
+				chatEmail: args.chatEmail,
+				linkedBy: codeDoc.userId,
+				updatedAt: now,
+			});
+		} else {
+			await ctx.db.insert("chatUserLinks", {
+				workspaceId: codeDoc.workspaceId,
+				provider,
+				chatUserId: args.chatUserId,
+				chatDisplayName: args.chatDisplayName,
+				chatEmail: args.chatEmail,
+				userId: codeDoc.userId,
+				linkedBy: codeDoc.userId,
+				linkedAt: now,
+				updatedAt: now,
+			});
+		}
+
+		return {
+			success: true,
+			message: "Identity linked successfully",
+			workspaceId: codeDoc.workspaceId,
+			userId: codeDoc.userId,
+		};
+	},
+});
