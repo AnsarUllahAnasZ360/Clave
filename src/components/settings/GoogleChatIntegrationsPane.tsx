@@ -1,11 +1,16 @@
 "use client";
 
 import {
+	CaretDown,
 	ChatCircleText,
+	Copy,
 	Lock,
 	Plug,
 	ShieldCheck,
+	Trash,
+	UserCircle,
 } from "@phosphor-icons/react/dist/ssr";
+import { Store } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { useCallback, useMemo, useState } from "react";
@@ -16,6 +21,11 @@ import {
 	useWorkspaceMembers,
 } from "@/components/providers/workspace-data-context";
 import { Button } from "@/components/ui/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -30,19 +40,19 @@ import {
 const ISSUE_ACTION_ALLOWLIST_OPTIONS = [
 	{
 		id: "assign_to_me",
-		label: "Allow assign to me",
-		description: "Allow users to self-assign issues from Google Chat cards.",
+		label: "Self-assign issues",
+		description: "Users can assign issues to themselves from Google Chat cards.",
 	},
 	{
 		id: "set_status_non_destructive",
-		label: "Allow non-destructive status updates",
+		label: "Update issue status",
 		description:
-			"Allow transitions to triage, backlog, todo, in progress, and in review.",
+			"Users can move issues to triage, backlog, todo, in progress, or in review.",
 	},
 	{
 		id: "open_issue_link",
-		label: "Allow open issue link",
-		description: "Allow cards to return deep links to issue detail pages.",
+		label: "Open in Clave",
+		description: "Cards include a link to open the issue in Clave.",
 	},
 ] as const;
 
@@ -56,6 +66,8 @@ const getConnectionStatusRef = makeFunctionReference<
 			authAudience?: string;
 			externalAppName?: string;
 			webhookUrl?: string;
+			marketplaceProjectNumber?: string;
+			marketplaceInstallId?: string;
 		} | null;
 		policy: {
 			enabled: boolean;
@@ -101,6 +113,35 @@ const updatePolicyRef = makeFunctionReference<
 	Id<"chatPolicies">
 >("chatIntegrations:updatePolicy");
 
+const listWorkspaceLinksRef = makeFunctionReference<
+	"query",
+	{ workspaceId: Id<"workspaces">; provider?: "google-chat" },
+	Array<{
+		_id: Id<"chatUserLinks">;
+		_creationTime: number;
+		workspaceId: Id<"workspaces">;
+		provider: "google-chat";
+		chatUserId: string;
+		chatDisplayName?: string;
+		chatEmail?: string;
+		userId: Id<"users">;
+		linkedBy: Id<"users">;
+		linkedAt: number;
+		updatedAt: number;
+	}>
+>("chatIdentityLinks:listWorkspaceLinks");
+
+const unlinkRef = makeFunctionReference<
+	"mutation",
+	{
+		workspaceId: Id<"workspaces">;
+		provider?: "google-chat";
+		userId?: Id<"users">;
+		chatUserId?: string;
+	},
+	null
+>("chatIdentityLinks:unlink");
+
 export function GoogleChatIntegrationsPane() {
 	const workspace = useWorkspaceOptional();
 	const members = useWorkspaceMembers();
@@ -123,9 +164,21 @@ export function GoogleChatIntegrationsPane() {
 	const disconnect = useMutation(disconnectRef);
 	const updatePolicy = useMutation(updatePolicyRef);
 
+	const identityLinks = useQuery(
+		listWorkspaceLinksRef,
+		workspace && isAdmin
+			? {
+					workspaceId: workspace.workspaceId,
+					provider: "google-chat",
+				}
+			: "skip",
+	);
+	const unlinkMutation = useMutation(unlinkRef);
+
 	const [appName, setAppName] = useState("");
 	const [audience, setAudience] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [advancedOpen, setAdvancedOpen] = useState(false);
 
 	const webhookEndpoint = useMemo(() => {
 		const configuredUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -235,6 +288,43 @@ export function GoogleChatIntegrationsPane() {
 		[effectivePolicy.allowedIssueActionIds, handlePolicyChange],
 	);
 
+	const handleCopyWebhookUrl = useCallback(() => {
+		void navigator.clipboard.writeText(webhookEndpoint);
+		toast.success("Webhook URL copied");
+	}, [webhookEndpoint]);
+
+	const handleUnlinkUser = useCallback(
+		async (userId: Id<"users">) => {
+			if (!workspace) return;
+			try {
+				await unlinkMutation({
+					workspaceId: workspace.workspaceId,
+					provider: "google-chat",
+					userId,
+				});
+				toast.success("Identity link removed");
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to remove identity link",
+				);
+			}
+		},
+		[workspace, unlinkMutation],
+	);
+
+	const memberNameMap = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const member of members ?? []) {
+			map.set(
+				member.userId,
+				member.user?.name ?? member.user?.email ?? "Unknown",
+			);
+		}
+		return map;
+	}, [members]);
+
 	if (!isAdmin) {
 		return (
 			<div className="space-y-4">
@@ -254,155 +344,379 @@ export function GoogleChatIntegrationsPane() {
 			<div>
 				<PaneTitle>Google Chat</PaneTitle>
 				<PaneDescription className="mt-1">
-					Connect Google Chat for workspace-level notifications and actions.
+					Connect Google Chat to receive notifications, take actions on issues,
+					and use the Clave AI assistant directly from chat.
 				</PaneDescription>
 			</div>
 
 			<SettingSection title="Connection">
-				<SettingRow
-					label="Current status"
-					description="Connection status for the Google Chat integration."
-				>
-					<span
-						className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs ${
-							isConnected
-								? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-								: "border-border bg-muted text-muted-foreground"
-						}`}
-					>
-						<Plug className="h-3.5 w-3.5" />
-						{connection?.status ?? "not connected"}
-					</span>
-				</SettingRow>
+				{!isConnected ? (
+					<div className="space-y-4">
+						<div className="rounded-lg border border-sienna-500/30 bg-sienna-500/5 px-4 py-4 space-y-2">
+							<p className="text-sm text-foreground font-medium flex items-center gap-2">
+								<Store className="h-4 w-4 text-sienna-500" />
+								Install from Google Workspace Marketplace
+							</p>
+							<p className="text-xs text-muted-foreground">
+								The fastest way to set up — install the Clave app from the Marketplace and it auto-configures everything.
+							</p>
+							<a
+								href="https://workspace.google.com/marketplace"
+								target="_blank"
+								rel="noopener noreferrer"
+								className="inline-flex items-center gap-1.5 text-xs text-sienna-500 hover:text-sienna-400 transition-colors font-medium"
+							>
+								Open Google Workspace Marketplace
+								<span aria-hidden="true">&rarr;</span>
+							</a>
+						</div>
 
-				<SettingRow
-					label="App display name"
-					description="Stored connection metadata for Google Chat app identity."
-				>
-					<Input
-						placeholder="Clave"
-						value={appName}
-						onChange={(event) => setAppName(event.target.value)}
-					/>
-				</SettingRow>
+						<div className="flex items-center gap-3 text-xs text-muted-foreground">
+							<div className="h-px flex-1 bg-border" />
+							<span>or set up manually</span>
+							<div className="h-px flex-1 bg-border" />
+						</div>
 
-				<SettingRow
-					label="Auth audience"
-					description="Expected OIDC audience for inbound webhook tokens."
-				>
-					<Input
-						placeholder="https://clave.z360.app/api/webhooks/google-chat"
-						value={audience}
-						onChange={(event) => setAudience(event.target.value)}
-					/>
-				</SettingRow>
+						<div className="rounded-lg border border-border bg-muted/30 px-4 py-4 space-y-3">
+							<p className="text-sm text-foreground font-medium">
+								Manual setup
+							</p>
+							<ol className="list-decimal list-inside space-y-1.5 text-xs text-muted-foreground leading-relaxed">
+								<li>
+									Create a Google Chat app in the Google Cloud Console
+								</li>
+								<li>
+									Set the webhook URL to the endpoint shown below
+								</li>
+								<li>
+									Optionally set the app name and auth audience in
+									Advanced settings
+								</li>
+								<li>Click Connect to activate the integration</li>
+							</ol>
+						</div>
 
-				<SettingRow
-					label="Webhook endpoint"
-					description="Configure this endpoint in Google Chat API settings."
-				>
-					<div className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
-						{webhookEndpoint}
+						<SettingRow
+							label="Webhook URL"
+							description="Set this as the HTTP endpoint in your Google Chat app configuration."
+						>
+							<div className="flex items-center gap-2">
+								<div className="flex-1 rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground truncate">
+									{webhookEndpoint}
+								</div>
+								<Button
+									variant="outline"
+									size="icon"
+									className="shrink-0 h-9 w-9"
+									onClick={handleCopyWebhookUrl}
+								>
+									<Copy className="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						</SettingRow>
+
+						<Collapsible
+							open={advancedOpen}
+							onOpenChange={setAdvancedOpen}
+						>
+							<CollapsibleTrigger asChild>
+								<button
+									type="button"
+									className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+								>
+									<CaretDown
+										className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-0" : "-rotate-90"}`}
+									/>
+									Advanced settings
+								</button>
+							</CollapsibleTrigger>
+							<CollapsibleContent className="mt-3 space-y-4">
+								<SettingRow
+									label="App display name"
+									description="Optional label for this connection."
+								>
+									<Input
+										placeholder="Clave"
+										value={appName}
+										onChange={(event) =>
+											setAppName(event.target.value)
+										}
+									/>
+								</SettingRow>
+								<SettingRow
+									label="Auth audience"
+									description="Expected OIDC audience claim for verifying inbound webhook tokens."
+								>
+									<Input
+										placeholder={webhookEndpoint}
+										value={audience}
+										onChange={(event) =>
+											setAudience(event.target.value)
+										}
+									/>
+								</SettingRow>
+							</CollapsibleContent>
+						</Collapsible>
+
+						<Button
+							onClick={handleConnect}
+							disabled={isSubmitting || !workspace}
+							className="inline-flex items-center gap-2"
+						>
+							<ChatCircleText className="h-4 w-4" />
+							Connect Google Chat
+						</Button>
 					</div>
-				</SettingRow>
+				) : (
+					<div className="space-y-4">
+						<SettingRow
+							label="Status"
+							description="The integration is active and receiving events."
+						>
+							<div className="flex items-center gap-2">
+								<span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-400">
+									<Plug className="h-3.5 w-3.5" />
+									Connected
+								</span>
+								{connection?.marketplaceProjectNumber && (
+									<span className="inline-flex items-center gap-1 rounded-md border border-sienna-500/40 bg-sienna-500/10 px-2 py-1 text-xs text-sienna-500">
+										<Store className="h-3 w-3" />
+										Marketplace
+									</span>
+								)}
+							</div>
+						</SettingRow>
 
-				<div className="flex flex-wrap gap-2">
-					<Button
-						onClick={handleConnect}
-						disabled={isSubmitting || !workspace}
-						className="inline-flex items-center gap-2"
-					>
-						<ChatCircleText className="h-4 w-4" />
-						Connect Google Chat
-					</Button>
-					<Button
-						variant="outline"
-						onClick={handleDisconnect}
-						disabled={isSubmitting || !workspace || !connection}
-					>
-						Disconnect
-					</Button>
-				</div>
+						<SettingRow
+							label="Webhook URL"
+							description="The endpoint receiving Google Chat events."
+						>
+							<div className="flex items-center gap-2">
+								<div className="flex-1 rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground truncate">
+									{webhookEndpoint}
+								</div>
+								<Button
+									variant="outline"
+									size="icon"
+									className="shrink-0 h-9 w-9"
+									onClick={handleCopyWebhookUrl}
+								>
+									<Copy className="h-3.5 w-3.5" />
+								</Button>
+							</div>
+						</SettingRow>
+
+						<Collapsible
+							open={advancedOpen}
+							onOpenChange={setAdvancedOpen}
+						>
+							<CollapsibleTrigger asChild>
+								<button
+									type="button"
+									className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+								>
+									<CaretDown
+										className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? "rotate-0" : "-rotate-90"}`}
+									/>
+									Advanced settings
+								</button>
+							</CollapsibleTrigger>
+							<CollapsibleContent className="mt-3 space-y-4">
+								<SettingRow
+									label="App display name"
+									description="Optional label for this connection."
+								>
+									<Input
+										placeholder="Clave"
+										value={appName}
+										onChange={(event) =>
+											setAppName(event.target.value)
+										}
+									/>
+								</SettingRow>
+								<SettingRow
+									label="Auth audience"
+									description="Expected OIDC audience claim for verifying inbound webhook tokens."
+								>
+									<Input
+										placeholder={webhookEndpoint}
+										value={audience}
+										onChange={(event) =>
+											setAudience(event.target.value)
+										}
+									/>
+								</SettingRow>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={handleConnect}
+									disabled={isSubmitting}
+								>
+									Update connection
+								</Button>
+							</CollapsibleContent>
+						</Collapsible>
+
+						<Button
+							variant="outline"
+							onClick={handleDisconnect}
+							disabled={isSubmitting || !workspace}
+						>
+							Disconnect
+						</Button>
+					</div>
+				)}
 			</SettingSection>
 
-			<SettingSection title="Policy">
-				<SettingRow
-					label="Enable integration"
-					description="Disable to pause all Google Chat deliveries for this workspace."
-				>
-					<Switch
-						checked={effectivePolicy.enabled}
-						onCheckedChange={(checked) =>
-							void handlePolicyChange({ enabled: checked })
-						}
-					/>
-				</SettingRow>
-				<SettingRow
-					label="Allow direct messages"
-					description="Allow the integration to deliver notifications into DMs."
-				>
-					<Switch
-						checked={effectivePolicy.allowDirectMessages}
-						onCheckedChange={(checked) =>
-							void handlePolicyChange({ allowDirectMessages: checked })
-						}
-					/>
-				</SettingRow>
-				<SettingRow
-					label="Allow spaces"
-					description="Allow the integration to deliver notifications into spaces."
-				>
-					<Switch
-						checked={effectivePolicy.allowSpaces}
-						onCheckedChange={(checked) =>
-							void handlePolicyChange({ allowSpaces: checked })
-						}
-					/>
-				</SettingRow>
-				<SettingRow
-					label="Require identity link"
-					description="Only linked users can execute Google Chat issue actions."
-				>
-					<div className="flex items-center gap-3">
-						<Switch
-							checked={effectivePolicy.requireIdentityLink}
-							onCheckedChange={(checked) =>
-								void handlePolicyChange({ requireIdentityLink: checked })
-							}
-						/>
-						<ShieldCheck className="h-4 w-4 text-muted-foreground" />
-					</div>
-				</SettingRow>
-				<SettingRow
-					label="Require action confirmation"
-					description="When enabled, mutating issue actions are blocked in Google Chat and must be confirmed in Clave."
-				>
-					<Switch
-						checked={effectivePolicy.requireActionConfirmation}
-						onCheckedChange={(checked) =>
-							void handlePolicyChange({ requireActionConfirmation: checked })
-						}
-					/>
-				</SettingRow>
-				{ISSUE_ACTION_ALLOWLIST_OPTIONS.map((option) => (
-					<SettingRow
-						key={option.id}
-						label={option.label}
-						description={option.description}
-					>
-						<Switch
-							checked={effectivePolicy.allowedIssueActionIds.includes(
-								option.id,
-							)}
-							onCheckedChange={(checked) =>
-								toggleIssueActionAllowlist(option.id, checked)
-							}
-						/>
-					</SettingRow>
-				))}
-			</SettingSection>
+			{isConnected && (
+				<>
+					<SettingSection title="Messaging policy">
+						<SettingRow
+							label="Enable integration"
+							description="Pause all Google Chat activity for this workspace without disconnecting."
+						>
+							<Switch
+								checked={effectivePolicy.enabled}
+								onCheckedChange={(checked) =>
+									void handlePolicyChange({ enabled: checked })
+								}
+							/>
+						</SettingRow>
+						<SettingRow
+							label="Allow direct messages"
+							description="Let team members interact with Clave AI in DMs."
+						>
+							<Switch
+								checked={effectivePolicy.allowDirectMessages}
+								onCheckedChange={(checked) =>
+									void handlePolicyChange({
+										allowDirectMessages: checked,
+									})
+								}
+							/>
+						</SettingRow>
+						<SettingRow
+							label="Allow spaces"
+							description="Let Clave post notifications and respond to mentions in spaces."
+						>
+							<Switch
+								checked={effectivePolicy.allowSpaces}
+								onCheckedChange={(checked) =>
+									void handlePolicyChange({
+										allowSpaces: checked,
+									})
+								}
+							/>
+						</SettingRow>
+						<SettingRow
+							label="Require identity link"
+							description="Only users who have linked their Google Chat identity can take actions on issues."
+						>
+							<div className="flex items-center gap-3">
+								<Switch
+									checked={effectivePolicy.requireIdentityLink}
+									onCheckedChange={(checked) =>
+										void handlePolicyChange({
+											requireIdentityLink: checked,
+										})
+									}
+								/>
+								<ShieldCheck className="h-4 w-4 text-muted-foreground" />
+							</div>
+						</SettingRow>
+						<SettingRow
+							label="Require action confirmation"
+							description="Mutating actions (assign, status change) must be confirmed in Clave before executing."
+						>
+							<Switch
+								checked={effectivePolicy.requireActionConfirmation}
+								onCheckedChange={(checked) =>
+									void handlePolicyChange({
+										requireActionConfirmation: checked,
+									})
+								}
+							/>
+						</SettingRow>
+					</SettingSection>
 
-			<GoogleChatSubscriptionsPane />
+					<SettingSection title="Allowed issue actions">
+						{ISSUE_ACTION_ALLOWLIST_OPTIONS.map((option) => (
+							<SettingRow
+								key={option.id}
+								label={option.label}
+								description={option.description}
+							>
+								<Switch
+									checked={effectivePolicy.allowedIssueActionIds.includes(
+										option.id,
+									)}
+									onCheckedChange={(checked) =>
+										toggleIssueActionAllowlist(
+											option.id,
+											checked,
+										)
+									}
+								/>
+							</SettingRow>
+						))}
+					</SettingSection>
+
+					<GoogleChatSubscriptionsPane />
+
+					<SettingSection title="Identity links">
+						<p className="text-xs text-muted-foreground">
+							Users who have linked their Google Chat identity to
+							their Clave account. Links can be created by users in
+							their personal settings or by admins here.
+						</p>
+						{identityLinks && identityLinks.length > 0 ? (
+							<div className="space-y-2">
+								{identityLinks.map((link) => (
+									<div
+										key={link._id}
+										className="flex items-center justify-between rounded-lg border border-border bg-card/70 px-3 py-2.5"
+									>
+										<div className="flex items-center gap-3 min-w-0">
+											<UserCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
+											<div className="min-w-0">
+												<p className="text-sm text-foreground truncate">
+													{memberNameMap.get(
+														link.userId,
+													) ?? "Unknown user"}
+												</p>
+												<p className="text-xs text-muted-foreground truncate">
+													{link.chatDisplayName ??
+														link.chatUserId}
+													{link.chatEmail
+														? ` (${link.chatEmail})`
+														: ""}
+												</p>
+											</div>
+										</div>
+										<Button
+											variant="ghost"
+											size="icon"
+											className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
+											onClick={() =>
+												void handleUnlinkUser(
+													link.userId,
+												)
+											}
+										>
+											<Trash className="h-3.5 w-3.5" />
+										</Button>
+									</div>
+								))}
+							</div>
+						) : (
+							<p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+								No identity links yet. Users can link their
+								accounts from personal settings.
+							</p>
+						)}
+					</SettingSection>
+				</>
+			)}
 		</div>
 	);
 }
