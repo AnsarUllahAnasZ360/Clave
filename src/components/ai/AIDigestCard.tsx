@@ -72,7 +72,7 @@ const SESSION_KEY = "ai-digest-dismissed";
 // ── Component ─────────────────────────────────────────────────────────────
 
 export function AIDigestCard() {
-	const { workspaceId, orgSlug, workspaceSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { callEmbeddedAI, isLoading } = useEmbeddedAI();
 	const [digestData, setDigestData] = useState<DigestData | null>(null);
 	const [dismissed, setDismissed] = useState(false);
@@ -259,7 +259,7 @@ export function AIDigestCard() {
 										>
 											{item.issueIdentifier ? (
 												<Link
-													href={`/${orgSlug}/${workspaceSlug}/issues/${item.issueIdentifier}`}
+													href={`/${workspaceSlug}/issues/${item.issueIdentifier}`}
 													className="hover:text-foreground hover:underline transition-colors"
 													prefetch={false}
 												>

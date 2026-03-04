@@ -304,8 +304,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 	const router = useRouter();
 	const workspace = useWorkspaceOptional();
 	const workspaceSlug = workspace?.workspaceSlug;
-	const orgSlug = workspace?.orgSlug;
-	const hasWorkspaceContext = Boolean(workspace && workspaceSlug && orgSlug);
+	const hasWorkspaceContext = Boolean(workspace && workspaceSlug);
 	const [helpOpen, setHelpOpen] = useState(false);
 	const [activeIssueId, setActiveIssueId] = useState<string | null>(null);
 	const [propertyPicker, setPropertyPicker] =
@@ -397,7 +396,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 						chordTimeoutRef.current = null;
 					}
 
-					const base = `/${orgSlug}/${workspaceSlug}`;
+					const base = `/${workspaceSlug}`;
 					let destination: string | null = null;
 					if (key === "i") destination = `${base}/inbox`;
 					else if (key === "t") destination = `${base}/tasks`;
@@ -480,7 +479,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 				chordTimeoutRef.current = null;
 			}
 		};
-	}, [router, orgSlug, workspaceSlug, hasWorkspaceContext]);
+	}, [router, workspaceSlug, hasWorkspaceContext]);
 
 	// Listen for dictation clipboard open event (from shortcut, slash command, or palette)
 	useEffect(() => {
@@ -488,7 +487,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 		function handleOpenClipboard() {
 			// biome-ignore lint/suspicious/noExplicitAny: dynamic workspace paths
 			router.push(
-				`/${orgSlug}/${workspaceSlug}/settings?section=dictation` as any,
+				`/${workspaceSlug}/settings?section=dictation` as any,
 			);
 		}
 		window.addEventListener(
@@ -500,7 +499,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 				"clave:open-dictation-clipboard",
 				handleOpenClipboard,
 			);
-	}, [router, orgSlug, workspaceSlug, hasWorkspaceContext]);
+	}, [router, workspaceSlug, hasWorkspaceContext]);
 
 	const value = useMemo<ShortcutContextValue>(
 		() => ({

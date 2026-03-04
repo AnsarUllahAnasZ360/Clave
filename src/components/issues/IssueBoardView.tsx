@@ -119,7 +119,7 @@ export function IssueBoardView({
 	swimlaneBy = "none",
 	externalIssues,
 }: IssueBoardViewProps) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
 
 	const hasExternalIssues = externalIssues !== undefined;
@@ -503,9 +503,9 @@ export function IssueBoardView({
 	// Card click navigation
 	const onCardClick = useCallback(
 		(identifier: string) => {
-			router.push(`/${orgSlug}/${workspaceSlug}/issues/${identifier}`);
+			router.push(`/${workspaceSlug}/issues/${identifier}`);
 		},
-		[router, workspaceSlug, orgSlug],
+		[router, workspaceSlug],
 	);
 
 	// Scroll edge indicators (must be before any early returns — Rules of Hooks)

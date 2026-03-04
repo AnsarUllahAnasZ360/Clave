@@ -40,7 +40,7 @@ interface UserFooterMenuProps {
 }
 
 export function UserFooterMenu({
-	settingsHref = "/organizations",
+	settingsHref = "/",
 }: UserFooterMenuProps) {
 	const router = useRouter();
 	const { signOut } = useAuthActions();

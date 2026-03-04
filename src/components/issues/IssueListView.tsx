@@ -325,7 +325,7 @@ export function IssueListView({
 	displayProperties,
 	hideFilter,
 }: IssueListViewProps) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
 
 	// ── Filter state ─────────────────────────────────────────────────────
@@ -645,9 +645,9 @@ export function IssueListView({
 
 	const handleIssueClick = useCallback(
 		(identifier: string) => {
-			router.push(`/${orgSlug}/${workspaceSlug}/issues/${identifier}`);
+			router.push(`/${workspaceSlug}/issues/${identifier}`);
 		},
-		[router, workspaceSlug, orgSlug],
+		[router, workspaceSlug],
 	);
 
 	const toggleGroup = useCallback((groupKey: string) => {

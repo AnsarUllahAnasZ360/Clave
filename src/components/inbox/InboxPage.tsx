@@ -334,12 +334,10 @@ function IssuePreviewPanel({
 	notification,
 	workspaceId,
 	workspaceSlug,
-	orgSlug,
 }: {
 	notification: NotificationItem;
 	workspaceId: Id<"workspaces">;
 	workspaceSlug: string;
-	orgSlug: string;
 }) {
 	const issue = useQuery(
 		api.issues.getById,
@@ -458,7 +456,7 @@ function IssuePreviewPanel({
 					</span>
 				</div>
 				<Link
-					href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
+					href={`/${workspaceSlug}/issues/${issue.identifier}`}
 					className="text-xs text-primary hover:underline"
 					prefetch={false}
 				>
@@ -751,11 +749,9 @@ function getNotificationTypeIcon(type: string): {
 function ProjectUpdatePreviewPanel({
 	notification,
 	workspaceSlug,
-	orgSlug,
 }: {
 	notification: NotificationItem;
 	workspaceSlug: string;
-	orgSlug: string;
 }) {
 	const hasLink = notification.projectSlug != null;
 
@@ -770,7 +766,7 @@ function ProjectUpdatePreviewPanel({
 				</div>
 				{hasLink && (
 					<Link
-						href={`/${orgSlug}/${workspaceSlug}/projects/${notification.projectSlug}`}
+						href={`/${workspaceSlug}/projects/${notification.projectSlug}`}
 						className="text-xs text-primary hover:underline"
 						prefetch={false}
 					>
@@ -817,11 +813,9 @@ function ProjectUpdatePreviewPanel({
 function DocumentPreviewPanel({
 	notification,
 	workspaceSlug,
-	orgSlug,
 }: {
 	notification: NotificationItem;
 	workspaceSlug: string;
-	orgSlug: string;
 }) {
 	return (
 		<div className="flex flex-col h-full">
@@ -834,7 +828,7 @@ function DocumentPreviewPanel({
 				</div>
 				{notification.documentId && (
 					<Link
-						href={`/${orgSlug}/${workspaceSlug}/docs/${notification.documentId}`}
+						href={`/${workspaceSlug}/docs/${notification.documentId}`}
 						className="text-xs text-primary hover:underline"
 						prefetch={false}
 					>
@@ -881,11 +875,9 @@ function DocumentPreviewPanel({
 function WhiteboardPreviewPanel({
 	notification,
 	workspaceSlug,
-	orgSlug,
 }: {
 	notification: NotificationItem;
 	workspaceSlug: string;
-	orgSlug: string;
 }) {
 	return (
 		<div className="flex flex-col h-full">
@@ -898,7 +890,7 @@ function WhiteboardPreviewPanel({
 				</div>
 				{notification.whiteboardId && (
 					<Link
-						href={`/${orgSlug}/${workspaceSlug}/boards/${notification.whiteboardId}`}
+						href={`/${workspaceSlug}/boards/${notification.whiteboardId}`}
 						className="text-xs text-primary hover:underline"
 						prefetch={false}
 					>
@@ -943,7 +935,7 @@ function WhiteboardPreviewPanel({
 // ── Main component ───────────────────────────────────────────────────────
 
 export function InboxPage() {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const [tab, setTab] = useState<InboxTab>("inbox");
 	const [inboxFilters, setInboxFilters] = useState<InboxFilters>({
 		types: [],
@@ -1621,7 +1613,7 @@ export function InboxPage() {
 									<ProjectUpdatePreviewPanel
 										notification={selectedNotification}
 										workspaceSlug={workspaceSlug}
-										orgSlug={orgSlug}
+
 									/>
 								);
 							}
@@ -1630,7 +1622,7 @@ export function InboxPage() {
 									<DocumentPreviewPanel
 										notification={selectedNotification}
 										workspaceSlug={workspaceSlug}
-										orgSlug={orgSlug}
+
 									/>
 								);
 							}
@@ -1639,7 +1631,7 @@ export function InboxPage() {
 									<WhiteboardPreviewPanel
 										notification={selectedNotification}
 										workspaceSlug={workspaceSlug}
-										orgSlug={orgSlug}
+
 									/>
 								);
 							}
@@ -1648,7 +1640,7 @@ export function InboxPage() {
 									notification={selectedNotification}
 									workspaceId={workspaceId}
 									workspaceSlug={workspaceSlug}
-									orgSlug={orgSlug}
+
 								/>
 							);
 						})()

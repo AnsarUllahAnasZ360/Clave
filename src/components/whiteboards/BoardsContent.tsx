@@ -99,7 +99,7 @@ function getStoredFilter(): string {
 
 export function BoardsContent() {
 	const router = useRouter();
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	const whiteboards = useQuery(api.whiteboards.listByWorkspace, {
 		workspaceId,
@@ -208,7 +208,7 @@ export function BoardsContent() {
 			setNewTitle("");
 			setNewProjectId("");
 			// biome-ignore lint/suspicious/noExplicitAny: route type
-			router.push(`/${orgSlug}/${workspaceSlug}/boards/${boardId}` as any);
+			router.push(`/${workspaceSlug}/boards/${boardId}` as any);
 		} catch {
 			toast.error("Failed to create whiteboard");
 		}
@@ -219,16 +219,15 @@ export function BoardsContent() {
 		workspaceId,
 		workspaceSlug,
 		router,
-		orgSlug,
 	]);
 
 	const handleBoardClick = useCallback(
 		(boardId: string) => {
 			if (renamingId === boardId) return;
 			// biome-ignore lint/suspicious/noExplicitAny: route type
-			router.push(`/${orgSlug}/${workspaceSlug}/boards/${boardId}` as any);
+			router.push(`/${workspaceSlug}/boards/${boardId}` as any);
 		},
-		[workspaceSlug, router, renamingId, orgSlug],
+		[workspaceSlug, router, renamingId],
 	);
 
 	// Action handlers
@@ -265,12 +264,16 @@ export function BoardsContent() {
 	}, []);
 
 	const handleCopyLink = useCallback(
-		(boardId: string) => {
-			const url = `${window.location.origin}/${orgSlug}/${workspaceSlug}/boards/${boardId}`;
-			navigator.clipboard.writeText(url);
-			toast.success("Link copied");
+		async (boardId: string) => {
+			const url = `${window.location.origin}/${workspaceSlug}/boards/${boardId}`;
+			try {
+				await navigator.clipboard.writeText(url);
+				toast.success("Link copied");
+			} catch {
+				toast.error("Failed to copy link");
+			}
 		},
-		[workspaceSlug, orgSlug],
+		[workspaceSlug],
 	);
 
 	const handleDuplicate = useCallback(

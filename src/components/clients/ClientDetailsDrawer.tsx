@@ -33,7 +33,7 @@ export function ClientDetailsDrawer({
 	clientId,
 	onClose,
 }: ClientDetailsDrawerProps) {
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const [isWizardOpen, setIsWizardOpen] = useState(false);
 	const [notesOpen, setNotesOpen] = useState(true);
 	const [projectOffset, setProjectOffset] = useState(0);
@@ -265,7 +265,7 @@ export function ClientDetailsDrawer({
 									{relatedProjects.map((p) => (
 										<Link
 											key={p._id}
-											href={`/${orgSlug}/${workspaceSlug}/projects/${p.slug}`}
+											href={`/${workspaceSlug}/projects/${p.slug}`}
 											className="flex min-w-[220px] flex-col justify-between rounded-[24px] border border-border bg-muted px-4 py-4 shadow-[var(--shadow-workstream)] hover:bg-muted/80 sm:min-w-[240px]"
 											prefetch={false}
 										>

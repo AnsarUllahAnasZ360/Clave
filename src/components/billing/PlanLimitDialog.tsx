@@ -129,7 +129,7 @@ export function PlanLimitDialog({
 							onClose();
 							if (workspace) {
 								router.push(
-									`/${workspace.orgSlug}/${workspace.workspaceSlug}/settings/billing`,
+									`/${workspace.workspaceSlug}/settings/billing`,
 								);
 							}
 						}}

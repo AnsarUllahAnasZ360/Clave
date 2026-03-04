@@ -17,6 +17,7 @@ import type { IssueTypeKey, PriorityKey, StatusKey } from "@/lib/issue-config";
 export interface IssueCreatePreset {
 	projectId?: string;
 	sprintId?: string;
+	listId?: string;
 	milestoneId?: string;
 	status?: string;
 	assigneeId?: string;
@@ -34,6 +35,7 @@ export interface IssueFormState {
 	issueType: IssueTypeKey;
 	projectId: string | undefined;
 	sprintId: string | undefined;
+	listId: string | undefined;
 	milestoneId: string | undefined;
 	assigneeId: string | undefined;
 	labelIds: string[];
@@ -50,6 +52,7 @@ const DEFAULT_FORM_STATE: IssueFormState = {
 	issueType: "issue",
 	projectId: undefined,
 	sprintId: undefined,
+	listId: undefined,
 	milestoneId: undefined,
 	assigneeId: undefined,
 	labelIds: [],
@@ -115,6 +118,7 @@ export function IssueCreateProvider({
 			status: (p.status as StatusKey) ?? "backlog",
 			projectId: p.projectId,
 			sprintId: p.sprintId ?? p.milestoneId,
+			listId: p.listId,
 			milestoneId: p.milestoneId,
 			assigneeId: p.assigneeId,
 		});

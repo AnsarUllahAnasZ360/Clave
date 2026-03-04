@@ -162,7 +162,7 @@ export function ProjectOverview({
 			<Separator />
 			<div className="space-y-2">
 				<h3 className="text-sm font-medium text-foreground">Integrations</h3>
-				<GitHubConnectionCard projectId={project._id} />
+				<GitHubConnectionCard projectId={project._id} projectSlug={project.slug} />
 			</div>
 			<Separator />
 			<MilestonesSection

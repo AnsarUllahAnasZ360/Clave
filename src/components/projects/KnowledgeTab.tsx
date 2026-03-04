@@ -63,7 +63,7 @@ type KnowledgeTabProps = {
 
 export function KnowledgeTab({ projectId, workspaceId }: KnowledgeTabProps) {
 	const router = useRouter();
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 
 	const documents = useQuery(api.documents.listByProject, { projectId });
 	const whiteboards = useQuery(api.whiteboards.listByProject, { projectId });
@@ -156,11 +156,11 @@ export function KnowledgeTab({ projectId, workspaceId }: KnowledgeTabProps) {
 				title: "Untitled",
 			});
 			// biome-ignore lint/suspicious/noExplicitAny: route created in STORY-010
-			router.push(`/${orgSlug}/${workspaceSlug}/docs/${docId}` as any);
+			router.push(`/${workspaceSlug}/docs/${docId}` as any);
 		} catch {
 			toast.error("Failed to create document");
 		}
-	}, [createDocument, workspaceId, projectId, workspaceSlug, orgSlug, router]);
+	}, [createDocument, workspaceId, projectId, workspaceSlug, router]);
 
 	const handleNewWhiteboard = useCallback(async () => {
 		try {
@@ -170,7 +170,7 @@ export function KnowledgeTab({ projectId, workspaceId }: KnowledgeTabProps) {
 				title: "Untitled",
 			});
 			// biome-ignore lint/suspicious/noExplicitAny: route created in STORY-011
-			router.push(`/${orgSlug}/${workspaceSlug}/boards/${boardId}` as any);
+			router.push(`/${workspaceSlug}/boards/${boardId}` as any);
 		} catch {
 			toast.error("Failed to create whiteboard");
 		}
@@ -179,7 +179,6 @@ export function KnowledgeTab({ projectId, workspaceId }: KnowledgeTabProps) {
 		workspaceId,
 		projectId,
 		workspaceSlug,
-		orgSlug,
 		router,
 	]);
 
@@ -187,13 +186,13 @@ export function KnowledgeTab({ projectId, workspaceId }: KnowledgeTabProps) {
 		(item: KnowledgeItem) => {
 			if (item.type === "document") {
 				// biome-ignore lint/suspicious/noExplicitAny: route created in STORY-010
-				router.push(`/${orgSlug}/${workspaceSlug}/docs/${item.id}` as any);
+				router.push(`/${workspaceSlug}/docs/${item.id}` as any);
 				return;
 			}
 			// biome-ignore lint/suspicious/noExplicitAny: route created in STORY-011
-			router.push(`/${orgSlug}/${workspaceSlug}/boards/${item.id}` as any);
+			router.push(`/${workspaceSlug}/boards/${item.id}` as any);
 		},
-		[router, orgSlug, workspaceSlug],
+		[router, workspaceSlug],
 	);
 
 	const isLoading = documents === undefined || whiteboards === undefined;

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireAuth, requireWorkspaceMember } from "./lib/auth";
 
 export const PRESENCE_TOUCH_FRESH_MS = 8000;
@@ -50,7 +51,8 @@ export const leave = mutation({
 		workspaceId: v.id("workspaces"),
 	},
 	handler: async (ctx, args) => {
-		const userId = await requireAuth(ctx);
+		const userId = await getAuthUserId(ctx);
+		if (!userId) return;
 
 		const existing = await ctx.db
 			.query("workspacePresence")

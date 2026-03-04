@@ -4,17 +4,17 @@ import { useMutation, useQuery } from "convex/react";
 import { ArrowRight, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
-import { useOrganization } from "@/components/providers/organization-context";
+import { useWorkspace } from "@/components/providers/workspace-context";
 import { Button } from "@/components/ui/button";
 import { api } from "../../../convex/_generated/api";
 
 export function DemoWorkspacePopup() {
 	const router = useRouter();
-	const { organizationId, orgSlug } = useOrganization();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const dismissed = useQuery(api.demo.queries.hasDismissedDemoOnboarding);
 	const demoWorkspace = useQuery(
 		api.demo.queries.getDemoWorkspace,
-		organizationId ? { organizationId } : "skip",
+		workspaceId ? { workspaceId } : "skip",
 	);
 	const dismiss = useMutation(api.demo.queries.dismissDemoOnboarding);
 
@@ -28,11 +28,11 @@ export function DemoWorkspacePopup() {
 	}, [dismiss]);
 
 	const handleExplore = useCallback(() => {
-		if (demoWorkspace && orgSlug) {
+		if (demoWorkspace) {
 			dismiss();
-			router.push(`/${orgSlug}/${demoWorkspace.slug}/projects`);
+			router.push(`/${workspaceSlug}/chat`);
 		}
-	}, [demoWorkspace, orgSlug, dismiss, router]);
+	}, [demoWorkspace, workspaceSlug, dismiss, router]);
 
 	if (!shouldShow) return null;
 

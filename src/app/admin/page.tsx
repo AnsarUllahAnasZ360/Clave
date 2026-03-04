@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	Buildings,
 	Lightning,
 	ShieldCheck,
 	SquaresFour,
@@ -26,12 +25,6 @@ const kpiCards = [
 		key: "totalUsers" as const,
 		icon: UsersThree,
 		description: "Platform-wide registered users",
-	},
-	{
-		title: "Organizations",
-		key: "totalOrganizations" as const,
-		icon: Buildings,
-		description: "Active organizations",
 	},
 	{
 		title: "Workspaces",
@@ -104,7 +97,7 @@ export default function AdminDashboardPage() {
 						Platform Command Center
 					</h2>
 					<p className="max-w-2xl text-sm text-zinc-300">
-						Track growth, enforce access policy, and operate every organization
+						Track growth, enforce access policy, and manage workspaces
 						from one audited surface.
 					</p>
 				</div>
@@ -144,7 +137,7 @@ export default function AdminDashboardPage() {
 						Recent Activity
 					</CardTitle>
 					<CardDescription>
-						Latest signups and organization creations
+						Latest signups and workspace creations
 					</CardDescription>
 				</CardHeader>
 				<CardContent>

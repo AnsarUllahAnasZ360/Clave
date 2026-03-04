@@ -88,7 +88,7 @@ export function TeammatesSettingsPane() {
 	const handleCopyLink = useCallback(async () => {
 		if (!inviteCode) return;
 		try {
-			const link = `${window.location.origin}/join?code=${inviteCode}`;
+			const link = `${window.location.origin}/join?invite=${inviteCode}`;
 			await navigator.clipboard.writeText(link);
 			toast.success("Invite link copied to clipboard");
 		} catch {

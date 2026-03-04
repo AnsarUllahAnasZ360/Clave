@@ -148,8 +148,12 @@ function DictationEntry({ recording, onDelete, onRetry }: DictationEntryProps) {
 
 	const handleCopy = useCallback(async () => {
 		if (!recording.transcript) return;
-		await navigator.clipboard.writeText(recording.transcript);
-		toast.success("Transcript copied");
+		try {
+			await navigator.clipboard.writeText(recording.transcript);
+			toast.success("Transcript copied");
+		} catch {
+			toast.error("Failed to copy transcript");
+		}
 	}, [recording.transcript]);
 
 	const handlePlay = useCallback(() => {

@@ -32,6 +32,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { IssueDevelopmentSection } from "@/components/github/IssueDevelopmentSection";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -264,7 +265,7 @@ function isConvexId(value: string): boolean {
 
 export function IssueDetailPage({ identifier }: { identifier: string }) {
 	const router = useRouter();
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	// ── Backward compatibility: detect old Convex ID URLs ─────────────
 	const isLegacyId = isConvexId(identifier);
@@ -277,10 +278,10 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	useEffect(() => {
 		if (isLegacyId && legacyIssue) {
 			router.replace(
-				`/${orgSlug}/${workspaceSlug}/issues/${legacyIssue.identifier}`,
+				`/${workspaceSlug}/issues/${legacyIssue.identifier}`,
 			);
 		}
-	}, [isLegacyId, legacyIssue, router, workspaceSlug, orgSlug]);
+	}, [isLegacyId, legacyIssue, router, workspaceSlug]);
 
 	// ── Data fetching ────────────────────────────────────────────────────
 	const issue = useQuery(
@@ -557,11 +558,11 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 		try {
 			await removeIssue({ issueId: issueId as Id<"issues"> });
 			toast.success("Issue deleted");
-			router.push(`/${orgSlug}/${workspaceSlug}/tasks`);
+			router.push(`/${workspaceSlug}/tasks`);
 		} catch {
 			toast.error("Failed to delete issue");
 		}
-	}, [issueId, removeIssue, router, workspaceSlug, orgSlug]);
+	}, [issueId, removeIssue, router, workspaceSlug]);
 
 	const handleToggleSubscription = useCallback(async () => {
 		if (!issueId) return;
@@ -613,11 +614,11 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 			{/* Top bar: back, breadcrumbs, actions */}
 			<div className="flex items-center justify-between gap-2 px-4 py-2.5 text-[13px] text-muted-foreground border-b border-border/60">
 				<div className="flex items-center gap-2 min-w-0">
-					<BackButton fallbackHref={`/${orgSlug}/${workspaceSlug}/tasks`} />
+					<BackButton fallbackHref={`/${workspaceSlug}/tasks`} />
 					<Separator orientation="vertical" className="h-4" />
 					<nav className="flex items-center gap-1.5 min-w-0">
 						<Link
-							href={`/${orgSlug}/${workspaceSlug}/projects`}
+							href={`/${workspaceSlug}/projects`}
 							className="hover:text-foreground transition-colors truncate"
 							prefetch={false}
 						>
@@ -627,7 +628,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 							<>
 								<ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
 								<Link
-									href={`/${orgSlug}/${workspaceSlug}/projects/${project.slug}`}
+									href={`/${workspaceSlug}/projects/${project.slug}`}
 									className="hover:text-foreground transition-colors truncate"
 									prefetch={false}
 								>
@@ -639,7 +640,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 							<>
 								<ChevronRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
 								<Link
-									href={`/${orgSlug}/${workspaceSlug}/issues/${issue.parent.identifier}`}
+									href={`/${workspaceSlug}/issues/${issue.parent.identifier}`}
 									className="hover:text-foreground transition-colors"
 									prefetch={false}
 								>
@@ -815,6 +816,17 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 
 						{/* Relations */}
 						<IssueRelationsSection issueId={issue._id} />
+
+						{/* Development — linked PRs, commits, branches */}
+						{issue.projectId && (
+							<IssueDevelopmentSection
+								issueId={issue._id}
+								projectId={issue.projectId}
+								gitBranchName={issue.gitBranchName}
+								identifier={issue.identifier}
+								title={issue.title}
+							/>
+						)}
 
 						{/* Attachments & linked resources */}
 						<IssueAttachmentsSection

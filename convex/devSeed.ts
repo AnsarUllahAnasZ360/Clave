@@ -116,8 +116,8 @@ export const seed = internalMutation({
 			.unique();
 
 		const existingZ360 = await ctx.db
-			.query("organizations")
-			.withIndex("by_slug", (q) => q.eq("slug", "z360"))
+			.query("workspaces")
+			.withIndex("by_slug", (q) => q.eq("slug", "z360-production"))
 			.unique();
 
 		if (existingWorkspace && existingZ360) {
@@ -195,58 +195,15 @@ export const seed = internalMutation({
 			"[devSeed] Created/reused 3 users: Kul, Alex Chen, Jordan Rivera",
 		);
 
-		// ── Organization: Clave ───────────────────────────────────────────
+		// ── Workspace: Clave HQ ──────────────────────────────────────────
 		if (!existingWorkspace) {
-			console.log("[devSeed] Creating organization...");
-
-			const existingOrg = await ctx.db
-				.query("organizations")
-				.withIndex("by_slug", (q) => q.eq("slug", "clave"))
-				.unique();
-
-			const organizationId =
-				existingOrg?._id ??
-				(await ctx.db.insert("organizations", {
-					name: "Clave",
-					slug: "clave",
-					ownerId: kulId,
-					plan: "free",
-					createdAt: now,
-					updatedAt: now,
-				}));
-
-			// Organization members
-			for (const { userId, role } of [
-				{ userId: kulId, role: "owner" as const },
-				{ userId: alexId, role: "admin" as const },
-				{ userId: jordanId, role: "member" as const },
-			]) {
-				const existingMember = await ctx.db
-					.query("organizationMembers")
-					.withIndex("by_org_user", (q) =>
-						q.eq("organizationId", organizationId).eq("userId", userId),
-					)
-					.unique();
-				if (!existingMember) {
-					await ctx.db.insert("organizationMembers", {
-						organizationId,
-						userId,
-						role,
-						joinedAt: now,
-					});
-				}
-			}
-
-			console.log("[devSeed] Created organization 'Clave' with 3 members");
-
-			// ── Workspace ─────────────────────────────────────────────────────
 			console.log("[devSeed] Creating workspace...");
 
 			const workspaceId = await ctx.db.insert("workspaces", {
 				name: "Clave HQ",
 				slug: "clave-hq",
 				ownerId: kulId,
-				organizationId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceMembers", {
@@ -1579,38 +1536,16 @@ export const seed = internalMutation({
 			console.log("[devSeed]   - 6 notifications");
 		} // end Clave seed guard
 
-		// ── Additional Organizations ─────────────────────────────────────────────
+		// ── Additional Workspaces ────────────────────────────────────────────────
 		if (!existingZ360) {
-			console.log("[devSeed] Creating additional organizations...");
+			console.log("[devSeed] Creating additional workspaces...");
 
-			// ── Org 2: Z360 ──────────────────────────────────────────────────
-			const z360OrgId = await ctx.db.insert("organizations", {
-				name: "Z360",
-				slug: "z360",
-				ownerId: kulId,
-				plan: "free",
-				createdAt: now,
-				updatedAt: now,
-			});
-
-			for (const { userId, role } of [
-				{ userId: kulId, role: "owner" as const },
-				{ userId: alexId, role: "admin" as const },
-			]) {
-				await ctx.db.insert("organizationMembers", {
-					organizationId: z360OrgId,
-					userId,
-					role,
-					joinedAt: now,
-				});
-			}
-
-			// Z360 - Production workspace
+			// ── Z360 - Production workspace ──────────────────────────────────
 			const z360ProdWsId = await ctx.db.insert("workspaces", {
 				name: "Production",
 				slug: "z360-production",
 				ownerId: kulId,
-				organizationId: z360OrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -1889,7 +1824,7 @@ export const seed = internalMutation({
 				name: "Sandbox",
 				slug: "z360-sandbox",
 				ownerId: kulId,
-				organizationId: z360OrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -2055,35 +1990,12 @@ export const seed = internalMutation({
 
 			console.log("[devSeed] Z360 Sandbox: 5 issues");
 
-			// ── Org 3: Nexus Corp ────────────────────────────────────────────
-			const nexusOrgId = await ctx.db.insert("organizations", {
-				name: "Nexus Corp",
-				slug: "nexus-corp",
-				ownerId: kulId,
-				plan: "free",
-				createdAt: now,
-				updatedAt: now,
-			});
-
-			for (const { userId, role } of [
-				{ userId: kulId, role: "owner" as const },
-				{ userId: alexId, role: "admin" as const },
-				{ userId: jordanId, role: "member" as const },
-			]) {
-				await ctx.db.insert("organizationMembers", {
-					organizationId: nexusOrgId,
-					userId,
-					role,
-					joinedAt: now,
-				});
-			}
-
-			// Nexus Corp - Engineering workspace
+			// ── Nexus Corp - Engineering workspace ───────────────────────────
 			const nexusEngWsId = await ctx.db.insert("workspaces", {
 				name: "Engineering",
 				slug: "nexus-engineering",
 				ownerId: kulId,
-				organizationId: nexusOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -2382,7 +2294,7 @@ export const seed = internalMutation({
 				name: "Design",
 				slug: "nexus-design",
 				ownerId: kulId,
-				organizationId: nexusOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -2554,7 +2466,7 @@ export const seed = internalMutation({
 				name: "Marketing",
 				slug: "nexus-marketing",
 				ownerId: kulId,
-				organizationId: nexusOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -2725,34 +2637,12 @@ export const seed = internalMutation({
 
 			console.log("[devSeed] Nexus Marketing: 5 issues");
 
-			// ── Org 4: Indie Studio ──────────────────────────────────────────
-			const indieOrgId = await ctx.db.insert("organizations", {
-				name: "Indie Studio",
-				slug: "indie-studio",
-				ownerId: kulId,
-				plan: "free",
-				createdAt: now,
-				updatedAt: now,
-			});
-
-			for (const { userId, role } of [
-				{ userId: kulId, role: "owner" as const },
-				{ userId: jordanId, role: "admin" as const },
-			]) {
-				await ctx.db.insert("organizationMembers", {
-					organizationId: indieOrgId,
-					userId,
-					role,
-					joinedAt: now,
-				});
-			}
-
-			// Indie Studio - Alpha workspace
+			// ── Indie Studio - Alpha workspace ───────────────────────────────
 			const indieAlphaWsId = await ctx.db.insert("workspaces", {
 				name: "Alpha",
 				slug: "indie-alpha",
 				ownerId: kulId,
-				organizationId: indieOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -3082,7 +2972,7 @@ export const seed = internalMutation({
 				name: "Beta Testing",
 				slug: "indie-beta",
 				ownerId: kulId,
-				organizationId: indieOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -3255,35 +3145,12 @@ export const seed = internalMutation({
 
 			console.log("[devSeed] Indie Beta: 5 issues");
 
-			// ── Org 5: OpenSource Collective ─────────────────────────────────
-			const ossOrgId = await ctx.db.insert("organizations", {
-				name: "OpenSource Collective",
-				slug: "oss-collective",
-				ownerId: kulId,
-				plan: "free",
-				createdAt: now,
-				updatedAt: now,
-			});
-
-			for (const { userId, role } of [
-				{ userId: kulId, role: "owner" as const },
-				{ userId: alexId, role: "admin" as const },
-				{ userId: jordanId, role: "member" as const },
-			]) {
-				await ctx.db.insert("organizationMembers", {
-					organizationId: ossOrgId,
-					userId,
-					role,
-					joinedAt: now,
-				});
-			}
-
-			// OSS - Community workspace
+			// ── OSS - Community workspace ────────────────────────────────────
 			const ossCommunityWsId = await ctx.db.insert("workspaces", {
 				name: "Community",
 				slug: "oss-community",
 				ownerId: kulId,
-				organizationId: ossOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -3593,7 +3460,7 @@ export const seed = internalMutation({
 				name: "Core Team",
 				slug: "oss-core",
 				ownerId: kulId,
-				organizationId: ossOrgId,
+				plan: "free",
 			});
 
 			await ctx.db.insert("workspaceSettings", {
@@ -3768,7 +3635,7 @@ export const seed = internalMutation({
 			});
 
 			console.log("[devSeed] OSS Core: 5 issues");
-		} // end new orgs guard
+		} // end additional workspaces guard
 
 		const ensuredArtifacts = await ensureClaveE2EArtifacts();
 		if (ensuredArtifacts.workspaceFound && ensuredArtifacts.projectFound) {
@@ -3781,9 +3648,7 @@ export const seed = internalMutation({
 			);
 		}
 
-		console.log(
-			"[devSeed] Full seed complete! 5 organizations, 10 workspaces.",
-		);
+		console.log("[devSeed] Full seed complete! 10 workspaces.");
 	},
 });
 
@@ -3996,77 +3861,40 @@ export const clearSeed = internalMutation({
 			console.log(`[devSeed] Deleted workspace '${wsSlug}'`);
 		}
 
-		// ── Helper: clear an organization and its workspaces ──────────────
-		async function clearOrganization(orgSlug: string) {
-			const org = await ctx.db
-				.query("organizations")
-				.withIndex("by_slug", (q) => q.eq("slug", orgSlug))
-				.unique();
-
-			if (!org) return;
-
-			// Find all workspaces belonging to this org
-			const orgWorkspaces = await ctx.db
-				.query("workspaces")
-				.withIndex("by_organization", (q) => q.eq("organizationId", org._id))
-				.collect();
-
-			// Clear each workspace
-			for (const ws of orgWorkspaces) {
-				await clearWorkspace(ws.slug);
-			}
-
-			// Delete org members
-			const orgMembers = await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_org", (q) => q.eq("organizationId", org._id))
-				.collect();
-			for (const om of orgMembers) {
-				await ctx.db.delete(om._id);
-			}
-
-			// Delete invite codes
-			const inviteCodes = await ctx.db
-				.query("organizationInviteCodes")
-				.withIndex("by_org", (q) => q.eq("organizationId", org._id))
-				.collect();
-			for (const ic of inviteCodes) {
-				await ctx.db.delete(ic._id);
-			}
-
-			await ctx.db.delete(org._id);
-			console.log(`[devSeed] Deleted organization '${orgSlug}'`);
-		}
-
-		// ── Clear all 5 organizations ────────────────────────────────────
-		const orgSlugs = [
-			"clave",
-			"z360",
-			"nexus-corp",
-			"indie-studio",
-			"oss-collective",
+		// ── Clear all 10 seed workspaces ─────────────────────────────────
+		const wsSlugs = [
+			"clave-hq",
+			"z360-production",
+			"z360-sandbox",
+			"nexus-engineering",
+			"nexus-design",
+			"nexus-marketing",
+			"indie-alpha",
+			"indie-beta",
+			"oss-community",
+			"oss-core",
 		];
 
 		let anyFound = false;
-		for (const slug of orgSlugs) {
-			const org = await ctx.db
-				.query("organizations")
+		for (const slug of wsSlugs) {
+			const ws = await ctx.db
+				.query("workspaces")
 				.withIndex("by_slug", (q) => q.eq("slug", slug))
 				.unique();
-			if (org) {
+			if (ws) {
 				anyFound = true;
 			}
 		}
 
 		if (!anyFound) {
-			console.log("[devSeed] No seed organizations found, nothing to clear.");
+			console.log("[devSeed] No seed workspaces found, nothing to clear.");
 			return;
 		}
 
 		console.log("[devSeed] Clearing all seed data...");
 
-		for (const slug of orgSlugs) {
-			await clearOrganization(slug);
+		for (const slug of wsSlugs) {
+			await clearWorkspace(slug);
 		}
 
 		// Clear auth tables to prevent stale credential/session state between runs.

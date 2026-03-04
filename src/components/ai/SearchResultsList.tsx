@@ -11,7 +11,6 @@ import {
 
 interface SearchResultsListProps {
 	results: SearchResult[];
-	orgSlug: string;
 	workspaceSlug: string;
 }
 
@@ -19,7 +18,6 @@ interface SearchResultsListProps {
 
 export const SearchResultsList = memo(function SearchResultsList({
 	results,
-	orgSlug,
 	workspaceSlug,
 }: SearchResultsListProps) {
 	if (results.length === 0) {
@@ -48,7 +46,6 @@ export const SearchResultsList = memo(function SearchResultsList({
 					<SearchResultCard
 						key={`${result.type}-${result.id}`}
 						result={result}
-						orgSlug={orgSlug}
 						workspaceSlug={workspaceSlug}
 					/>
 				))}

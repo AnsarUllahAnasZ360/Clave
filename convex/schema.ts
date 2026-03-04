@@ -17,62 +17,6 @@ const slashCommandValidator = v.object({
 export default defineSchema({
 	...authTables,
 
-	// ── Organizations ─────────────────────────────────────────────────────────
-
-	organizations: defineTable({
-		name: v.string(),
-		slug: v.string(),
-		ownerId: v.id("users"),
-		description: v.optional(v.string()),
-		logoStorageId: v.optional(v.id("_storage")),
-		// Billing (placeholders for Stripe integration — STORY-013+)
-		plan: v.optional(
-			v.union(v.literal("free"), v.literal("pro"), v.literal("enterprise")),
-		),
-		planLimits: v.optional(
-			v.object({
-				maxMembers: v.optional(v.number()),
-				maxWorkspaces: v.optional(v.number()),
-			}),
-		),
-		stripeCustomerId: v.optional(v.string()),
-		subscriptionId: v.optional(v.string()),
-		subscriptionStatus: v.optional(v.string()),
-		trialEndsAt: v.optional(v.number()),
-		billingEmail: v.optional(v.string()),
-		suspended: v.optional(v.boolean()),
-		createdAt: v.optional(v.number()),
-		updatedAt: v.optional(v.number()),
-		deletedAt: v.optional(v.number()),
-	})
-		.index("by_slug", ["slug"])
-		.index("by_owner", ["ownerId"])
-		.index("by_stripe_customer", ["stripeCustomerId"]),
-
-	organizationMembers: defineTable({
-		organizationId: v.id("organizations"),
-		userId: v.id("users"),
-		role: v.union(v.literal("owner"), v.literal("admin"), v.literal("member")),
-		joinedAt: v.number(),
-		invitedBy: v.optional(v.id("users")),
-	})
-		.index("by_org", ["organizationId"])
-		.index("by_user", ["userId"])
-		.index("by_org_user", ["organizationId", "userId"]),
-
-	organizationInviteCodes: defineTable({
-		code: v.string(),
-		organizationId: v.id("organizations"),
-		createdBy: v.id("users"),
-		expiresAt: v.optional(v.number()),
-		maxUses: v.optional(v.number()),
-		useCount: v.number(),
-		usedBy: v.optional(v.array(v.id("users"))),
-		role: v.union(v.literal("admin"), v.literal("member")),
-	})
-		.index("by_code", ["code"])
-		.index("by_org", ["organizationId"]),
-
 	// ── Core ──────────────────────────────────────────────────────────────────
 
 	users: defineTable({
@@ -109,9 +53,10 @@ export default defineSchema({
 		aiHowToWorkWithMe: v.optional(v.string()),
 		personalSlashCommands: v.optional(v.array(slashCommandValidator)),
 		lastSeenVersion: v.optional(v.string()),
-		lastActiveOrganizationId: v.optional(v.id("organizations")),
 		lastActiveWorkspaceId: v.optional(v.id("workspaces")),
 		lastActiveContextAt: v.optional(v.number()),
+		// Kept for backward compat — migration clears this field
+		lastActiveOrganizationId: v.optional(v.string()),
 		suspended: v.optional(v.boolean()),
 		// Demo workspace fields
 		isDemoUser: v.optional(v.boolean()),
@@ -122,14 +67,82 @@ export default defineSchema({
 		.index("email", ["email"])
 		.index("phone", ["phone"]),
 
+	// ── Legacy org tables (empty after migration — safe to remove once confirmed) ─
+
+	organizations: defineTable({
+		name: v.optional(v.string()),
+		slug: v.optional(v.string()),
+		description: v.optional(v.string()),
+		logoStorageId: v.optional(v.id("_storage")),
+		ownerId: v.optional(v.id("users")),
+		plan: v.optional(v.string()),
+		planLimits: v.optional(
+			v.object({
+				maxMembers: v.optional(v.number()),
+				maxWorkspaces: v.optional(v.number()),
+			}),
+		),
+		stripeCustomerId: v.optional(v.string()),
+		subscriptionId: v.optional(v.string()),
+		subscriptionStatus: v.optional(v.string()),
+		trialEndsAt: v.optional(v.number()),
+		billingEmail: v.optional(v.string()),
+		suspended: v.optional(v.boolean()),
+		createdAt: v.optional(v.number()),
+		updatedAt: v.optional(v.number()),
+		deletedAt: v.optional(v.number()),
+	}).index("by_slug", ["slug"]),
+
+	organizationMembers: defineTable({
+		organizationId: v.optional(v.string()),
+		userId: v.optional(v.id("users")),
+		role: v.optional(v.string()),
+		joinedAt: v.optional(v.number()),
+		invitedBy: v.optional(v.id("users")),
+	})
+		.index("by_org", ["organizationId"])
+		.index("by_org_user", ["organizationId", "userId"])
+		.index("by_user", ["userId"]),
+
+	organizationInviteCodes: defineTable({
+		organizationId: v.optional(v.string()),
+		code: v.optional(v.string()),
+		createdBy: v.optional(v.id("users")),
+		expiresAt: v.optional(v.number()),
+		maxUses: v.optional(v.number()),
+		useCount: v.optional(v.number()),
+		usedBy: v.optional(v.array(v.id("users"))),
+		role: v.optional(v.string()),
+	})
+		.index("by_code", ["code"])
+		.index("by_org", ["organizationId"]),
+
+	// ── Workspaces ────────────────────────────────────────────────────────────
+
 	workspaces: defineTable({
 		name: v.string(),
 		slug: v.string(),
 		ownerId: v.id("users"),
-		organizationId: v.optional(v.id("organizations")),
+		// Kept for backward compat — migration clears this field
+		organizationId: v.optional(v.string()),
 		visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
 		description: v.optional(v.string()),
 		logoStorageId: v.optional(v.id("_storage")),
+		// Billing
+		plan: v.optional(
+			v.union(v.literal("free"), v.literal("pro"), v.literal("enterprise")),
+		),
+		planLimits: v.optional(
+			v.object({
+				maxMembers: v.optional(v.number()),
+			}),
+		),
+		stripeCustomerId: v.optional(v.string()),
+		subscriptionId: v.optional(v.string()),
+		subscriptionStatus: v.optional(v.string()),
+		trialEndsAt: v.optional(v.number()),
+		billingEmail: v.optional(v.string()),
+		suspended: v.optional(v.boolean()),
 		// Demo workspace fields
 		isDemo: v.optional(v.boolean()),
 		demoExpiresAt: v.optional(v.number()),
@@ -147,8 +160,7 @@ export default defineSchema({
 	})
 		.index("by_owner", ["ownerId"])
 		.index("by_slug", ["slug"])
-		.index("by_organization", ["organizationId"])
-		.index("by_org_slug", ["organizationId", "slug"])
+		.index("by_stripe_customer", ["stripeCustomerId"])
 		.index("by_demo_expires", ["isDemo", "demoExpiresAt"]),
 
 	workspaceMembers: defineTable({
@@ -279,6 +291,7 @@ export default defineSchema({
 		workspaceId: v.id("workspaces"),
 		projectId: v.optional(v.id("projects")),
 		sprintId: v.optional(v.id("sprints")),
+		listId: v.optional(v.id("lists")),
 		milestoneId: v.optional(v.id("milestones")),
 		parentId: v.optional(v.id("issues")),
 		identifier: v.string(),
@@ -301,17 +314,22 @@ export default defineSchema({
 		gitBranchName: v.optional(v.string()),
 		linkedDocumentIds: v.optional(v.array(v.id("documents"))),
 		linkedWhiteboardIds: v.optional(v.array(v.id("whiteboards"))),
+		githubSyncSource: v.optional(
+			v.union(v.literal("github"), v.literal("clave")),
+		),
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_workspace_status", ["workspaceId", "status"])
 		.index("by_project_sort", ["projectId", "sortOrder"])
 		.index("by_sprint_sort", ["sprintId", "sortOrder"])
+		.index("by_list_sort", ["listId", "sortOrder"])
 		.index("by_milestone_sort", ["milestoneId", "sortOrder"])
 		.index("by_workspace_assignee", ["workspaceId", "assigneeId"])
 		.index("by_identifier", ["workspaceId", "identifier"])
 		.index("by_parent", ["parentId"])
 		.index("by_project", ["projectId"])
 		.index("by_sprint", ["sprintId"])
+		.index("by_list", ["listId"])
 		.index("by_milestone", ["milestoneId"])
 		.index("by_workspace_creator", ["workspaceId", "createdBy"])
 		.searchIndex("search_title", {
@@ -373,6 +391,22 @@ export default defineSchema({
 	})
 		.index("by_project_sort", ["projectId", "sortOrder"])
 		.index("by_project", ["projectId"]),
+
+	lists: defineTable({
+		projectId: v.id("projects"),
+		workspaceId: v.id("workspaces"),
+		name: v.string(),
+		description: v.optional(v.string()),
+		icon: v.optional(v.string()),
+		color: v.optional(v.string()),
+		sortOrder: v.number(),
+		createdBy: v.id("users"),
+		updatedAt: v.optional(v.number()),
+		deletedAt: v.optional(v.number()),
+	})
+		.index("by_project_sort", ["projectId", "sortOrder"])
+		.index("by_project", ["projectId"])
+		.index("by_workspace", ["workspaceId"]),
 
 	stories: defineTable({
 		workspaceId: v.id("workspaces"),
@@ -1393,6 +1427,13 @@ export default defineSchema({
 		lastSyncAt: v.optional(v.number()),
 		webhookId: v.optional(v.number()),
 		webhookSecret: v.optional(v.string()),
+		// Sync feature flags
+		issueSyncEnabled: v.optional(v.boolean()),
+		prSyncEnabled: v.optional(v.boolean()),
+		commitSyncEnabled: v.optional(v.boolean()),
+		lastPrSyncAt: v.optional(v.number()),
+		lastIssueSyncAt: v.optional(v.number()),
+		lastCommitSyncAt: v.optional(v.number()),
 		createdBy: v.id("users"),
 		createdAt: v.number(),
 		updatedAt: v.optional(v.number()),
@@ -1400,6 +1441,102 @@ export default defineSchema({
 		.index("by_project", ["projectId"])
 		.index("by_workspace", ["workspaceId"])
 		.index("by_repo", ["repoOwner", "repoName"]),
+
+	// ── GitHub Pull Requests ────────────────────────────────────────────────
+
+	githubPullRequests: defineTable({
+		connectionId: v.id("githubConnections"),
+		projectId: v.id("projects"),
+		workspaceId: v.id("workspaces"),
+		githubId: v.number(),
+		number: v.number(),
+		title: v.string(),
+		body: v.optional(v.string()),
+		state: v.union(
+			v.literal("open"),
+			v.literal("closed"),
+			v.literal("merged"),
+			v.literal("draft"),
+		),
+		authorLogin: v.string(),
+		authorAvatarUrl: v.optional(v.string()),
+		headBranch: v.string(),
+		baseBranch: v.string(),
+		htmlUrl: v.string(),
+		isDraft: v.boolean(),
+		mergedAt: v.optional(v.number()),
+		closedAt: v.optional(v.number()),
+		reviewDecision: v.optional(
+			v.union(
+				v.literal("approved"),
+				v.literal("changes_requested"),
+				v.literal("review_required"),
+				v.literal("pending"),
+			),
+		),
+		linkedIssueId: v.optional(v.id("issues")),
+		githubCreatedAt: v.number(),
+		githubUpdatedAt: v.number(),
+		syncedAt: v.number(),
+	})
+		.index("by_project", ["projectId"])
+		.index("by_project_state", ["projectId", "state"])
+		.index("by_github_id", ["connectionId", "githubId"])
+		.index("by_number", ["connectionId", "number"])
+		.index("by_linked_issue", ["linkedIssueId"])
+		.index("by_head_branch", ["connectionId", "headBranch"]),
+
+	// ── GitHub Commits ──────────────────────────────────────────────────────
+
+	githubCommits: defineTable({
+		connectionId: v.id("githubConnections"),
+		projectId: v.id("projects"),
+		workspaceId: v.id("workspaces"),
+		sha: v.string(),
+		message: v.string(),
+		authorLogin: v.string(),
+		authorEmail: v.optional(v.string()),
+		authorAvatarUrl: v.optional(v.string()),
+		htmlUrl: v.string(),
+		pullRequestId: v.optional(v.id("githubPullRequests")),
+		linkedIssueId: v.optional(v.id("issues")),
+		committedAt: v.number(),
+		syncedAt: v.number(),
+	})
+		.index("by_project", ["projectId"])
+		.index("by_sha", ["connectionId", "sha"])
+		.index("by_pull_request", ["pullRequestId"])
+		.index("by_linked_issue", ["linkedIssueId"])
+		.index("by_project_committed", ["projectId", "committedAt"]),
+
+	// ── GitHub Issue Sync ───────────────────────────────────────────────────
+
+	githubIssueSync: defineTable({
+		connectionId: v.id("githubConnections"),
+		projectId: v.id("projects"),
+		workspaceId: v.id("workspaces"),
+		githubIssueId: v.number(),
+		githubIssueNumber: v.number(),
+		githubIssueUrl: v.string(),
+		claveIssueId: v.id("issues"),
+		lastGithubUpdatedAt: v.optional(v.string()),
+		lastClaveUpdatedAt: v.optional(v.number()),
+		syncSource: v.union(
+			v.literal("github"),
+			v.literal("clave"),
+			v.literal("initial"),
+		),
+		syncStatus: v.union(
+			v.literal("synced"),
+			v.literal("conflict"),
+			v.literal("error"),
+		),
+		errorMessage: v.optional(v.string()),
+		syncedAt: v.number(),
+	})
+		.index("by_github_issue", ["connectionId", "githubIssueId"])
+		.index("by_clave_issue", ["claveIssueId"])
+		.index("by_project", ["projectId"]),
 
 	// ── Billing ──────────────────────────────────────────────────────────────
 
@@ -1411,7 +1548,6 @@ export default defineSchema({
 		stripePriceIdYearly: v.optional(v.string()),
 		limits: v.object({
 			maxMembers: v.number(),
-			maxWorkspaces: v.number(),
 			maxStorageGb: v.number(),
 			maxAiMessages: v.number(),
 		}),

@@ -355,7 +355,6 @@ function IssueRow({
 	projectMap,
 	labelMap,
 	displayProperties,
-	orgSlug,
 	workspaceSlug,
 }: {
 	issue: IssueData;
@@ -366,7 +365,6 @@ function IssueRow({
 	projectMap: Map<string, string>;
 	labelMap: Map<string, LabelData>;
 	displayProperties: DisplayPropertyId[];
-	orgSlug: string;
 	workspaceSlug: string;
 }) {
 	const assignee = issue.assigneeId
@@ -405,7 +403,7 @@ function IssueRow({
 
 	return (
 		<Link
-			href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
+			href={`/${workspaceSlug}/issues/${issue.identifier}`}
 			prefetch={false}
 			onClick={(e) => {
 				e.preventDefault();
@@ -553,7 +551,6 @@ function GroupedIssueList({
 	projectMap,
 	labelMap,
 	displayProperties,
-	orgSlug,
 	workspaceSlug,
 	onIssueClick,
 	onIssueNavigate,
@@ -565,7 +562,6 @@ function GroupedIssueList({
 	projectMap: Map<string, string>;
 	labelMap: Map<string, LabelData>;
 	displayProperties: DisplayPropertyId[];
-	orgSlug: string;
 	workspaceSlug: string;
 	onIssueClick: (issueId: Id<"issues">) => void;
 	onIssueNavigate: (identifier: string) => void;
@@ -608,7 +604,6 @@ function GroupedIssueList({
 									projectMap={projectMap}
 									labelMap={labelMap}
 									displayProperties={displayProperties}
-									orgSlug={orgSlug}
 									workspaceSlug={workspaceSlug}
 								/>
 							);
@@ -630,7 +625,6 @@ function IssueTabContent({
 	projectMap,
 	milestoneMap,
 	labelMap,
-	orgSlug,
 	workspaceSlug,
 	onSelectIssue,
 }: {
@@ -642,7 +636,6 @@ function IssueTabContent({
 	projectMap: Map<string, string>;
 	milestoneMap: Map<string, string>;
 	labelMap: Map<string, LabelData>;
-	orgSlug: string;
 	workspaceSlug: string;
 	onSelectIssue?: (issueId: Id<"issues">) => void;
 }) {
@@ -688,9 +681,9 @@ function IssueTabContent({
 
 	const handleIssueNavigate = useCallback(
 		(identifier: string) => {
-			router.push(`/${orgSlug}/${workspaceSlug}/issues/${identifier}`);
+			router.push(`/${workspaceSlug}/issues/${identifier}`);
 		},
-		[router, orgSlug, workspaceSlug],
+		[router, workspaceSlug],
 	);
 
 	const handleIssueSelect = useCallback(
@@ -780,7 +773,6 @@ function IssueTabContent({
 				projectMap={projectMap}
 				labelMap={labelMap}
 				displayProperties={displayProperties}
-				orgSlug={orgSlug}
 				workspaceSlug={workspaceSlug}
 				onIssueClick={handleIssueSelect}
 				onIssueNavigate={handleIssueNavigate}
@@ -792,7 +784,7 @@ function IssueTabContent({
 // ── Main Page Component ────────────────────────────────────────────────────
 
 export function MyIssuesPage() {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	// Tab state
 	const [activeTab, setActiveTab] = useState<MyIssuesTab>("assigned");
@@ -1133,7 +1125,6 @@ export function MyIssuesPage() {
 							projectMap={projectMap}
 							milestoneMap={milestoneMap}
 							labelMap={labelMap}
-							orgSlug={orgSlug}
 							workspaceSlug={workspaceSlug}
 							onSelectIssue={setSelectedIssueId}
 						/>

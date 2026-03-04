@@ -13,7 +13,6 @@ interface DuplicateDetectionProps {
 	/** Compact layout for quick create modal */
 	compact?: boolean;
 	/** Workspace slug for building issue links */
-	orgSlug?: string;
 	workspaceSlug?: string;
 }
 
@@ -23,7 +22,6 @@ export function DuplicateDetection({
 	duplicates,
 	loading,
 	compact = false,
-	orgSlug,
 	workspaceSlug,
 }: DuplicateDetectionProps) {
 	if (loading) {
@@ -58,9 +56,8 @@ export function DuplicateDetection({
 				{shown.map((issue) => {
 					const statusCfg = getStatusConfig(issue.status);
 					const StatusIcon = statusCfg.icon;
-					const issueUrl =
-						orgSlug && workspaceSlug
-							? `/${orgSlug}/${workspaceSlug}/issues/${issue._id}`
+					const issueUrl = workspaceSlug
+							? `/${workspaceSlug}/issues/${issue._id}`
 							: undefined;
 
 					return (

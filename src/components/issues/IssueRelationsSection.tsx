@@ -91,7 +91,7 @@ interface IssueRelationsSectionProps {
 // ── Component ────────────────────────────────────────────────────────────
 
 export function IssueRelationsSection({ issueId }: IssueRelationsSectionProps) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const [dialogOpen, setDialogOpen] = useState(false);
 
 	const relations = useQuery(api.issueRelations.listByIssue, { issueId });
@@ -172,7 +172,7 @@ export function IssueRelationsSection({ issueId }: IssueRelationsSectionProps) {
 									className={cn("h-3.5 w-3.5 shrink-0", statusColor)}
 								/>
 								<NextLink
-									href={`/${orgSlug}/${workspaceSlug}/issues/${rel.relatedIssue.identifier}`}
+									href={`/${workspaceSlug}/issues/${rel.relatedIssue.identifier}`}
 									className="flex items-center gap-2 flex-1 min-w-0"
 									prefetch={false}
 								>

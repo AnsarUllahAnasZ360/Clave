@@ -76,7 +76,7 @@ export function ProjectCard({
 	const avatarUrl = getAvatarUrl(assignee);
 	const isBoard = variant === "board";
 	const router = useRouter();
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const draggingRef = useRef(false);
 	const startPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -111,7 +111,7 @@ export function ProjectCard({
 
 	const goToDetails = () =>
 		router.push(
-			`/${orgSlug}/${workspaceSlug}/projects/${project.slug ?? project.id}` as never,
+			`/${workspaceSlug}/projects/${project.slug ?? project.id}` as never,
 		);
 
 	const onKeyNavigate: React.KeyboardEventHandler<HTMLDivElement> = (e) => {

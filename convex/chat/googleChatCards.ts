@@ -17,14 +17,8 @@ function normalizeAppBaseUrl(rawValue: string | undefined): string {
 	}
 }
 
-function buildWorkspaceBasePath(args: {
-	orgSlug?: string;
-	workspaceSlug: string;
-}) {
-	if (!args.orgSlug) {
-		return "";
-	}
-	return `/${args.orgSlug}/${args.workspaceSlug}`;
+function buildWorkspaceBasePath(args: { workspaceSlug: string }) {
+	return `/${args.workspaceSlug}`;
 }
 
 function joinUrl(baseUrl: string, path: string) {
@@ -71,15 +65,13 @@ export const prepareNotificationCard = internalQuery({
 			return { status: "drop" as const, reason: "Workspace not found" };
 		}
 
-		const [actor, issue, project, organization] = await Promise.all([
+		const [actor, issue, project] = await Promise.all([
 			notification.actorId ? ctx.db.get(notification.actorId) : null,
 			notification.issueId ? ctx.db.get(notification.issueId) : null,
 			notification.projectId ? ctx.db.get(notification.projectId) : null,
-			workspace.organizationId ? ctx.db.get(workspace.organizationId) : null,
 		]);
 
 		const workspaceBasePath = buildWorkspaceBasePath({
-			orgSlug: organization?.slug,
 			workspaceSlug: workspace.slug,
 		});
 

@@ -91,9 +91,6 @@ export function UserDetailSheet({
 	const updateUserProfileMut = useMutation(api.admin.updateUserProfile);
 	const removeUserMut = useMutation(api.admin.removeUser);
 	const openUserContextMut = useMutation(api.admin.openUserContext);
-	const openOrganizationContextMut = useMutation(
-		api.admin.openOrganizationContext,
-	);
 
 	const [confirmAction, setConfirmAction] = useState<
 		"suspend" | "unsuspend" | "promote" | "demote" | "remove" | null
@@ -179,7 +176,7 @@ export function UserDetailSheet({
 		setIsOpeningContext(true);
 		try {
 			const destination = await openUserContextMut({ userId });
-			toast.success("Opened user organization context");
+			toast.success("Opened user context");
 			onOpenChange(false);
 			router.push(destination.path as Parameters<typeof router.push>[0]);
 		} catch (error) {
@@ -190,26 +187,6 @@ export function UserDetailSheet({
 			setIsOpeningContext(false);
 		}
 	}, [userId, openUserContextMut, onOpenChange, router]);
-
-	const handleOpenOrganization = useCallback(
-		async (organizationId: Id<"organizations">) => {
-			try {
-				const destination = await openOrganizationContextMut({
-					organizationId,
-				});
-				toast.success("Opened organization");
-				onOpenChange(false);
-				router.push(destination.path as Parameters<typeof router.push>[0]);
-			} catch (error) {
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to open organization context",
-				);
-			}
-		},
-		[openOrganizationContextMut, onOpenChange, router],
-	);
 
 	const confirmDialogConfig = {
 		suspend: {
@@ -380,56 +357,12 @@ export function UserDetailSheet({
 
 							{/* Tabs */}
 							<div className="px-4 pb-4 flex-1">
-								<Tabs defaultValue="organizations">
+								<Tabs defaultValue="workspaces">
 									<TabsList>
-										<TabsTrigger value="organizations">
-											Organizations ({detail.organizations.length})
-										</TabsTrigger>
 										<TabsTrigger value="workspaces">
 											Workspaces ({detail.workspaces.length})
 										</TabsTrigger>
 									</TabsList>
-
-									<TabsContent value="organizations" className="mt-4">
-										{detail.organizations.length === 0 ? (
-											<p className="text-sm text-muted-foreground">
-												No organizations
-											</p>
-										) : (
-											<div className="space-y-2">
-												{detail.organizations.map((org) => (
-													<div
-														key={org._id}
-														className="flex items-center justify-between rounded-md border px-3 py-2"
-													>
-														<div>
-															<p className="text-sm font-medium">{org.name}</p>
-															<p className="text-xs text-muted-foreground">
-																/{org.slug}
-															</p>
-														</div>
-														<div className="flex items-center gap-2">
-															<Badge
-																variant={roleBadgeVariant(org.role)}
-																className="capitalize shrink-0"
-															>
-																{org.role}
-															</Badge>
-															<Button
-																variant="ghost"
-																size="sm"
-																onClick={() =>
-																	void handleOpenOrganization(org._id)
-																}
-															>
-																Open
-															</Button>
-														</div>
-													</div>
-												))}
-											</div>
-										)}
-									</TabsContent>
 
 									<TabsContent value="workspaces" className="mt-4">
 										{detail.workspaces.length === 0 ? (

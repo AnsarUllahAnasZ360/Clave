@@ -1,5 +1,6 @@
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireWorkspaceAdmin, requireWorkspaceMember } from "./lib/auth";
@@ -47,6 +48,12 @@ export const getConnection = query({
 			lastSyncAt: v.optional(v.number()),
 			createdAt: v.number(),
 			updatedAt: v.optional(v.number()),
+			issueSyncEnabled: v.optional(v.boolean()),
+			prSyncEnabled: v.optional(v.boolean()),
+			commitSyncEnabled: v.optional(v.boolean()),
+			lastPrSyncAt: v.optional(v.number()),
+			lastIssueSyncAt: v.optional(v.number()),
+			lastCommitSyncAt: v.optional(v.number()),
 		}),
 		v.null(),
 	),
@@ -56,12 +63,18 @@ export const getConnection = query({
 
 		await requireWorkspaceMember(ctx, project.workspaceId);
 
-		const connection = await ctx.db
+		const connections = await ctx.db
 			.query("githubConnections")
 			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-			.first();
+			.collect();
 
-		if (!connection || connection.status === "disconnected") return null;
+		// Prefer the most recent active connection, fall back to most recent non-disconnected
+		const connection =
+			connections.find((c) => c.status === "active") ??
+			connections.filter((c) => c.status !== "disconnected").pop() ??
+			null;
+
+		if (!connection) return null;
 
 		return {
 			_id: connection._id,
@@ -73,6 +86,12 @@ export const getConnection = query({
 			lastSyncAt: connection.lastSyncAt,
 			createdAt: connection.createdAt,
 			updatedAt: connection.updatedAt,
+			issueSyncEnabled: connection.issueSyncEnabled,
+			prSyncEnabled: connection.prSyncEnabled,
+			commitSyncEnabled: connection.commitSyncEnabled,
+			lastPrSyncAt: connection.lastPrSyncAt,
+			lastIssueSyncAt: connection.lastIssueSyncAt,
+			lastCommitSyncAt: connection.lastCommitSyncAt,
 		};
 	},
 });
@@ -121,6 +140,67 @@ export const listConnections = query({
 	},
 });
 
+/** Get all GitHub connections for a project (non-disconnected). */
+export const getProjectConnections = query({
+	args: {
+		projectId: v.id("projects"),
+	},
+	returns: v.array(
+		v.object({
+			_id: v.id("githubConnections"),
+			projectId: v.id("projects"),
+			repoOwner: v.string(),
+			repoName: v.string(),
+			defaultBranch: v.string(),
+			status: v.union(
+				v.literal("active"),
+				v.literal("disconnected"),
+				v.literal("error"),
+			),
+			lastSyncAt: v.optional(v.number()),
+			createdAt: v.number(),
+			updatedAt: v.optional(v.number()),
+			issueSyncEnabled: v.optional(v.boolean()),
+			prSyncEnabled: v.optional(v.boolean()),
+			commitSyncEnabled: v.optional(v.boolean()),
+			lastPrSyncAt: v.optional(v.number()),
+			lastIssueSyncAt: v.optional(v.number()),
+			lastCommitSyncAt: v.optional(v.number()),
+		}),
+	),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project) throw new ConvexError("Project not found");
+
+		await requireWorkspaceMember(ctx, project.workspaceId);
+
+		const connections = await ctx.db
+			.query("githubConnections")
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+			.collect();
+
+		return connections
+			.filter((c) => c.status !== "disconnected")
+			.map((c) => ({
+				_id: c._id,
+				projectId: c.projectId,
+				repoOwner: c.repoOwner,
+				repoName: c.repoName,
+				defaultBranch: c.defaultBranch,
+				status: c.status,
+				lastSyncAt: c.lastSyncAt,
+				createdAt: c.createdAt,
+				updatedAt: c.updatedAt,
+				issueSyncEnabled: c.issueSyncEnabled,
+				prSyncEnabled: c.prSyncEnabled,
+				commitSyncEnabled: c.commitSyncEnabled,
+				lastPrSyncAt: c.lastPrSyncAt,
+				lastIssueSyncAt: c.lastIssueSyncAt,
+				lastCommitSyncAt: c.lastCommitSyncAt,
+			}));
+	},
+});
+
 // ── Public Mutations ─────────────────────────────────────────────────────
 
 /** Disconnect a GitHub repository from a project (admin only). */
@@ -135,14 +215,14 @@ export const disconnectRepo = mutation({
 
 		await requireWorkspaceAdmin(ctx, connection.workspaceId);
 
-		// Schedule webhook deregistration before disconnecting
+		// Disconnect this specific connection
 		if (connection.webhookId) {
 			await ctx.scheduler.runAfter(0, deregisterWebhookRef, {
-				connectionId: args.connectionId,
+				connectionId: connection._id,
 			});
 		}
 
-		await ctx.db.patch(args.connectionId, {
+		await ctx.db.patch(connection._id, {
 			status: "disconnected",
 			updatedAt: Date.now(),
 		});
@@ -167,17 +247,20 @@ export const storeConnection = mutation({
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceAdmin(ctx, args.workspaceId);
 
-		// Remove any existing connection for this project first
+		// Check for duplicate — same repo already connected to this project
 		const existing = await ctx.db
 			.query("githubConnections")
 			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-			.first();
+			.collect();
 
-		if (existing) {
-			await ctx.db.patch(existing._id, {
-				status: "disconnected",
-				updatedAt: Date.now(),
-			});
+		const duplicate = existing.find(
+			(c) =>
+				c.status !== "disconnected" &&
+				c.repoOwner === args.repoOwner &&
+				c.repoName === args.repoName,
+		);
+		if (duplicate) {
+			throw new ConvexError("Repository already connected");
 		}
 
 		return await ctx.db.insert("githubConnections", {
@@ -209,16 +292,28 @@ export const triggerInitialIndex = mutation({
 
 		await requireWorkspaceMember(ctx, connection.workspaceId);
 
-		// Schedule indexing to run immediately
+		// Schedule code indexing
 		await ctx.scheduler.runAfter(0, indexRepositoryRef, {
 			projectId: args.projectId,
 		});
 
-		// Schedule webhook registration (runs after indexing starts)
+		// Schedule webhook registration
 		await ctx.scheduler.runAfter(0, registerWebhookRef, {
 			connectionId: args.connectionId,
 			projectId: args.projectId,
 		});
+
+		// Schedule PR and commit sync
+		await ctx.scheduler.runAfter(
+			0,
+			internal.githubSyncActions.syncPullRequestsFromGithub,
+			{ connectionId: args.connectionId },
+		);
+		await ctx.scheduler.runAfter(
+			0,
+			internal.githubSyncActions.syncCommitsFromGithub,
+			{ connectionId: args.connectionId },
+		);
 
 		return null;
 	},
@@ -275,6 +370,33 @@ export const updateStatus = internalMutation({
 			status: args.status,
 			updatedAt: Date.now(),
 		});
+		return null;
+	},
+});
+
+/** Update sync feature flags for a connection. */
+export const updateSyncSettings = mutation({
+	args: {
+		connectionId: v.id("githubConnections"),
+		issueSyncEnabled: v.optional(v.boolean()),
+		prSyncEnabled: v.optional(v.boolean()),
+		commitSyncEnabled: v.optional(v.boolean()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const connection = await ctx.db.get(args.connectionId);
+		if (!connection) throw new ConvexError("Connection not found");
+		await requireWorkspaceAdmin(ctx, connection.workspaceId);
+
+		const patch: Record<string, unknown> = { updatedAt: Date.now() };
+		if (args.issueSyncEnabled !== undefined)
+			patch.issueSyncEnabled = args.issueSyncEnabled;
+		if (args.prSyncEnabled !== undefined)
+			patch.prSyncEnabled = args.prSyncEnabled;
+		if (args.commitSyncEnabled !== undefined)
+			patch.commitSyncEnabled = args.commitSyncEnabled;
+
+		await ctx.db.patch(args.connectionId, patch);
 		return null;
 	},
 });

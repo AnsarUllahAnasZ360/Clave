@@ -458,7 +458,7 @@ export function ProjectPropertiesPanel({
 	onUpdate,
 	onRemoveClient,
 }: ProjectPropertiesPanelProps) {
-	const { workspaceSlug, workspaceId, orgSlug } = useWorkspace();
+	const { workspaceSlug, workspaceId } = useWorkspace();
 	const workspaceLabels = useWorkspaceLabels();
 	const documents = useQuery(api.documents.listByProject, {
 		projectId: project._id,
@@ -876,9 +876,9 @@ export function ProjectPropertiesPanel({
 							const Icon = item.type === "document" ? FileText : PenTool;
 							const href =
 								item.type === "document"
-									? `/${orgSlug}/${workspaceSlug}/docs/${item.id}`
+									? `/${workspaceSlug}/docs/${item.id}`
 									: item.type === "whiteboard"
-										? `/${orgSlug}/${workspaceSlug}/boards/${item.id}`
+										? `/${workspaceSlug}/boards/${item.id}`
 										: null;
 							return href ? (
 								<Link
@@ -927,7 +927,7 @@ export function ProjectPropertiesPanel({
 						</h3>
 						<div className="space-y-1 px-1">
 							<Link
-								href={`/${orgSlug}/${workspaceSlug}/clients/${client._id}`}
+								href={`/${workspaceSlug}/clients/${client._id}`}
 								className="text-sm font-medium text-foreground hover:underline underline-offset-2"
 								prefetch={false}
 							>

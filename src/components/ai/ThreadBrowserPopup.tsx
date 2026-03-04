@@ -246,7 +246,6 @@ export function ThreadBrowserPopup({
 }: ThreadBrowserPopupProps) {
 	const router = useRouter();
 	const workspace = useWorkspaceOptional();
-	const orgSlug = workspace?.orgSlug;
 	const [search, setSearch] = useState("");
 	const [debouncedSearch, setDebouncedSearch] = useState("");
 	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
@@ -312,14 +311,11 @@ export function ThreadBrowserPopup({
 		(threadId: string) => {
 			onOpenThread(threadId);
 			if (!inlineMode) {
-				const base = orgSlug
-					? `/${orgSlug}/${workspaceSlug}`
-					: `/${workspaceSlug}`;
-				router.push(`${base}/chat/${threadId}` as Route);
+				router.push(`/${workspaceSlug}/chat/${threadId}` as Route);
 			}
 			onClose();
 		},
-		[workspaceSlug, orgSlug, router, onOpenThread, onClose, inlineMode],
+		[workspaceSlug, router, onOpenThread, onClose, inlineMode],
 	);
 
 	const handleCreateNew = useCallback(async () => {

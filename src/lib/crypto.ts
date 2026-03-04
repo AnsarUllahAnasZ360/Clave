@@ -60,6 +60,66 @@ export async function encryptToken(plaintext: string): Promise<string> {
 }
 
 /**
+ * Create a signed OAuth state string (payload.base64url.signature).
+ * Uses HMAC-SHA256 with client secret. No cookie needed.
+ */
+export async function signOAuthState(
+	payload: Record<string, string>,
+	secret: string,
+): Promise<string> {
+	const payloadStr = JSON.stringify(payload);
+	const payloadB64 = Buffer.from(payloadStr).toString("base64url");
+	const key = await crypto.subtle.importKey(
+		"raw",
+		new TextEncoder().encode(secret),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["sign"],
+	);
+	const sig = await crypto.subtle.sign(
+		"HMAC",
+		key,
+		new TextEncoder().encode(payloadB64),
+	);
+	const sigB64 = Buffer.from(sig).toString("base64url");
+	return `${payloadB64}.${sigB64}`;
+}
+
+/**
+ * Verify and decode a signed OAuth state string.
+ */
+export async function verifyOAuthState(
+	signedState: string,
+	secret: string,
+): Promise<Record<string, string>> {
+	const dot = signedState.lastIndexOf(".");
+	if (dot === -1) throw new Error("Invalid state format");
+	const payloadB64 = signedState.slice(0, dot);
+	const sigB64 = signedState.slice(dot + 1);
+	const key = await crypto.subtle.importKey(
+		"raw",
+		new TextEncoder().encode(secret),
+		{ name: "HMAC", hash: "SHA-256" },
+		false,
+		["verify"],
+	);
+	const sig = Uint8Array.from(
+		Buffer.from(sigB64, "base64url"),
+	);
+	const valid = await crypto.subtle.verify(
+		"HMAC",
+		key,
+		sig,
+		new TextEncoder().encode(payloadB64),
+	);
+	if (!valid) throw new Error("Invalid state signature");
+	return JSON.parse(Buffer.from(payloadB64, "base64url").toString()) as Record<
+		string,
+		string
+	>;
+}
+
+/**
  * Decrypt a base64-encoded AES-256-GCM ciphertext back to plaintext.
  */
 export async function decryptToken(encrypted: string): Promise<string> {

@@ -7,7 +7,7 @@ import {
 	internalQuery,
 	query,
 } from "./_generated/server";
-import { requireOrgAdmin, requireOrgMember } from "./lib/auth";
+import { requireWorkspaceAdmin, requireWorkspaceMember } from "./lib/auth";
 import { getCurrentUsage } from "./lib/planLimits";
 
 // ── Public Queries ───────────────────────────────────────────────────────────
@@ -30,7 +30,6 @@ export const getPlans = query({
 			stripePriceIdYearly: v.optional(v.string()),
 			limits: v.object({
 				maxMembers: v.number(),
-				maxWorkspaces: v.number(),
 				maxStorageGb: v.number(),
 				maxAiMessages: v.number(),
 			}),
@@ -53,9 +52,9 @@ export const getPlans = query({
 	},
 });
 
-/** Get subscription details for an organization (requires org membership) */
-export const getOrgSubscription = query({
-	args: { organizationId: v.id("organizations") },
+/** Get subscription details for a workspace (requires workspace membership) */
+export const getSubscription = query({
+	args: { workspaceId: v.id("workspaces") },
 	returns: v.union(
 		v.object({
 			plan: v.union(
@@ -78,7 +77,6 @@ export const getOrgSubscription = query({
 					stripePriceIdYearly: v.optional(v.string()),
 					limits: v.object({
 						maxMembers: v.number(),
-						maxWorkspaces: v.number(),
 						maxStorageGb: v.number(),
 						maxAiMessages: v.number(),
 					}),
@@ -94,11 +92,11 @@ export const getOrgSubscription = query({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
-		await requireOrgMember(ctx, args.organizationId);
-		const org = await ctx.db.get(args.organizationId);
-		if (!org) return null;
+		await requireWorkspaceMember(ctx, args.workspaceId);
+		const workspace = await ctx.db.get(args.workspaceId);
+		if (!workspace) return null;
 
-		const planKey = org.plan ?? "free";
+		const planKey = workspace.plan ?? "free";
 
 		// Look up plan details from plans table
 		const planDetails = await ctx.db
@@ -109,34 +107,32 @@ export const getOrgSubscription = query({
 		return {
 			plan: planKey,
 			planDetails: planDetails ?? null,
-			stripeCustomerId: org.stripeCustomerId ?? null,
-			subscriptionId: org.subscriptionId ?? null,
-			subscriptionStatus: org.subscriptionStatus ?? null,
+			stripeCustomerId: workspace.stripeCustomerId ?? null,
+			subscriptionId: workspace.subscriptionId ?? null,
+			subscriptionStatus: workspace.subscriptionStatus ?? null,
 		};
 	},
 });
 
-/** Get usage summary for an organization's billing page (requires org membership) */
+/** Get usage summary for a workspace's billing page (requires workspace membership) */
 export const getUsageSummary = query({
-	args: { organizationId: v.id("organizations") },
+	args: { workspaceId: v.id("workspaces") },
 	returns: v.union(
 		v.object({
 			members: v.object({ current: v.number(), max: v.number() }),
-			workspaces: v.object({ current: v.number(), max: v.number() }),
 		}),
 		v.null(),
 	),
 	handler: async (ctx, args) => {
-		await requireOrgMember(ctx, args.organizationId);
-		const org = await ctx.db.get(args.organizationId);
-		if (!org) return null;
+		await requireWorkspaceMember(ctx, args.workspaceId);
+		const workspace = await ctx.db.get(args.workspaceId);
+		if (!workspace) return null;
 
-		const usage = await getCurrentUsage(ctx, args.organizationId);
-		const planKey = org.plan ?? "free";
+		const usage = await getCurrentUsage(ctx, args.workspaceId);
+		const planKey = workspace.plan ?? "free";
 
-		// Determine limits: org override > plans table > free defaults
+		// Determine limits: workspace override > plans table > free defaults
 		let maxMembers = 5;
-		let maxWorkspaces = 2;
 
 		const planRecord = await ctx.db
 			.query("plans")
@@ -145,32 +141,27 @@ export const getUsageSummary = query({
 
 		if (planRecord) {
 			maxMembers = planRecord.limits.maxMembers;
-			maxWorkspaces = planRecord.limits.maxWorkspaces;
 		}
 
-		// Per-org overrides
-		if (org.planLimits?.maxMembers !== undefined) {
-			maxMembers = org.planLimits.maxMembers;
-		}
-		if (org.planLimits?.maxWorkspaces !== undefined) {
-			maxWorkspaces = org.planLimits.maxWorkspaces;
+		// Per-workspace overrides
+		if (workspace.planLimits?.maxMembers !== undefined) {
+			maxMembers = workspace.planLimits.maxMembers;
 		}
 
 		return {
 			members: { current: usage.members, max: maxMembers },
-			workspaces: { current: usage.workspaces, max: maxWorkspaces },
 		};
 	},
 });
 
 // ── Checkout & Portal Actions ─────────────────────────────────────────────
 
-/** Internal query to verify org admin and get billing info (called from actions) */
-export const getOrgForCheckout = internalQuery({
-	args: { organizationId: v.id("organizations") },
+/** Internal query to verify workspace admin and get billing info (called from actions) */
+export const getWorkspaceForCheckout = internalQuery({
+	args: { workspaceId: v.id("workspaces") },
 	returns: v.union(
 		v.object({
-			orgName: v.string(),
+			workspaceName: v.string(),
 			billingEmail: v.union(v.string(), v.null()),
 			stripeCustomerId: v.union(v.string(), v.null()),
 			plan: v.union(
@@ -182,14 +173,14 @@ export const getOrgForCheckout = internalQuery({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
-		await requireOrgAdmin(ctx, args.organizationId);
-		const org = await ctx.db.get(args.organizationId);
-		if (!org) return null;
+		await requireWorkspaceAdmin(ctx, args.workspaceId);
+		const workspace = await ctx.db.get(args.workspaceId);
+		if (!workspace) return null;
 		return {
-			orgName: org.name,
-			billingEmail: org.billingEmail ?? null,
-			stripeCustomerId: org.stripeCustomerId ?? null,
-			plan: org.plan ?? "free",
+			workspaceName: workspace.name,
+			billingEmail: workspace.billingEmail ?? null,
+			stripeCustomerId: workspace.stripeCustomerId ?? null,
+			plan: workspace.plan ?? "free",
 		};
 	},
 });
@@ -197,7 +188,7 @@ export const getOrgForCheckout = internalQuery({
 /** Create Stripe checkout session for plan upgrade. Returns { url: null } if Stripe not configured. */
 export const createCheckoutSession = action({
 	args: {
-		organizationId: v.id("organizations"),
+		workspaceId: v.id("workspaces"),
 		priceId: v.string(),
 		successUrl: v.string(),
 		cancelUrl: v.string(),
@@ -209,22 +200,25 @@ export const createCheckoutSession = action({
 			return { url: null };
 		}
 
-		const orgInfo = await ctx.runQuery(internal.billing.getOrgForCheckout, {
-			organizationId: args.organizationId,
-		});
-		if (!orgInfo) {
-			throw new Error("Organization not found or access denied");
+		const wsInfo = await ctx.runQuery(
+			internal.billing.getWorkspaceForCheckout,
+			{
+				workspaceId: args.workspaceId,
+			},
+		);
+		if (!wsInfo) {
+			throw new Error("Workspace not found or access denied");
 		}
 
 		// Get or create Stripe customer
-		let customerId: string | null = orgInfo.stripeCustomerId;
+		let customerId: string | null = wsInfo.stripeCustomerId;
 		if (!customerId) {
 			const params = new URLSearchParams({
-				name: orgInfo.orgName,
-				"metadata[orgId]": args.organizationId,
+				name: wsInfo.workspaceName,
+				"metadata[workspaceId]": args.workspaceId,
 			});
-			if (orgInfo.billingEmail) {
-				params.set("email", orgInfo.billingEmail);
+			if (wsInfo.billingEmail) {
+				params.set("email", wsInfo.billingEmail);
 			}
 
 			const createRes = await fetch("https://api.stripe.com/v1/customers", {
@@ -244,9 +238,9 @@ export const createCheckoutSession = action({
 			const customer: { id: string } = await createRes.json();
 			customerId = customer.id;
 
-			// Link customer to org
+			// Link customer to workspace
 			await ctx.runMutation(internal.billing.linkStripeCustomer, {
-				organizationId: args.organizationId,
+				workspaceId: args.workspaceId,
 				stripeCustomerId: customerId,
 			});
 		}
@@ -259,7 +253,7 @@ export const createCheckoutSession = action({
 			mode: "subscription",
 			success_url: args.successUrl,
 			cancel_url: args.cancelUrl,
-			"metadata[orgId]": args.organizationId,
+			"metadata[workspaceId]": args.workspaceId,
 		});
 
 		const checkoutRes: Response = await fetch(
@@ -288,7 +282,7 @@ export const createCheckoutSession = action({
 /** Create Stripe customer portal session. Returns { url: null } if Stripe not configured. */
 export const createPortalSession = action({
 	args: {
-		organizationId: v.id("organizations"),
+		workspaceId: v.id("workspaces"),
 		returnUrl: v.string(),
 	},
 	returns: v.object({ url: v.union(v.string(), v.null()) }),
@@ -298,27 +292,30 @@ export const createPortalSession = action({
 			return { url: null };
 		}
 
-		const orgInfo: {
-			orgName: string;
+		const wsInfo: {
+			workspaceName: string;
 			billingEmail: string | null;
 			stripeCustomerId: string | null;
 			plan: "free" | "pro" | "enterprise";
-		} | null = await ctx.runQuery(internal.billing.getOrgForCheckout, {
-			organizationId: args.organizationId,
-		});
-		if (!orgInfo) {
-			throw new Error("Organization not found or access denied");
+		} | null = await ctx.runQuery(
+			internal.billing.getWorkspaceForCheckout,
+			{
+				workspaceId: args.workspaceId,
+			},
+		);
+		if (!wsInfo) {
+			throw new Error("Workspace not found or access denied");
 		}
 
-		if (!orgInfo.stripeCustomerId) {
+		if (!wsInfo.stripeCustomerId) {
 			console.warn(
-				"[Billing] createPortalSession: No Stripe customer linked to org",
+				"[Billing] createPortalSession: No Stripe customer linked to workspace",
 			);
 			return { url: null };
 		}
 
 		const portalParams: URLSearchParams = new URLSearchParams({
-			customer: orgInfo.stripeCustomerId,
+			customer: wsInfo.stripeCustomerId,
 			return_url: args.returnUrl,
 		});
 
@@ -359,7 +356,6 @@ export const seedPlans = internalMutation({
 				description: "For individuals and small teams getting started",
 				limits: {
 					maxMembers: 5,
-					maxWorkspaces: 2,
 					maxStorageGb: 1,
 					maxAiMessages: 100,
 				},
@@ -372,7 +368,6 @@ export const seedPlans = internalMutation({
 				description: "For growing teams that need more power",
 				limits: {
 					maxMembers: 25,
-					maxWorkspaces: 10,
 					maxStorageGb: 10,
 					maxAiMessages: 1000,
 				},
@@ -390,10 +385,9 @@ export const seedPlans = internalMutation({
 			{
 				key: "enterprise" as const,
 				name: "Enterprise",
-				description: "For large organizations with advanced needs",
+				description: "For large teams with advanced needs",
 				limits: {
 					maxMembers: 999999,
-					maxWorkspaces: 999999,
 					maxStorageGb: 999999,
 					maxAiMessages: 999999,
 				},
@@ -427,8 +421,8 @@ export const seedPlans = internalMutation({
 	},
 });
 
-/** Update org subscription status (called by Stripe webhook handler) */
-export const updateOrgSubscriptionStatus = internalMutation({
+/** Update workspace subscription status (called by Stripe webhook handler) */
+export const updateSubscriptionStatus = internalMutation({
 	args: {
 		stripeCustomerId: v.string(),
 		subscriptionId: v.optional(v.string()),
@@ -439,17 +433,17 @@ export const updateOrgSubscriptionStatus = internalMutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		// Find org by stripeCustomerId
-		const org = await ctx.db
-			.query("organizations")
+		// Find workspace by stripeCustomerId
+		const workspace = await ctx.db
+			.query("workspaces")
 			.withIndex("by_stripe_customer", (q) =>
 				q.eq("stripeCustomerId", args.stripeCustomerId),
 			)
 			.unique();
 
-		if (!org) {
+		if (!workspace) {
 			console.warn(
-				`[Billing] No organization found for Stripe customer: ${args.stripeCustomerId}`,
+				`[Billing] No workspace found for Stripe customer: ${args.stripeCustomerId}`,
 			);
 			return null;
 		}
@@ -467,25 +461,25 @@ export const updateOrgSubscriptionStatus = internalMutation({
 			patch.plan = args.plan;
 		}
 
-		await ctx.db.patch(org._id, patch);
+		await ctx.db.patch(workspace._id, patch);
 		return null;
 	},
 });
 
-/** Link a Stripe customer ID to an organization (called by webhook on checkout) */
+/** Link a Stripe customer ID to a workspace (called by webhook on checkout) */
 export const linkStripeCustomer = internalMutation({
 	args: {
-		organizationId: v.id("organizations"),
+		workspaceId: v.id("workspaces"),
 		stripeCustomerId: v.string(),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		const org = await ctx.db.get(args.organizationId);
-		if (!org) {
-			console.warn(`[Billing] Organization not found: ${args.organizationId}`);
+		const workspace = await ctx.db.get(args.workspaceId);
+		if (!workspace) {
+			console.warn(`[Billing] Workspace not found: ${args.workspaceId}`);
 			return null;
 		}
-		await ctx.db.patch(org._id, {
+		await ctx.db.patch(workspace._id, {
 			stripeCustomerId: args.stripeCustomerId,
 			updatedAt: Date.now(),
 		});
@@ -495,9 +489,9 @@ export const linkStripeCustomer = internalMutation({
 
 // ── Seat Sync ─────────────────────────────────────────────────────────────
 
-/** Get org details and member count (used by syncSeatCount action) */
-export const getOrgSeatInfo = internalQuery({
-	args: { organizationId: v.id("organizations") },
+/** Get workspace details and member count (used by syncSeatCount action) */
+export const getWorkspaceSeatInfo = internalQuery({
+	args: { workspaceId: v.id("workspaces") },
 	returns: v.union(
 		v.object({
 			memberCount: v.number(),
@@ -507,18 +501,18 @@ export const getOrgSeatInfo = internalQuery({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
-		const org = await ctx.db.get(args.organizationId);
-		if (!org) return null;
+		const workspace = await ctx.db.get(args.workspaceId);
+		if (!workspace) return null;
 
 		const members = await ctx.db
-			.query("organizationMembers")
-			.withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
+			.query("workspaceMembers")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 
 		return {
 			memberCount: members.length,
-			subscriptionId: org.subscriptionId ?? null,
-			stripeCustomerId: org.stripeCustomerId ?? null,
+			subscriptionId: workspace.subscriptionId ?? null,
+			stripeCustomerId: workspace.stripeCustomerId ?? null,
 		};
 	},
 });
@@ -526,19 +520,22 @@ export const getOrgSeatInfo = internalQuery({
 /**
  * Sync seat count to Stripe subscription.
  * Fire-and-forget: called via ctx.scheduler.runAfter(0, ...) from member mutations.
- * No-op if Stripe is not configured or org has no subscription.
+ * No-op if Stripe is not configured or workspace has no subscription.
  */
 export const syncSeatCount = internalAction({
-	args: { organizationId: v.id("organizations") },
+	args: { workspaceId: v.id("workspaces") },
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		const seatInfo = await ctx.runQuery(internal.billing.getOrgSeatInfo, {
-			organizationId: args.organizationId,
-		});
+		const seatInfo = await ctx.runQuery(
+			internal.billing.getWorkspaceSeatInfo,
+			{
+				workspaceId: args.workspaceId,
+			},
+		);
 
 		if (!seatInfo) {
 			console.warn(
-				`[Billing] syncSeatCount: organization not found: ${args.organizationId}`,
+				`[Billing] syncSeatCount: workspace not found: ${args.workspaceId}`,
 			);
 			return null;
 		}

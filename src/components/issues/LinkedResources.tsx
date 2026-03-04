@@ -27,7 +27,7 @@ export function LinkedResources({
 	linkedDocumentIds,
 	linkedWhiteboardIds,
 }: LinkedResourcesProps) {
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const unlinkResource = useMutation(api.issues.unlinkResource);
 	const removeFile = useMutation(api.files.remove);
 	const fileAttachments = useQuery(api.files.listByIssue, { issueId });
@@ -66,7 +66,7 @@ export function LinkedResources({
 					key={docId}
 					docId={docId}
 					workspaceSlug={workspaceSlug}
-					orgSlug={orgSlug}
+	
 					onUnlink={() => handleUnlink("document", docId)}
 				/>
 			))}
@@ -75,7 +75,7 @@ export function LinkedResources({
 					key={boardId}
 					boardId={boardId}
 					workspaceSlug={workspaceSlug}
-					orgSlug={orgSlug}
+	
 					onUnlink={() => handleUnlink("whiteboard", boardId)}
 				/>
 			))}
@@ -122,12 +122,10 @@ function getFileIcon(mimeType?: string) {
 function LinkedDocCard({
 	docId,
 	workspaceSlug,
-	orgSlug,
 	onUnlink,
 }: {
 	docId: Id<"documents">;
 	workspaceSlug: string;
-	orgSlug: string;
 	onUnlink: () => void;
 }) {
 	const doc = useQuery(api.documents.getById, { documentId: docId });
@@ -138,7 +136,7 @@ function LinkedDocCard({
 		<div className="group/card flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs">
 			<FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 			<Link
-				href={`/${orgSlug}/${workspaceSlug}/docs/${docId}`}
+				href={`/${workspaceSlug}/docs/${docId}`}
 				className="truncate max-w-[160px] hover:text-primary transition-colors"
 				prefetch={false}
 			>
@@ -159,12 +157,10 @@ function LinkedDocCard({
 function LinkedBoardCard({
 	boardId,
 	workspaceSlug,
-	orgSlug,
 	onUnlink,
 }: {
 	boardId: Id<"whiteboards">;
 	workspaceSlug: string;
-	orgSlug: string;
 	onUnlink: () => void;
 }) {
 	const board = useQuery(api.whiteboards.getById, { whiteboardId: boardId });
@@ -179,7 +175,7 @@ function LinkedBoardCard({
 				<PenLine className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 			)}
 			<Link
-				href={`/${orgSlug}/${workspaceSlug}/boards/${boardId}`}
+				href={`/${workspaceSlug}/boards/${boardId}`}
 				className="truncate max-w-[160px] hover:text-primary transition-colors"
 				prefetch={false}
 			>

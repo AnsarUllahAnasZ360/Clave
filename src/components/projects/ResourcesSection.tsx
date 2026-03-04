@@ -250,7 +250,7 @@ const TYPE_ICONS = {
 
 function LinkedDocumentRow({ item }: { item: LinkedItem }) {
 	const router = useRouter();
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const unlinkDocument = useMutation(api.documents.unlinkFromProject);
 	const unlinkWhiteboard = useMutation(api.whiteboards.unlinkFromProject);
 
@@ -265,12 +265,12 @@ function LinkedDocumentRow({ item }: { item: LinkedItem }) {
 	const handleClick = useCallback(() => {
 		if (item.type === "document") {
 			// biome-ignore lint/suspicious/noExplicitAny: route created in STORY-010
-			router.push(`/${orgSlug}/${workspaceSlug}/docs/${item.id}` as any);
+			router.push(`/${workspaceSlug}/docs/${item.id}` as any);
 			return;
 		}
 		// biome-ignore lint/suspicious/noExplicitAny: route created in STORY-011
-		router.push(`/${orgSlug}/${workspaceSlug}/boards/${item.id}` as any);
-	}, [item, router, workspaceSlug, orgSlug]);
+		router.push(`/${workspaceSlug}/boards/${item.id}` as any);
+	}, [item, router, workspaceSlug]);
 
 	const handleUnlink = useCallback(
 		async (e: React.MouseEvent) => {

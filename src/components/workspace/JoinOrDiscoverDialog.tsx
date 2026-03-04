@@ -31,8 +31,7 @@ export function JoinOrDiscoverDialog({
 				<DialogHeader>
 					<DialogTitle>Join a workspace</DialogTitle>
 					<DialogDescription>
-						Discover public workspaces in your organization or enter an invite
-						code.
+						Discover public workspaces or enter an invite code to join.
 					</DialogDescription>
 				</DialogHeader>
 

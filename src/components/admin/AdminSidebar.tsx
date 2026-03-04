@@ -2,7 +2,6 @@
 
 import {
 	ArrowLeft,
-	Buildings,
 	ChartBar,
 	House,
 	UsersThree,
@@ -29,11 +28,6 @@ const adminNavItems = [
 		title: "Dashboard",
 		url: "/admin",
 		icon: House,
-	},
-	{
-		title: "Organizations",
-		url: "/admin/organizations",
-		icon: Buildings,
 	},
 	{
 		title: "Users",

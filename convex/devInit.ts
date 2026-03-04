@@ -23,12 +23,11 @@ export const clearDatabase = action({
 	},
 });
 
-/** Ensure the authenticated dev user is a member of an org + workspace.
+/** Ensure the authenticated dev user is a member of a workspace.
  *  Handles multiple scenarios:
- *  - Seed ran before org model existed (workspace has no organizationId)
  *  - Auth user ID differs from seed user ID
- *  - User has org but workspace isn't linked to it
- *  Creates missing org/membership records and links orphan workspaces. */
+ *  - User has no workspace membership
+ *  Creates missing membership records and ensures workspace access. */
 export const ensureDevWorkspaceMember = mutation({
 	args: {},
 	returns: v.null(),
@@ -60,94 +59,14 @@ export const ensureDevWorkspaceMember = mutation({
 			await ctx.db.patch(userId, { role: "superadmin" });
 		}
 
-		// ── 1. Find or create an organization ───────────────────────────
-		// Check user's existing org memberships first
-		const existingMemberships = await ctx.db
-			.query("organizationMembers")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-
-		let organizationId = existingMemberships[0]?.organizationId ?? null;
-		const existingOrgMembership = existingMemberships[0] ?? null;
-
-		// If no membership, look for the seed org "clave" or any existing org
-		if (!organizationId) {
-			const seedOrg = await ctx.db
-				.query("organizations")
-				.withIndex("by_slug", (q) => q.eq("slug", "clave"))
-				.unique();
-
-			if (seedOrg) {
-				organizationId = seedOrg._id;
-			} else {
-				// Look for any org the user owns
-				const ownedOrg = await ctx.db
-					.query("organizations")
-					.withIndex("by_owner", (q) => q.eq("ownerId", userId))
-					.first();
-
-				if (ownedOrg) {
-					organizationId = ownedOrg._id;
-				} else {
-					// Create a default org
-					organizationId = await ctx.db.insert("organizations", {
-						name: "Clave",
-						slug: "clave",
-						ownerId: userId,
-						plan: "free",
-						createdAt: now,
-						updatedAt: now,
-					});
-				}
-			}
-
-			// Add user as member of the org
-			await ctx.db.insert("organizationMembers", {
-				organizationId,
-				userId,
-				role: isOwner ? "owner" : isAdmin ? "admin" : "member",
-				joinedAt: now,
-			});
-		}
-
-		if (organizationId && existingOrgMembership) {
-			const desiredRole = isOwner ? "owner" : isAdmin ? "admin" : "member";
-			if (existingOrgMembership.role !== desiredRole) {
-				await ctx.db.patch(existingOrgMembership._id, { role: desiredRole });
-			}
-		}
-
-		// Update org owner if this is Kul
-		if (isOwner) {
-			const org = await ctx.db.get(organizationId);
-			if (org && org.ownerId !== userId) {
-				await ctx.db.patch(organizationId, { ownerId: userId });
-			}
-		}
-
-		// ── 2. Fix orphan workspaces (no organizationId) ────────────────
-		const wsMemberships = await ctx.db
-			.query("workspaceMembers")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-
-		for (const wm of wsMemberships) {
-			const ws = await ctx.db.get(wm.workspaceId);
-			if (ws && !ws.organizationId) {
-				await ctx.db.patch(ws._id, { organizationId });
-			}
-		}
-
-		// Also fix workspaces owned by this user that are missing organizationId
+		// ── 1. Ensure workspace membership for owned workspaces ─────────
 		const allWorkspaces = await ctx.db
 			.query("workspaces")
 			.filter((q) => q.eq(q.field("ownerId"), userId))
 			.collect();
 
 		for (const ws of allWorkspaces) {
-			if (!ws.organizationId && !ws.deletedAt) {
-				await ctx.db.patch(ws._id, { organizationId });
-				// Also ensure workspace membership exists
+			if (!ws.deletedAt) {
 				const existingMember = await ctx.db
 					.query("workspaceMembers")
 					.withIndex("by_workspace_user", (q) =>
@@ -165,17 +84,13 @@ export const ensureDevWorkspaceMember = mutation({
 			}
 		}
 
-		// Also fix the well-known seed workspace even if user isn't a member yet
+		// ── 2. Ensure membership in the well-known seed workspace ───────
 		const seedWorkspace = await ctx.db
 			.query("workspaces")
 			.withIndex("by_slug", (q) => q.eq("slug", "clave-hq"))
 			.unique();
 
 		if (seedWorkspace) {
-			if (!seedWorkspace.organizationId) {
-				await ctx.db.patch(seedWorkspace._id, { organizationId });
-			}
-
 			// Ensure workspace membership
 			const existingWsMember = await ctx.db
 				.query("workspaceMembers")
@@ -199,6 +114,29 @@ export const ensureDevWorkspaceMember = mutation({
 			if (isOwner && seedWorkspace.ownerId !== userId) {
 				await ctx.db.patch(seedWorkspace._id, { ownerId: userId });
 			}
+		}
+
+		// ── 3. Fallback: create a personal workspace if user still has none ─
+		const finalWsMemberships = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+
+		if (finalWsMemberships.length === 0) {
+			const workspaceId = await ctx.db.insert("workspaces", {
+				name: "My Workspace",
+				slug: `dev-${userId.slice(-8)}`,
+				ownerId: userId,
+				visibility: "private" as const,
+				createdAt: now,
+				updatedAt: now,
+			});
+			await ctx.db.insert("workspaceMembers", {
+				workspaceId,
+				userId,
+				role: "admin",
+				joinedAt: now,
+			});
 		}
 
 		return null;

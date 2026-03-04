@@ -116,7 +116,7 @@ const MILESTONE_ROW_HEIGHT = 32;
 // ── Component ─────────────────────────────────────────────────────────────
 
 export function IssueTimelineView({ projectId }: IssueTimelineViewProps) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	// ── Data queries ────────────────────────────────────────────────────
 	const issues = useQuery(api.issues.listByProject, { projectId });
@@ -660,7 +660,6 @@ export function IssueTimelineView({ projectId }: IssueTimelineViewProps) {
 										viewMode={viewMode}
 										memberMap={memberMap}
 										workspaceSlug={workspaceSlug}
-										orgSlug={orgSlug}
 										onDragEnd={handleDragEnd}
 									/>
 								))}
@@ -750,7 +749,7 @@ export function IssueTimelineView({ projectId }: IssueTimelineViewProps) {
 											{issue.identifier}
 										</span>
 										<Link
-											href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
+											href={`/${workspaceSlug}/issues/${issue.identifier}`}
 											className="text-sm truncate hover:underline flex-1 min-w-0"
 											prefetch={false}
 										>
@@ -823,7 +822,6 @@ function IssueTimelineRow({
 	viewMode,
 	memberMap,
 	workspaceSlug,
-	orgSlug,
 	onDragEnd,
 }: {
 	issue: IssueTimelineData & { startDate: number; dueDate: number };
@@ -834,7 +832,6 @@ function IssueTimelineRow({
 	viewMode: ViewMode;
 	memberMap: Map<string, MemberInfo>;
 	workspaceSlug: string;
-	orgSlug: string;
 	onDragEnd: (
 		issueId: Id<"issues">,
 		newStartDate: number,
@@ -950,7 +947,7 @@ function IssueTimelineRow({
 					{issue.identifier}
 				</span>
 				<Link
-					href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
+					href={`/${workspaceSlug}/issues/${issue.identifier}`}
 					className="text-sm truncate hover:underline flex-1 min-w-0"
 					prefetch={false}
 				>

@@ -416,7 +416,6 @@ export const AssistantMessage = memo(
 		const parts = message.parts;
 		const workspace = useWorkspaceOptional();
 		const workspaceSlug = workspace?.workspaceSlug ?? "";
-		const orgSlug = workspace?.orgSlug ?? "";
 
 		const hasToolParts = parts.some((p) => isToolPart(p as { type: string }));
 		const hasReasoningParts = parts.some((p) =>
@@ -491,7 +490,6 @@ export const AssistantMessage = memo(
 					<SearchResultsList
 						key={`search-${toolGroup[0].key}`}
 						results={pendingSearchResults}
-						orgSlug={orgSlug}
 						workspaceSlug={workspaceSlug}
 					/>,
 				);

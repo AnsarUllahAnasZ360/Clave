@@ -6,7 +6,6 @@ import StarterKit from "@tiptap/starter-kit";
 import { Paperclip } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo } from "react";
-import { useWorkspaceOptional } from "@/components/providers/workspace-context";
 import { CustomMention } from "./mention-extension";
 import "@/styles/tiptap.css";
 
@@ -24,7 +23,7 @@ type CommentContentProps = {
 	attachments?: CommentAttachment[];
 };
 
-function buildReadOnlyExtensions(workspaceSlug?: string, orgSlug?: string) {
+function buildReadOnlyExtensions(workspaceSlug?: string) {
 	return [
 		StarterKit.configure({
 			heading: false,
@@ -63,14 +62,11 @@ function buildReadOnlyExtensions(workspaceSlug?: string, orgSlug?: string) {
 				}
 
 				if (workspaceSlug && entityType === "document") {
-					const base = orgSlug
-						? `/${orgSlug}/${workspaceSlug}`
-						: `/${workspaceSlug}`;
 					return [
 						"a",
 						mergeAttributes(options.HTMLAttributes, {
 							...attrs,
-							href: `${base}/docs/${id}`,
+							href: `/${workspaceSlug}/docs/${id}`,
 							class: "mention-chip mention-chip--link",
 						}),
 						`@${node.attrs.label ?? id}`,
@@ -78,14 +74,11 @@ function buildReadOnlyExtensions(workspaceSlug?: string, orgSlug?: string) {
 				}
 
 				if (workspaceSlug && entityType === "whiteboard") {
-					const base = orgSlug
-						? `/${orgSlug}/${workspaceSlug}`
-						: `/${workspaceSlug}`;
 					return [
 						"a",
 						mergeAttributes(options.HTMLAttributes, {
 							...attrs,
-							href: `${base}/boards/${id}`,
+							href: `/${workspaceSlug}/boards/${id}`,
 							class: "mention-chip mention-chip--link",
 						}),
 						`@${node.attrs.label ?? id}`,
@@ -175,12 +168,9 @@ function RichContent({
 	workspaceSlug?: string;
 }) {
 	const router = useRouter();
-	const workspace = useWorkspaceOptional();
-	const orgSlug = workspace?.orgSlug;
-
 	const extensions = useMemo(
-		() => buildReadOnlyExtensions(workspaceSlug, orgSlug),
-		[workspaceSlug, orgSlug],
+		() => buildReadOnlyExtensions(workspaceSlug),
+		[workspaceSlug],
 	);
 
 	const editor = useEditor({

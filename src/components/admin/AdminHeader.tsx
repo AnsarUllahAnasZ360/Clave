@@ -14,7 +14,8 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 function getPageTitle(pathname: string): string {
 	if (pathname === "/admin") return "Dashboard";
-	if (pathname.startsWith("/admin/organizations")) return "Organizations";
+
+
 	if (pathname.startsWith("/admin/users")) return "Users";
 	if (pathname.startsWith("/admin/analytics")) return "Analytics";
 	return "Control";

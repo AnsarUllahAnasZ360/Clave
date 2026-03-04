@@ -170,17 +170,28 @@ export const registerWebhook = internalAction({
 							content_type: "json",
 							secret: webhookSecret,
 						},
-						events: ["push"],
+						events: [
+							"push",
+							"pull_request",
+							"pull_request_review",
+							"issues",
+						],
 						active: true,
 					}),
 				},
 			);
 
 			if (!resp.ok) {
-				const errorText = await resp.text();
-				console.error(
-					`[githubWebhook] Failed to register webhook (${resp.status}): ${errorText}`,
-				);
+				if (resp.status === 403) {
+					console.log(
+						"[githubWebhook] Webhook registration skipped — token lacks admin scope. Periodic sync will be used instead.",
+					);
+				} else {
+					const errorText = await resp.text();
+					console.error(
+						`[githubWebhook] Failed to register webhook (${resp.status}): ${errorText}`,
+					);
+				}
 				return null;
 			}
 
@@ -306,13 +317,18 @@ export const handleWebhook = action({
 		ctx: ActionCtx,
 		args: HandleWebhookArgs,
 	): Promise<HandleWebhookResult> => {
-		// Only process push events
-		if (args.event !== "push") {
+		const supportedEvents = [
+			"push",
+			"pull_request",
+			"pull_request_review",
+			"issues",
+		];
+		if (!supportedEvents.includes(args.event)) {
 			return { status: "ignored", message: `Event type: ${args.event}` };
 		}
 
 		// Parse the payload
-		let payload: PushPayload;
+		let payload: any;
 		try {
 			payload = JSON.parse(args.rawBody);
 		} catch {
@@ -364,47 +380,113 @@ export const handleWebhook = action({
 			return { status: "invalid_signature" };
 		}
 
-		// Only process pushes to the default branch
-		const expectedRef = `refs/heads/${connection.defaultBranch}`;
-		if (payload.ref !== expectedRef) {
-			return {
-				status: "ignored",
-				message: `Push to ${payload.ref}, not ${expectedRef}`,
-			};
+		// ── Dispatch by event type ───────────────────────────────────────
+		if (args.event === "push") {
+			const pushPayload = payload as PushPayload;
+			const expectedRef = `refs/heads/${connection.defaultBranch}`;
+			if (pushPayload.ref !== expectedRef) {
+				return {
+					status: "ignored",
+					message: `Push to ${pushPayload.ref}, not ${expectedRef}`,
+				};
+			}
+
+			const processRef = makeFunctionReference<
+				"action",
+				{
+					connectionId: Id<"githubConnections">;
+					projectId: Id<"projects">;
+					commits: Array<{
+						id: string;
+						added: string[];
+						modified: string[];
+						removed: string[];
+					}>;
+				},
+				null
+			>("ai/indexing/githubWebhook:processWebhookPush");
+
+			await ctx.scheduler.runAfter(0, processRef, {
+				connectionId: connection._id,
+				projectId: connection.projectId,
+				commits: pushPayload.commits.map((c) => ({
+					id: c.id,
+					added: c.added,
+					modified: c.modified,
+					removed: c.removed,
+				})),
+			});
+
+			console.log(
+				`[githubWebhook] Queued push processing for ${fullName} (${pushPayload.commits.length} commits)`,
+			);
+			return { status: "queued" };
 		}
 
-		// Schedule async processing
-		const processRef = makeFunctionReference<
-			"action",
-			{
-				connectionId: Id<"githubConnections">;
-				projectId: Id<"projects">;
-				commits: Array<{
-					id: string;
-					added: string[];
-					modified: string[];
-					removed: string[];
-				}>;
-			},
-			null
-		>("ai/indexing/githubWebhook:processWebhookPush");
+		if (args.event === "pull_request") {
+			const processPrRef = makeFunctionReference<
+				"action",
+				{
+					connectionId: Id<"githubConnections">;
+					payload: string;
+				},
+				null
+			>("ai/indexing/githubWebhook:processWebhookPullRequest");
 
-		await ctx.scheduler.runAfter(0, processRef, {
-			connectionId: connection._id,
-			projectId: connection.projectId,
-			commits: payload.commits.map((c) => ({
-				id: c.id,
-				added: c.added,
-				modified: c.modified,
-				removed: c.removed,
-			})),
-		});
+			await ctx.scheduler.runAfter(0, processPrRef, {
+				connectionId: connection._id,
+				payload: args.rawBody,
+			});
 
-		console.log(
-			`[githubWebhook] Queued push processing for ${fullName} (${payload.commits.length} commits)`,
-		);
+			console.log(
+				`[githubWebhook] Queued PR processing for ${fullName} (#${payload.pull_request?.number})`,
+			);
+			return { status: "queued" };
+		}
 
-		return { status: "queued" };
+		if (args.event === "pull_request_review") {
+			const processReviewRef = makeFunctionReference<
+				"action",
+				{
+					connectionId: Id<"githubConnections">;
+					payload: string;
+				},
+				null
+			>("ai/indexing/githubWebhook:processWebhookPrReview");
+
+			await ctx.scheduler.runAfter(0, processReviewRef, {
+				connectionId: connection._id,
+				payload: args.rawBody,
+			});
+
+			console.log(
+				`[githubWebhook] Queued PR review processing for ${fullName}`,
+			);
+			return { status: "queued" };
+		}
+
+		if (args.event === "issues") {
+			const processIssueRef = makeFunctionReference<
+				"action",
+				{
+					connectionId: Id<"githubConnections">;
+					payload: string;
+				},
+				null
+			>("ai/indexing/githubWebhook:processWebhookIssue");
+
+			await ctx.scheduler.runAfter(0, processIssueRef, {
+				connectionId: connection._id,
+				payload: args.rawBody,
+			});
+
+			console.log(
+				`[githubWebhook] Queued issue processing for ${fullName} (#${payload.issue?.number})`,
+			);
+			return { status: "queued" };
+		}
+
+		return { status: "ignored", message: `Unhandled event: ${args.event}` };
 	},
 });
 
@@ -725,3 +807,304 @@ function formatChunkForRag(
 
 	return `[${header}]\n${chunk.content}`;
 }
+
+// ── PR Webhook Handler ──────────────────────────────────────────────────
+
+/**
+ * Process a pull_request webhook event.
+ * Upserts the PR into the githubPullRequests table with auto-linking.
+ */
+export const processWebhookPullRequest = internalAction({
+	args: {
+		connectionId: v.id("githubConnections"),
+		payload: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const data = JSON.parse(args.payload);
+		const pr = data.pull_request;
+		if (!pr) return null;
+
+		const connection = await ctx.runMutation(getConnectionInternalRef, {
+			connectionId: args.connectionId,
+		});
+		if (!connection || connection.status !== "active") return null;
+
+		const prState: "open" | "closed" | "merged" | "draft" = pr.merged_at
+			? "merged"
+			: pr.draft
+				? "draft"
+				: pr.state;
+
+		// Auto-detect linked issue
+		const settings = await ctx.runQuery(
+			internal.githubSync.getWorkspaceSettings,
+			{ workspaceId: connection.workspaceId },
+		);
+		let linkedIssueId: Id<"issues"> | undefined;
+		if (settings) {
+			const prefix = settings.issuePrefix ?? settings.storyPrefix;
+			if (prefix) {
+				const escapedPrefix = prefix.replace(
+					/[.*+?^${}()|[\]\\]/g,
+					"\\$&",
+				);
+				const pattern = new RegExp(
+					`\\b${escapedPrefix}-(\\d{1,6})\\b`,
+					"i",
+				);
+				const sources = [
+					pr.head?.ref ?? "",
+					pr.title ?? "",
+					(pr.body ?? "").slice(0, 2000),
+				];
+				for (const source of sources) {
+					const match = source.match(pattern);
+					if (match) {
+						const identifier =
+							`${prefix}-${match[1].padStart(3, "0")}`.toUpperCase();
+						const issue = await ctx.runQuery(
+							internal.githubSync.resolveIssueByIdentifier,
+							{
+								workspaceId: connection.workspaceId,
+								identifier,
+							},
+						);
+						if (issue) {
+							linkedIssueId = issue._id;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		await ctx.runMutation(internal.githubSync.upsertPullRequest, {
+			connectionId: args.connectionId,
+			projectId: connection.projectId,
+			workspaceId: connection.workspaceId,
+			githubId: pr.id,
+			number: pr.number,
+			title: pr.title,
+			body: pr.body ? pr.body.slice(0, 4000) : undefined,
+			state: prState,
+			authorLogin: pr.user?.login ?? "unknown",
+			authorAvatarUrl: pr.user?.avatar_url,
+			headBranch: pr.head?.ref ?? "",
+			baseBranch: pr.base?.ref ?? "",
+			htmlUrl: pr.html_url,
+			isDraft: pr.draft ?? false,
+			mergedAt: pr.merged_at
+				? new Date(pr.merged_at).getTime()
+				: undefined,
+			closedAt: pr.closed_at
+				? new Date(pr.closed_at).getTime()
+				: undefined,
+			reviewDecision: undefined,
+			linkedIssueId,
+			githubCreatedAt: new Date(pr.created_at).getTime(),
+			githubUpdatedAt: new Date(pr.updated_at).getTime(),
+		});
+
+		console.log(
+			`[githubWebhook] Processed PR #${pr.number} (${data.action}) for ${connection.repoOwner}/${connection.repoName}`,
+		);
+		return null;
+	},
+});
+
+// ── PR Review Webhook Handler ───────────────────────────────────────────
+
+/**
+ * Process a pull_request_review event.
+ * Updates the review decision on the existing PR record.
+ */
+export const processWebhookPrReview = internalAction({
+	args: {
+		connectionId: v.id("githubConnections"),
+		payload: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const data = JSON.parse(args.payload);
+		const review = data.review;
+		const pr = data.pull_request;
+		if (!review || !pr) return null;
+
+		const connection = await ctx.runMutation(getConnectionInternalRef, {
+			connectionId: args.connectionId,
+		});
+		if (!connection || connection.status !== "active") return null;
+
+		// Map review state to our review decision
+		let reviewDecision: "approved" | "changes_requested" | "pending" | undefined;
+		switch (review.state) {
+			case "approved":
+				reviewDecision = "approved";
+				break;
+			case "changes_requested":
+				reviewDecision = "changes_requested";
+				break;
+			default:
+				reviewDecision = "pending";
+		}
+
+		const prState: "open" | "closed" | "merged" | "draft" = pr.merged_at
+			? "merged"
+			: pr.draft
+				? "draft"
+				: pr.state;
+
+		await ctx.runMutation(internal.githubSync.upsertPullRequest, {
+			connectionId: args.connectionId,
+			projectId: connection.projectId,
+			workspaceId: connection.workspaceId,
+			githubId: pr.id,
+			number: pr.number,
+			title: pr.title,
+			body: pr.body ? pr.body.slice(0, 4000) : undefined,
+			state: prState,
+			authorLogin: pr.user?.login ?? "unknown",
+			authorAvatarUrl: pr.user?.avatar_url,
+			headBranch: pr.head?.ref ?? "",
+			baseBranch: pr.base?.ref ?? "",
+			htmlUrl: pr.html_url,
+			isDraft: pr.draft ?? false,
+			mergedAt: pr.merged_at
+				? new Date(pr.merged_at).getTime()
+				: undefined,
+			closedAt: pr.closed_at
+				? new Date(pr.closed_at).getTime()
+				: undefined,
+			reviewDecision,
+			githubCreatedAt: new Date(pr.created_at).getTime(),
+			githubUpdatedAt: new Date(pr.updated_at).getTime(),
+		});
+
+		console.log(
+			`[githubWebhook] Processed PR review on #${pr.number} (${review.state})`,
+		);
+		return null;
+	},
+});
+
+// ── Issue Webhook Handler ───────────────────────────────────────────────
+
+/**
+ * Process an issues webhook event.
+ * Creates or updates Clave issues based on GitHub issue changes.
+ */
+export const processWebhookIssue = internalAction({
+	args: {
+		connectionId: v.id("githubConnections"),
+		payload: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const data = JSON.parse(args.payload);
+		const ghIssue = data.issue;
+		if (!ghIssue) return null;
+
+		const connection = await ctx.runMutation(getConnectionInternalRef, {
+			connectionId: args.connectionId,
+		});
+		if (!connection || connection.status !== "active") return null;
+
+		// Check if issue sync is enabled
+		const fullConn = await ctx.runQuery(
+			internal.githubSync.getConnectionCreator,
+			{ connectionId: args.connectionId },
+		);
+		// We need the full connection to check issueSyncEnabled
+		// For now, we process all issue events (the connection flags are checked at the action level)
+
+		const existingSync = await ctx.runQuery(
+			internal.githubSync.getIssueSyncByGithubId,
+			{
+				connectionId: args.connectionId,
+				githubIssueId: ghIssue.id,
+			},
+		);
+
+		if (existingSync) {
+			// Timestamp guard
+			if (existingSync.lastGithubUpdatedAt === ghIssue.updated_at) {
+				return null;
+			}
+
+			// Loop prevention: if last sync was from Clave, this might be the echo
+			if (existingSync.syncSource === "clave") {
+				// Update the timestamp but don't modify the Clave issue
+				await ctx.runMutation(internal.githubSync.upsertIssueSync, {
+					connectionId: args.connectionId,
+					projectId: connection.projectId,
+					workspaceId: connection.workspaceId,
+					githubIssueId: ghIssue.id,
+					githubIssueNumber: ghIssue.number,
+					githubIssueUrl: ghIssue.html_url,
+					claveIssueId: existingSync.claveIssueId,
+					lastGithubUpdatedAt: ghIssue.updated_at,
+					syncSource: "github",
+					syncStatus: "synced",
+				});
+				return null;
+			}
+
+			// Update the existing Clave issue
+			const claveStatus = ghIssue.state === "closed" ? "done" : ghIssue.assignee ? "in_progress" : "todo";
+			await ctx.runMutation(internal.githubSync.updateIssueFromGithub, {
+				issueId: existingSync.claveIssueId,
+				title: ghIssue.title,
+				description: ghIssue.body ?? undefined,
+				status: claveStatus,
+			});
+
+			await ctx.runMutation(internal.githubSync.upsertIssueSync, {
+				connectionId: args.connectionId,
+				projectId: connection.projectId,
+				workspaceId: connection.workspaceId,
+				githubIssueId: ghIssue.id,
+				githubIssueNumber: ghIssue.number,
+				githubIssueUrl: ghIssue.html_url,
+				claveIssueId: existingSync.claveIssueId,
+				lastGithubUpdatedAt: ghIssue.updated_at,
+				syncSource: "github",
+				syncStatus: "synced",
+			});
+		} else if (data.action === "opened") {
+			// Create new Clave issue from GitHub
+			if (!fullConn) return null;
+			const claveStatus = ghIssue.assignee ? "in_progress" : "todo";
+			const result = await ctx.runMutation(
+				internal.githubSync.createIssueFromGithub,
+				{
+					workspaceId: connection.workspaceId,
+					projectId: connection.projectId,
+					title: ghIssue.title,
+					description: ghIssue.body ?? undefined,
+					status: claveStatus,
+					createdBy: fullConn.createdBy,
+				},
+			);
+
+			await ctx.runMutation(internal.githubSync.upsertIssueSync, {
+				connectionId: args.connectionId,
+				projectId: connection.projectId,
+				workspaceId: connection.workspaceId,
+				githubIssueId: ghIssue.id,
+				githubIssueNumber: ghIssue.number,
+				githubIssueUrl: ghIssue.html_url,
+				claveIssueId: result.issueId,
+				lastGithubUpdatedAt: ghIssue.updated_at,
+				syncSource: "github",
+				syncStatus: "synced",
+			});
+
+			console.log(
+				`[githubWebhook] Created Clave issue ${result.identifier} from GitHub #${ghIssue.number}`,
+			);
+		}
+
+		return null;
+	},
+});

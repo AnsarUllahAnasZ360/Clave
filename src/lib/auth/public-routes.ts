@@ -10,6 +10,7 @@ export const PUBLIC_ROUTES: readonly string[] = [
 	"/api/webhooks/(.*)",
 	"/api/web-vitals",
 	"/api/auth/(.*)",
+	"/api/github/oauth/(.*)",
 	"/docs(.*)",
 	"/share(.*)",
 	"/join(.*)",

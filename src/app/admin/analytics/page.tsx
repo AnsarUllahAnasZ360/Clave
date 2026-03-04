@@ -45,7 +45,7 @@ import { api } from "../../../../convex/_generated/api";
 
 const growthConfig = {
 	users: { label: "Users", color: "hsl(var(--chart-1))" },
-	organizations: { label: "Organizations", color: "hsl(var(--chart-2))" },
+	workspaces: { label: "Workspaces", color: "hsl(var(--chart-2))" },
 } satisfies ChartConfig;
 
 const activeUsersConfig = {
@@ -91,7 +91,7 @@ export default function AdminAnalyticsPage() {
 	const growth = useQuery(api.admin.getGrowthMetrics);
 	const activeUsers = useQuery(api.admin.getActiveUserMetrics);
 	const planDist = useQuery(api.admin.getPlanDistribution);
-	const topOrgs = useQuery(api.admin.getTopOrganizations);
+	const topOrgs = useQuery(api.admin.getTopWorkspaces);
 	const wsStats = useQuery(api.admin.getWorkspaceStats);
 	const health = useQuery(api.admin.getAnalyticsHealth);
 
@@ -142,7 +142,7 @@ export default function AdminAnalyticsPage() {
 				<CardContent>
 					{growth === undefined ? (
 						<ChartSkeleton />
-					) : growth.every((d) => d.users === 0 && d.organizations === 0) ? (
+					) : growth.every((d) => d.users === 0 && d.workspaces === 0) ? (
 						<EmptyState message="No signups in the last 30 days" />
 					) : (
 						<ChartContainer config={growthConfig} className="h-[300px] w-full">
@@ -180,10 +180,10 @@ export default function AdminAnalyticsPage() {
 									strokeWidth={2}
 								/>
 								<Area
-									dataKey="organizations"
+									dataKey="workspaces"
 									type="monotone"
-									fill="var(--color-organizations)"
-									stroke="var(--color-organizations)"
+									fill="var(--color-workspaces)"
+									stroke="var(--color-workspaces)"
 									fillOpacity={0.3}
 									strokeWidth={2}
 								/>
@@ -259,14 +259,14 @@ export default function AdminAnalyticsPage() {
 							Plan Distribution
 						</CardTitle>
 						<CardDescription>
-							Organizations by plan ({totalPlans} total)
+							Workspaces by plan ({totalPlans} total)
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
 						{planDist === undefined ? (
 							<ChartSkeleton />
 						) : totalPlans === 0 ? (
-							<EmptyState message="No organizations yet" />
+							<EmptyState message="No workspaces yet" />
 						) : (
 							<ChartContainer
 								config={planConfig}
@@ -298,14 +298,14 @@ export default function AdminAnalyticsPage() {
 				</Card>
 			</div>
 
-			{/* Row 3: Top Organizations + Workspace Stats */}
+			{/* Row 3: Top Workspaces + Workspace Stats */}
 			<div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-				{/* Top Organizations */}
+				{/* Top Workspaces */}
 				<Card>
 					<CardHeader>
 						<CardTitle className="flex items-center gap-2">
 							<Buildings className="h-5 w-5" />
-							Top Organizations
+							Top Workspaces
 						</CardTitle>
 						<CardDescription>By member count (top 10)</CardDescription>
 					</CardHeader>
@@ -313,7 +313,7 @@ export default function AdminAnalyticsPage() {
 						{topOrgs === undefined ? (
 							<ChartSkeleton />
 						) : topOrgs.length === 0 ? (
-							<EmptyState message="No organizations yet" />
+							<EmptyState message="No workspaces yet" />
 						) : (
 							<ChartContainer
 								config={topOrgsConfig}

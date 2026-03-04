@@ -80,7 +80,7 @@ export function IssueQuickCreateModal({
 	onClose,
 	onIssueCreated,
 }: IssueQuickCreateModalProps) {
-	const { workspaceId, orgSlug, workspaceSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { formState, updateForm, switchMode, resetFormKeepProperties } =
 		useIssueCreate();
 	const createIssue = useMutation(api.issues.create);
@@ -439,7 +439,6 @@ export function IssueQuickCreateModal({
 							duplicates={duplicates}
 							loading={duplicatesLoading}
 							compact
-							orgSlug={orgSlug}
 							workspaceSlug={workspaceSlug}
 						/>
 					)}

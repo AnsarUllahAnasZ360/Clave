@@ -34,6 +34,8 @@ import { ProjectHeader } from "@/components/projects/ProjectHeader";
 import { ProjectOverview } from "@/components/projects/ProjectOverview";
 import { ProjectPropertiesPanel } from "@/components/projects/ProjectPropertiesPanel";
 import { ResourcesTab } from "@/components/projects/ResourcesTab";
+import { ProjectGitHubTab } from "@/components/github/ProjectGitHubTab";
+import { CreateListDialog } from "@/components/lists/CreateListDialog";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -58,7 +60,7 @@ type ProjectDetailsPageProps = {
 };
 
 export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const [showMeta, setShowMeta] = useState(true);
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [activeTab, setActiveTab] = useState("overview");
@@ -79,6 +81,10 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 	const recordRecent = useMutation(api.recents.record);
 	const projectMembers = useQuery(
 		api.projectMembers.list,
+		project?._id ? { projectId: project._id } : "skip",
+	);
+	const githubConnection = useQuery(
+		api.github.getConnection,
 		project?._id ? { projectId: project._id } : "skip",
 	);
 
@@ -173,7 +179,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 					The project you are looking for does not exist or has been deleted.
 				</p>
 				<Button asChild variant="outline">
-					<Link href={`/${orgSlug}/${workspaceSlug}/projects`} prefetch={false}>
+					<Link href={`/${workspaceSlug}/projects`} prefetch={false}>
 						Back to projects
 					</Link>
 				</Button>
@@ -197,7 +203,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 						{/* Breadcrumb: Projects > emoji ProjectName */}
 						<nav className="flex items-center gap-1.5 min-w-0 text-sm">
 							<Link
-								href={`/${orgSlug}/${workspaceSlug}/projects` as never}
+								href={`/${workspaceSlug}/projects` as never}
 								className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
 								prefetch={false}
 							>
@@ -237,9 +243,17 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							<TabsTrigger value="resources" className={TAB_TRIGGER_CLASS}>
 								Resources
 							</TabsTrigger>
+							<TabsTrigger value="lists" className={TAB_TRIGGER_CLASS}>
+								Lists
+							</TabsTrigger>
 							<TabsTrigger value="activity" className={TAB_TRIGGER_CLASS}>
 								Activity
 							</TabsTrigger>
+							{githubConnection && (
+								<TabsTrigger value="github" className={TAB_TRIGGER_CLASS}>
+									GitHub
+								</TabsTrigger>
+							)}
 						</TabsList>
 
 						{/* Right-side actions */}
@@ -347,6 +361,22 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 								/>
 							</div>
 						</TabsContent>
+
+						<TabsContent value="lists" className="mt-0">
+							<ProjectListsTab
+								projectId={project._id}
+								workspaceSlug={workspaceSlug}
+							/>
+						</TabsContent>
+
+						{githubConnection && (
+							<TabsContent value="github" className="mt-0">
+								<ProjectGitHubTab
+									projectId={project._id}
+									connectionId={githubConnection._id}
+								/>
+							</TabsContent>
+						)}
 					</div>
 
 					{/* Sidebar — full height, scrolls independently */}
@@ -696,6 +726,103 @@ function ProjectActivityTab({ projectId }: { projectId: Id<"projects"> }) {
 			</div>
 
 			<ActivityFeed projectId={projectId} actionFilter={activeFilter} />
+		</div>
+	);
+}
+
+// ── Lists tab ───────────────────────────────────────────────────────────────
+
+function ProjectListsTab({
+	projectId,
+	workspaceSlug,
+}: {
+	projectId: Id<"projects">;
+	workspaceSlug: string;
+}) {
+	const [createOpen, setCreateOpen] = useState(false);
+	const lists = useQuery(api.lists.listByProject, { projectId });
+
+	// Build link using slug from the URL — projectId is the db id,
+	// but the project page uses slug. We look for the slug in the URL.
+	const getProjectSlug = () => {
+		if (typeof window !== "undefined") {
+			const parts = window.location.pathname.split("/");
+			// /<workspaceSlug>/projects/<slug>/lists
+			const projectsIdx = parts.indexOf("projects");
+			if (projectsIdx >= 0 && projectsIdx + 1 < parts.length) {
+				return parts[projectsIdx + 1];
+			}
+		}
+		return projectId as string;
+	};
+
+	return (
+		<div className="px-6 py-4 max-w-7xl mx-auto space-y-4">
+			<div className="flex items-center justify-between">
+				<h3 className="text-sm font-semibold text-foreground">Lists</h3>
+				<Button
+					size="sm"
+					variant="outline"
+					className="h-7 gap-1 text-xs"
+					onClick={() => setCreateOpen(true)}
+				>
+					<Plus className="h-3.5 w-3.5" />
+					New list
+				</Button>
+			</div>
+
+			{lists === undefined ? (
+				<div className="space-y-2">
+					<Skeleton className="h-10 w-full" />
+					<Skeleton className="h-10 w-full" />
+				</div>
+			) : lists.length === 0 ? (
+				<div className="flex flex-col items-center justify-center py-12 text-center">
+					<p className="text-sm text-muted-foreground">
+						No lists yet. Create one to group issues.
+					</p>
+					<Button
+						size="sm"
+						variant="outline"
+						className="mt-4 gap-1"
+						onClick={() => setCreateOpen(true)}
+					>
+						<Plus className="h-3.5 w-3.5" />
+						New list
+					</Button>
+				</div>
+			) : (
+				<div className="space-y-1">
+					{lists.map((list) => (
+						<Link
+							key={list._id}
+							href={
+								`/${workspaceSlug}/projects/${getProjectSlug()}/lists/${list._id}` as never
+							}
+							prefetch={false}
+							className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+						>
+							<span className="text-base leading-none">
+								{list.icon ?? "📋"}
+							</span>
+							<div className="flex-1 min-w-0">
+								<span className="text-sm font-medium truncate">{list.name}</span>
+								{list.description && (
+									<p className="text-xs text-muted-foreground truncate mt-0.5">
+										{list.description}
+									</p>
+								)}
+							</div>
+						</Link>
+					))}
+				</div>
+			)}
+
+			<CreateListDialog
+				projectId={projectId}
+				open={createOpen}
+				onClose={() => setCreateOpen(false)}
+			/>
 		</div>
 	);
 }
