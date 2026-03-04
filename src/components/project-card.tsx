@@ -22,6 +22,7 @@ type ProjectCardProps = {
 	project: Project;
 	actions?: ReactNode;
 	variant?: "list" | "board";
+	visibleProperties?: string[];
 };
 
 function statusConfig(status: Project["status"]) {
@@ -69,7 +70,14 @@ export function ProjectCard({
 	project,
 	actions,
 	variant = "list",
+	visibleProperties,
 }: ProjectCardProps) {
+	const showStatus = !visibleProperties || visibleProperties.includes("status");
+	const showAssignee =
+		!visibleProperties || visibleProperties.includes("assignee");
+	const showDueDate =
+		!visibleProperties || visibleProperties.includes("dueDate");
+
 	const s = statusConfig(project.status);
 	const assignee = project.members?.[0];
 	const dueDate = project.endDate;
@@ -175,7 +183,7 @@ export function ProjectCard({
 						</div>
 					)}
 					<div className="flex items-center gap-2">
-						{!isBoard && (
+						{!isBoard && showStatus && (
 							<div
 								className={cn(
 									"flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
@@ -220,7 +228,7 @@ export function ProjectCard({
 							)}
 				</div>
 
-				{!isBoard && (
+				{!isBoard && showDueDate && (
 					<div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
 						<div className="flex items-center gap-2">
 							<CalendarBlank className="h-4 w-4" />
@@ -234,16 +242,18 @@ export function ProjectCard({
 
 				<div className="mt-3 flex items-center justify-between">
 					<ProjectProgress project={project} size={isBoard ? 20 : 18} />
-					<Avatar className="size-6 border border-border">
-						<AvatarImage alt={assignee ?? ""} src={avatarUrl} />
-						<AvatarFallback className="text-xs">
-							{initials ? (
-								initials
-							) : (
-								<User className="h-4 w-4 text-muted-foreground" />
-							)}
-						</AvatarFallback>
-					</Avatar>
+					{showAssignee && (
+						<Avatar className="size-6 border border-border">
+							<AvatarImage alt={assignee ?? ""} src={avatarUrl} />
+							<AvatarFallback className="text-xs">
+								{initials ? (
+									initials
+								) : (
+									<User className="h-4 w-4 text-muted-foreground" />
+								)}
+							</AvatarFallback>
+						</Avatar>
+					)}
 				</div>
 			</div>
 		</div>

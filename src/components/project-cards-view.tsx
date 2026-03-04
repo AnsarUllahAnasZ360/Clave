@@ -1,22 +1,29 @@
 "use client";
 
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { FolderOpen, Plus } from "@phosphor-icons/react/dist/ssr";
+import { useState } from "react";
 import { ProjectCard } from "@/components/project-card";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Project } from "@/lib/data/projects";
+import type { ProjectGroup } from "@/lib/view-options";
+import { cn } from "@/lib/utils";
 
 type ProjectCardsViewProps = {
-	projects: Project[];
+	groups: ProjectGroup[];
+	visibleProperties?: string[];
 	loading?: boolean;
 	onCreateProject?: () => void;
 };
 
 export function ProjectCardsView({
-	projects,
+	groups,
+	visibleProperties,
 	loading = false,
 	onCreateProject,
 }: ProjectCardsViewProps) {
-	const isEmpty = !loading && projects.length === 0;
+	const totalProjects = groups.reduce((n, g) => n + g.projects.length, 0);
+	const isEmpty = !loading && totalProjects === 0;
+	const isGrouped = groups.length > 1 || (groups.length === 1 && groups[0].label !== "");
 
 	return (
 		<div className="p-4">
@@ -55,10 +62,32 @@ export function ProjectCardsView({
 						Create new project
 					</button>
 				</div>
+			) : isGrouped ? (
+				<div className="space-y-6">
+					{groups.map((group) => (
+						<GroupSection
+							key={group.key}
+							group={group}
+							visibleProperties={visibleProperties}
+						/>
+					))}
+					<button
+						type="button"
+						className="rounded-2xl border border-dashed border-border/60 bg-background p-6 text-center text-sm text-muted-foreground hover:border-solid hover:border-border/80 hover:text-foreground transition-colors min-h-[80px] flex items-center justify-center cursor-pointer w-full"
+						onClick={onCreateProject}
+					>
+						<Plus className="mr-2 h-5 w-5" />
+						Create new project
+					</button>
+				</div>
 			) : (
 				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-					{projects.map((p) => (
-						<ProjectCard key={p.id} project={p} />
+					{groups[0]?.projects.map((p) => (
+						<ProjectCard
+							key={p.id}
+							project={p}
+							visibleProperties={visibleProperties}
+						/>
 					))}
 					<button
 						type="button"
@@ -68,6 +97,50 @@ export function ProjectCardsView({
 						<Plus className="mb-2 h-5 w-5" />
 						Create new project
 					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function GroupSection({
+	group,
+	visibleProperties,
+}: { group: ProjectGroup; visibleProperties?: string[] }) {
+	const [collapsed, setCollapsed] = useState(false);
+
+	return (
+		<div>
+			<button
+				type="button"
+				className="flex items-center gap-2 mb-3 group cursor-pointer"
+				onClick={() => setCollapsed(!collapsed)}
+			>
+				{collapsed ? (
+					<ChevronRight className="h-4 w-4 text-muted-foreground" />
+				) : (
+					<ChevronDown className="h-4 w-4 text-muted-foreground" />
+				)}
+				<span className="text-sm font-medium text-foreground">
+					{group.label}
+				</span>
+				<span
+					className={cn(
+						"rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground",
+					)}
+				>
+					{group.projects.length}
+				</span>
+			</button>
+			{!collapsed && (
+				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+					{group.projects.map((p) => (
+						<ProjectCard
+							key={p.id}
+							project={p}
+							visibleProperties={visibleProperties}
+						/>
+					))}
 				</div>
 			)}
 		</div>

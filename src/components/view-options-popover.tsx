@@ -23,6 +23,7 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import { DEFAULT_VIEW_OPTIONS } from "@/lib/view-options";
 import { cn } from "@/lib/utils";
 
 type Options = {
@@ -39,12 +40,15 @@ interface ViewOptionsPopoverProps {
 	options: Options;
 	onChange: (options: Options) => void;
 	allowedViewTypes?: string[];
+	/** Hide "Tasks" and "Show absent parent" when used on the projects page */
+	context?: "projects" | "tasks";
 }
 
 export function ViewOptionsPopover({
 	options,
 	onChange,
 	allowedViewTypes,
+	context = "tasks",
 }: ViewOptionsPopoverProps) {
 	const [tasksOpen, setTasksOpen] = useState(false);
 	const [orderingOpen, setOrderingOpen] = useState(false);
@@ -124,7 +128,8 @@ export function ViewOptionsPopover({
 					)}
 
 					<div className={cn(viewTypes.length > 1 ? "mt-4" : "", "space-y-3")}>
-						{/* Tasks Dropdown */}
+						{/* Tasks Dropdown — only for task views */}
+						{context === "tasks" && (
 						<div className="flex items-center justify-between">
 							<span className="text-sm">Tasks</span>
 							<Popover open={tasksOpen} onOpenChange={setTasksOpen}>
@@ -165,6 +170,7 @@ export function ViewOptionsPopover({
 								</PopoverContent>
 							</Popover>
 						</div>
+						)}
 
 						{/* Ordering Dropdown */}
 						<div className="flex items-center justify-between">
@@ -208,7 +214,8 @@ export function ViewOptionsPopover({
 							</Popover>
 						</div>
 
-						{/* Show absent parent */}
+						{/* Show absent parent — only for task views */}
+						{context === "tasks" && (
 						<div className="flex items-center justify-between">
 							<span className="text-sm">Show absent parent</span>
 							<Switch
@@ -218,6 +225,7 @@ export function ViewOptionsPopover({
 								}
 							/>
 						</div>
+						)}
 
 						{/* Show closed projects */}
 						<div className="flex items-center justify-between">
@@ -302,12 +310,6 @@ export function ViewOptionsPopover({
 										{prop.label}
 									</button>
 								))}
-								<button
-									type="button"
-									className="flex items-center justify-center rounded-md border border-dashed border-border/60 px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent"
-								>
-									+
-								</button>
 							</div>
 						</div>
 					</div>
@@ -328,6 +330,7 @@ export function ViewOptionsPopover({
 						<button
 							type="button"
 							className="text-sm text-primary hover:underline"
+							onClick={() => onChange(DEFAULT_VIEW_OPTIONS)}
 						>
 							Reset
 						</button>
