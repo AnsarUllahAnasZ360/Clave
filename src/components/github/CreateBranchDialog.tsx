@@ -114,14 +114,16 @@ export function CreateBranchDialog({
 		}
 	}, []);
 
-	// When connections load, auto-select and fetch branches
+	// When connections load, auto-select and fetch branches (use most recent active only)
 	useEffect(() => {
 		if (!open || !connections || connections.length === 0) return;
 
-		const activeConns = connections.filter((c) => c.status === "active");
+		const activeConns = connections
+			.filter((c) => c.status === "active")
+			.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 		if (activeConns.length === 0) return;
 
-		// Auto-select first connection and fetch branches
+		// Auto-select most recent active connection and fetch branches
 		if (!selectedConnectionId) {
 			const firstId = activeConns[0]._id;
 			setSelectedConnectionId(firstId);
@@ -197,7 +199,9 @@ export function CreateBranchDialog({
 		}
 	}, [selectedConnectionId, baseBranch, branchName, updateIssue, issueId, onOpenChange]);
 
-	const activeConnections = connections?.filter((c) => c.status === "active");
+	const activeConnections = connections
+		?.filter((c) => c.status === "active")
+		.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 	const noConnections = connections !== undefined && (activeConnections?.length ?? 0) === 0;
 
 	return (

@@ -289,7 +289,7 @@ export const IssueListRow = memo(function IssueListRow({
 		<div
 			data-issue-id={issue._id}
 			className={cn(
-				"group flex items-center h-9 border-b border-border/50 text-sm hover:bg-muted/40 transition-colors cursor-pointer",
+				"group flex items-center gap-x-6 h-9 border-b border-border/50 text-sm hover:bg-muted/40 transition-colors cursor-pointer",
 				isHighlighted && "bg-muted/60 ring-1 ring-primary/30",
 				isDone && "opacity-60",
 			)}
@@ -315,7 +315,7 @@ export const IssueListRow = memo(function IssueListRow({
 							// biome-ignore lint/a11y/noStaticElementInteractions: inline editing cell
 							<div
 								key={col}
-								className="w-[32px] shrink-0 flex items-center justify-center"
+								className="w-[110px] shrink-0 flex items-center"
 								onClick={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
@@ -336,13 +336,25 @@ export const IssueListRow = memo(function IssueListRow({
 									trigger={
 										<button
 											type="button"
-											className="p-1 rounded hover:bg-muted transition-colors"
+											className="flex items-center gap-1.5 w-full min-w-0 rounded px-1.5 py-0.5 hover:bg-muted transition-colors text-xs truncate"
 											title={statusConfig?.label ?? "Status"}
 										>
-											{statusConfig && (
-												<statusConfig.icon
-													className={cn("h-4 w-4", statusConfig.color)}
-												/>
+											{statusConfig ? (
+												<>
+													<statusConfig.icon
+														className={cn(
+															"h-3.5 w-3.5 shrink-0",
+															statusConfig.color,
+														)}
+													/>
+													<span className="truncate">
+														{statusConfig.label}
+													</span>
+												</>
+											) : (
+												<span className="text-muted-foreground truncate">
+													{issue.status || "-"}
+												</span>
 											)}
 										</button>
 									}
@@ -355,7 +367,7 @@ export const IssueListRow = memo(function IssueListRow({
 							<div
 								key={col}
 								className={cn(
-									"flex-1 min-w-[200px] px-2 truncate",
+									"flex-1 min-w-0 px-2 truncate",
 									isDone && "line-through text-muted-foreground",
 								)}
 							>

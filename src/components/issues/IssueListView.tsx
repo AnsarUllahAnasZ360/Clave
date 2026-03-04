@@ -81,15 +81,29 @@ type GroupedIssues = {
 const ALL_COLUMNS: { id: ListColumnId; label: string; default: boolean }[] = [
 	{ id: "status", label: "Status", default: true },
 	{ id: "identifier", label: "ID", default: true },
-	{ id: "title", label: "Title", default: true },
+	{ id: "title", label: "Name", default: true },
 	{ id: "priority", label: "Priority", default: true },
 	{ id: "assignee", label: "Assignee", default: true },
 	{ id: "labels", label: "Labels", default: false },
 	{ id: "project", label: "Project", default: false },
 	{ id: "milestone", label: "Sprint", default: false },
-	{ id: "estimate", label: "Estimate", default: false },
+	{ id: "estimate", label: "Time estimate", default: false },
 	{ id: "dueDate", label: "Due date", default: true },
 ];
+
+// Column widths for header alignment (must match IssueListRow)
+const COLUMN_WIDTHS: Record<ListColumnId, string> = {
+	identifier: "w-[80px]",
+	status: "w-[110px]",
+	title: "flex-1 min-w-0",
+	priority: "w-[32px]",
+	assignee: "w-[120px]",
+	labels: "w-[120px]",
+	project: "w-[120px]",
+	milestone: "w-[100px]",
+	estimate: "w-[60px]",
+	dueDate: "w-[90px]",
+};
 
 // ── Status/Priority icons for group headers (from centralized module) ────
 
@@ -746,6 +760,31 @@ export function IssueListView({
 	);
 
 	// ── Render helpers ──────────────────────────────────────────────────
+	const renderColumnHeader = useCallback(() => {
+		const columnLabels = new Map(ALL_COLUMNS.map((c) => [c.id, c.label]));
+		return (
+			<div
+				className="sticky top-0 z-10 flex items-center gap-x-6 h-8 border-b border-border bg-muted/60 text-xs font-medium text-muted-foreground shrink-0"
+				role="row"
+			>
+				{visibleColumns.map((col) => (
+					<div
+						key={col}
+						className={cn(
+							"shrink-0 px-2",
+							COLUMN_WIDTHS[col],
+							col === "priority" && "flex items-center justify-center",
+							col !== "priority" && "truncate",
+						)}
+						role="columnheader"
+					>
+						{columnLabels.get(col) ?? col}
+					</div>
+				))}
+			</div>
+		);
+	}, [visibleColumns]);
+
 	const renderGroupHeader = useCallback(
 		(group: GroupedIssues, parentKey?: string) => {
 			const key = parentKey ? `${parentKey}::${group.key}` : group.key;
@@ -845,7 +884,7 @@ export function IssueListView({
 		<div className="flex flex-col h-full">
 			{/* Filter toolbar — hidden when parent provides its own */}
 			{!hideFilter && (
-				<div className="flex items-center gap-1 px-4 py-1.5 border-b border-border/30">
+				<div className="flex items-center gap-1 px-6 py-1.5 border-b border-border/30">
 					<MyIssuesFilterPopover
 						open={showFilters}
 						onOpenChange={setShowFilters}
@@ -888,10 +927,11 @@ export function IssueListView({
 
 			<div
 				ref={containerRef}
-				className="flex-1 overflow-y-auto outline-none"
+				className="flex-1 overflow-y-auto overflow-x-hidden outline-none px-6 min-w-0"
 				role="listbox"
 				tabIndex={0}
 			>
+				{renderColumnHeader()}
 				{groupedIssues.map((group) => {
 					const isCollapsed = collapsedGroups.has(group.key);
 

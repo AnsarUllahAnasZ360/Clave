@@ -16,14 +16,6 @@ function oauthErrorHtml(title: string, message: string): NextResponse {
 
 export async function GET(request: NextRequest) {
 	const rawUrl = new URL(request.url);
-	// Debug: log full URL and all query params to diagnose missing code (avoid logging in production)
-	if (process.env.NODE_ENV === "development") {
-		console.log("[GitHub OAuth callback] Full URL:", request.url);
-		console.log(
-			"[GitHub OAuth callback] Query params:",
-			Object.fromEntries(rawUrl.searchParams),
-		);
-	}
 	const code = rawUrl.searchParams.get("code");
 	const stateParam = rawUrl.searchParams.get("state");
 

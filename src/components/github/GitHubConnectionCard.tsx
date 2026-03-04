@@ -61,13 +61,13 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 		if (handledOAuthRef.current) return;
 		const githubConnect = searchParams.get("github_connect");
 		if (!githubConnect) return;
+		// Wait for workspaceId — storeConnection requires it
+		if (!workspaceId) return;
+
 		handledOAuthRef.current = true;
 
-		// Clear URL params immediately
-		const cleanUrl = pathname;
-		router.replace(cleanUrl);
-
 		if (githubConnect === "error") {
+			router.replace(pathname);
 			const errorCode = searchParams.get("github_error") ?? "unknown";
 			const messages: Record<string, string> = {
 				server_not_configured: "GitHub OAuth is not configured on the server",
@@ -89,11 +89,12 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 			const scope = searchParams.get("scope") ?? "repo";
 
 			if (!repoOwner || !repoName || !encryptedToken) {
+				router.replace(pathname);
 				toast.error("Incomplete OAuth response from GitHub");
 				return;
 			}
 
-			// Store connection via Convex
+			// Store connection via Convex; clear URL only after mutation succeeds
 			storeConnection({
 				workspaceId,
 				projectId,
@@ -105,6 +106,7 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 				scope,
 			})
 				.then((connectionId) => {
+					router.replace(pathname);
 					toast.success("GitHub repository connected — indexing started");
 					triggerInitialIndex({ connectionId, projectId }).catch(
 						(err: unknown) => {
@@ -113,6 +115,8 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 					);
 				})
 				.catch((err: unknown) => {
+					router.replace(pathname);
+					handledOAuthRef.current = false; // Allow retry
 					const message =
 						err instanceof Error ? err.message : "Failed to store connection";
 					toast.error(message);

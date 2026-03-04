@@ -9,6 +9,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { DisplayOptionsPanel } from "@/components/issues/DisplayOptionsPanel";
@@ -65,6 +66,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [activeTab, setActiveTab] = useState("overview");
 
+
 	const project = useQuery(api.projects.getBySlug, { workspaceId, slug });
 	const stats = useQuery(
 		api.projects.getStats,
@@ -83,8 +85,8 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 		api.projectMembers.list,
 		project?._id ? { projectId: project._id } : "skip",
 	);
-	const githubConnection = useQuery(
-		api.github.getConnection,
+	const githubConnections = useQuery(
+		api.github.getProjectConnections,
 		project?._id ? { projectId: project._id } : "skip",
 	);
 
@@ -249,7 +251,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							<TabsTrigger value="activity" className={TAB_TRIGGER_CLASS}>
 								Activity
 							</TabsTrigger>
-							{githubConnection && (
+							{githubConnections && githubConnections.length > 0 && (
 								<TabsTrigger value="github" className={TAB_TRIGGER_CLASS}>
 									GitHub
 								</TabsTrigger>
@@ -369,11 +371,11 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							/>
 						</TabsContent>
 
-						{githubConnection && (
+						{githubConnections && githubConnections.length > 0 && (
 							<TabsContent value="github" className="mt-0">
 								<ProjectGitHubTab
 									projectId={project._id}
-									connectionId={githubConnection._id}
+									connections={githubConnections}
 								/>
 							</TabsContent>
 						)}
@@ -510,8 +512,11 @@ function ProjectIssuesTab({
 		return props;
 	}, [options.displayProperties]);
 
-	// Fetch issues (shared between board + list)
-	const projectIssues = useQuery(api.issues.listByProject, { projectId });
+	// Fetch issues (shared between board + list + timeline)
+	const projectIssues = useQuery(api.issues.listByProject, {
+		projectId,
+		showSubIssues: options.showSubIssues,
+	});
 
 	// Filtered board issues (IssueCardData[])
 	const filteredBoardIssues = useMemo<IssueCardData[] | undefined>(() => {
@@ -555,6 +560,25 @@ function ProjectIssuesTab({
 			sprintId: issue.sprintId ?? undefined,
 			milestoneId: issue.milestoneId ?? undefined,
 			updatedAt: issue.updatedAt ?? undefined,
+		}));
+	}, [projectIssues, applyFilters]);
+
+	// Filtered timeline issues (for Timeline layout so filters apply)
+	const filteredTimelineIssues = useMemo(() => {
+		if (!projectIssues) return undefined;
+		const filtered = applyFilters(projectIssues);
+		return filtered.map((issue) => ({
+			_id: issue._id,
+			identifier: issue.identifier,
+			title: issue.title,
+			status: issue.status,
+			priority: issue.priority,
+			assigneeId: issue.assigneeId ?? undefined,
+			startDate: issue.startDate ?? undefined,
+			dueDate: issue.dueDate ?? undefined,
+			sprintId: issue.sprintId ?? undefined,
+			milestoneId: issue.milestoneId ?? undefined,
+			sortOrder: issue.sortOrder,
 		}));
 	}, [projectIssues, applyFilters]);
 
@@ -682,7 +706,10 @@ function ProjectIssuesTab({
 			)}
 			{options.layout === "timeline" && (
 				<div className="px-6 pb-6 max-w-7xl mx-auto w-full">
-					<IssueTimelineView projectId={projectId} />
+					<IssueTimelineView
+						projectId={projectId}
+						externalIssues={filteredTimelineIssues}
+					/>
 				</div>
 			)}
 		</div>

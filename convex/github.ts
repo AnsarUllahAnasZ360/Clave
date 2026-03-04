@@ -222,6 +222,22 @@ export const disconnectRepo = mutation({
 			});
 		}
 
+		// Delete commits and PRs for this connection so they no longer appear anywhere
+		const commits = await ctx.db
+			.query("githubCommits")
+			.withIndex("by_project", (q) => q.eq("projectId", connection.projectId))
+			.collect();
+		for (const c of commits) {
+			if (c.connectionId === connection._id) await ctx.db.delete(c._id);
+		}
+		const prs = await ctx.db
+			.query("githubPullRequests")
+			.withIndex("by_project", (q) => q.eq("projectId", connection.projectId))
+			.collect();
+		for (const pr of prs) {
+			if (pr.connectionId === connection._id) await ctx.db.delete(pr._id);
+		}
+
 		await ctx.db.patch(connection._id, {
 			status: "disconnected",
 			updatedAt: Date.now(),

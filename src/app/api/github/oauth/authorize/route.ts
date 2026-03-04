@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
 		scope: "repo",
 		state,
 		redirect_uri: redirectUri,
+		prompt: "consent", // Force authorization screen every time (no silent re-use)
 	});
 
 	return NextResponse.redirect(`${GITHUB_AUTHORIZE_URL}?${params.toString()}`);

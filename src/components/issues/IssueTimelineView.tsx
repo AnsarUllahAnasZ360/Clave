@@ -104,6 +104,8 @@ type GroupBy = "none" | "milestone" | "assignee";
 
 export type IssueTimelineViewProps = {
 	projectId: Id<"projects">;
+	/** When provided, use these instead of fetching — e.g. pre-filtered by parent */
+	externalIssues?: IssueTimelineData[];
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -115,11 +117,18 @@ const MILESTONE_ROW_HEIGHT = 32;
 
 // ── Component ─────────────────────────────────────────────────────────────
 
-export function IssueTimelineView({ projectId }: IssueTimelineViewProps) {
+export function IssueTimelineView({
+	projectId,
+	externalIssues,
+}: IssueTimelineViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	// ── Data queries ────────────────────────────────────────────────────
-	const issues = useQuery(api.issues.listByProject, { projectId });
+	const fetchedIssues = useQuery(
+		api.issues.listByProject,
+		externalIssues !== undefined ? "skip" : { projectId },
+	);
+	const issues = externalIssues ?? fetchedIssues ?? undefined;
 	const milestones = useQuery(api.sprints.listByProject, { projectId });
 	const members = useWorkspaceMembers();
 	const updateIssueMutation = useMutation(api.issues.update);

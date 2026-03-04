@@ -50,10 +50,11 @@ const syncStatusValidator = v.union(
 // PUBLIC QUERIES
 // ══════════════════════════════════════════════════════════════════════════
 
-/** List pull requests for a project with optional state filter. */
+/** List pull requests for a project with optional state filter. Only returns PRs from the active connection. */
 export const listPullRequests = query({
 	args: {
 		projectId: v.id("projects"),
+		connectionId: v.optional(v.id("githubConnections")),
 		state: v.optional(prStateValidator),
 		limit: v.optional(v.number()),
 	},
@@ -62,21 +63,38 @@ export const listPullRequests = query({
 		if (!project) throw new ConvexError("Project not found");
 		await requireWorkspaceMember(ctx, project.workspaceId);
 
+		const connections = await ctx.db
+			.query("githubConnections")
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		const activeConnection = args.connectionId
+			? connections.find((c) => c._id === args.connectionId)
+			: [...connections]
+					.filter((c) => c.status === "active")
+					.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+		if (!activeConnection) return [];
+
+		let prs;
 		if (args.state) {
-			return await ctx.db
+			prs = await ctx.db
 				.query("githubPullRequests")
 				.withIndex("by_project_state", (idx) =>
 					idx.eq("projectId", args.projectId).eq("state", args.state!),
 				)
 				.order("desc")
-				.take(args.limit ?? 50);
+				.take((args.limit ?? 50) * 2);
+		} else {
+			prs = await ctx.db
+				.query("githubPullRequests")
+				.withIndex("by_project", (idx) => idx.eq("projectId", args.projectId))
+				.order("desc")
+				.take((args.limit ?? 50) * 2);
 		}
 
-		return await ctx.db
-			.query("githubPullRequests")
-			.withIndex("by_project", (idx) => idx.eq("projectId", args.projectId))
-			.order("desc")
-			.take(args.limit ?? 50);
+		const filtered = prs.filter(
+			(pr) => pr.connectionId === activeConnection._id,
+		);
+		return filtered.slice(0, args.limit ?? 50);
 	},
 });
 
@@ -93,10 +111,11 @@ export const getPullRequest = query({
 	},
 });
 
-/** List commits for a project, ordered by committed date descending. */
+/** List commits for a project, ordered by committed date descending. Only returns commits from the active connection. */
 export const listCommits = query({
 	args: {
 		projectId: v.id("projects"),
+		connectionId: v.optional(v.id("githubConnections")),
 		limit: v.optional(v.number()),
 	},
 	handler: async (ctx, args) => {
@@ -104,19 +123,32 @@ export const listCommits = query({
 		if (!project) throw new ConvexError("Project not found");
 		await requireWorkspaceMember(ctx, project.workspaceId);
 
+		const connections = await ctx.db
+			.query("githubConnections")
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		const activeConnection = args.connectionId
+			? connections.find((c) => c._id === args.connectionId)
+			: [...connections]
+					.filter((c) => c.status === "active")
+					.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+		if (!activeConnection) return [];
+
 		const commits = await ctx.db
 			.query("githubCommits")
 			.withIndex("by_project_committed", (idx) =>
 				idx.eq("projectId", args.projectId),
 			)
 			.order("desc")
-			.take(args.limit ?? 50);
+			.take((args.limit ?? 50) * 2);
 
-		return commits;
+		return commits
+			.filter((c) => c.connectionId === activeConnection._id)
+			.slice(0, args.limit ?? 50);
 	},
 });
 
-/** List PRs linked to a specific Clave issue. */
+/** List PRs linked to a specific Clave issue. Only returns PRs from the project's active connection. */
 export const listLinkedPrs = query({
 	args: { issueId: v.id("issues") },
 	handler: async (ctx, args) => {
@@ -124,22 +156,46 @@ export const listLinkedPrs = query({
 		if (!issue) throw new ConvexError("Issue not found");
 		await requireWorkspaceMember(ctx, issue.workspaceId);
 
-		return await ctx.db
+		const linkedPrs = await ctx.db
 			.query("githubPullRequests")
 			.withIndex("by_linked_issue", (idx) =>
 				idx.eq("linkedIssueId", args.issueId),
 			)
 			.collect();
+
+		if (!issue.projectId) return linkedPrs;
+
+		const connections = await ctx.db
+			.query("githubConnections")
+			.withIndex("by_project", (q) => q.eq("projectId", issue.projectId!))
+			.collect();
+		const active = [...connections]
+			.filter((c) => c.status === "active")
+			.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
+		if (!active) return [];
+
+		return linkedPrs.filter((pr) => pr.connectionId === active._id);
 	},
 });
 
-/** List commits linked to a specific Clave issue (directly or via linked PRs). */
+/** List commits linked to a specific Clave issue (directly or via linked PRs). Only returns commits from the project's active connection. */
 export const listLinkedCommits = query({
 	args: { issueId: v.id("issues") },
 	handler: async (ctx, args) => {
 		const issue = await ctx.db.get(args.issueId);
 		if (!issue) throw new ConvexError("Issue not found");
 		await requireWorkspaceMember(ctx, issue.workspaceId);
+
+		const activeConnectionId = issue.projectId
+			? [...(await ctx.db
+					.query("githubConnections")
+					.withIndex("by_project", (q) =>
+						q.eq("projectId", issue.projectId!),
+					)
+					.collect())]
+					.filter((c) => c.status === "active")
+					.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]?._id
+			: null;
 
 		// Get commits directly linked to issue
 		const directCommits = await ctx.db
@@ -157,8 +213,13 @@ export const listLinkedCommits = query({
 			)
 			.collect();
 
+		const prsFromActiveConnection =
+			activeConnectionId === null
+				? linkedPrs
+				: linkedPrs.filter((pr) => pr.connectionId === activeConnectionId);
+
 		const prCommitSets = await Promise.all(
-			linkedPrs.map((pr) =>
+			prsFromActiveConnection.map((pr) =>
 				ctx.db
 					.query("githubCommits")
 					.withIndex("by_pull_request", (idx) =>
@@ -168,8 +229,13 @@ export const listLinkedCommits = query({
 			),
 		);
 
+		const directFromActive =
+			activeConnectionId === null
+				? directCommits
+				: directCommits.filter((c) => c.connectionId === activeConnectionId);
+
 		// Merge and deduplicate by sha
-		const allCommits = [...directCommits, ...prCommitSets.flat()];
+		const allCommits = [...directFromActive, ...prCommitSets.flat()];
 		const seen = new Set<string>();
 		const unique = allCommits.filter((c) => {
 			if (seen.has(c.sha)) return false;
