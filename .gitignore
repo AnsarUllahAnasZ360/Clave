@@ -78,9 +78,9 @@ package-lock.json
 
 # Misc
 *.tsbuildinfo
-.vercel/
+.vercel/*
+!.vercel/project.json
 .turbo/
-.vercel
 
 # Dev bootstrap runtime files
 .dev/
