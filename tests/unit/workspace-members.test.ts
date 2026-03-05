@@ -15,44 +15,21 @@ function createBackend() {
 type InviteFixture = {
 	ownerId: Id<"users">;
 	joinerId: Id<"users">;
-	organizationId: Id<"organizations">;
 	workspaceId: Id<"workspaces">;
 	code: string;
 };
 
 async function seedInviteFixture(
 	t: ReturnType<typeof createBackend>,
-	opts?: {
-		maxMembers?: number;
-		orgDeleted?: boolean;
-	},
 ): Promise<InviteFixture> {
 	return t.run(async (ctx) => {
 		const ownerId = await ctx.db.insert("users", { name: "Owner" });
 		const joinerId = await ctx.db.insert("users", { name: "Joiner" });
 
-		const organizationId = await ctx.db.insert("organizations", {
-			name: "Invite Org",
-			slug: `invite-org-${Math.random().toString(36).slice(2, 8)}`,
-			ownerId,
-			planLimits: opts?.maxMembers
-				? { maxMembers: opts.maxMembers }
-				: undefined,
-			deletedAt: opts?.orgDeleted ? Date.now() : undefined,
-		});
-
-		await ctx.db.insert("organizationMembers", {
-			organizationId,
-			userId: ownerId,
-			role: "owner",
-			joinedAt: Date.now(),
-		});
-
 		const workspaceId = await ctx.db.insert("workspaces", {
 			name: "Invite Workspace",
 			slug: `invite-ws-${Math.random().toString(36).slice(2, 8)}`,
 			ownerId,
-			organizationId,
 		});
 
 		await ctx.db.insert("workspaceMembers", {
@@ -71,12 +48,12 @@ async function seedInviteFixture(
 			usedBy: [],
 		});
 
-		return { ownerId, joinerId, organizationId, workspaceId, code };
+		return { ownerId, joinerId, workspaceId, code };
 	});
 }
 
 describe("workspaceMembers.joinWithCode", () => {
-	it("auto-adds missing org membership for workspace invite joins", async () => {
+	it("adds workspace membership on invite join", async () => {
 		const t = createBackend();
 		const fx = await seedInviteFixture(t);
 		const joiner = t.withIdentity({ subject: fx.joinerId });
@@ -91,13 +68,6 @@ describe("workspaceMembers.joinWithCode", () => {
 		expect(workspaceId).toBe(fx.workspaceId);
 
 		const records = await t.run(async (ctx) => {
-			const orgMember = await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_org_user", (q) =>
-					q.eq("organizationId", fx.organizationId).eq("userId", fx.joinerId),
-				)
-				.unique();
-
 			const workspaceMember = await ctx.db
 				.query("workspaceMembers")
 				.withIndex("by_workspace_user", (q) =>
@@ -110,64 +80,40 @@ describe("workspaceMembers.joinWithCode", () => {
 				.withIndex("by_code", (q) => q.eq("code", fx.code))
 				.unique();
 
-			return { orgMember, workspaceMember, inviteCode };
+			return { workspaceMember, inviteCode };
 		});
 
-		expect(records.orgMember?.role).toBe("member");
 		expect(records.workspaceMember?.role).toBe("member");
 		expect(records.inviteCode?.useCount).toBe(1);
 		expect(records.inviteCode?.usedBy).toContain(fx.joinerId);
 	});
 
-	it("allows joins regardless of plan member limits (limits disabled)", async () => {
+	it("enforces plan member limits on join", async () => {
 		const t = createBackend();
-		const fx = await seedInviteFixture(t, { maxMembers: 1 });
+		const fx = await seedInviteFixture(t);
 		const joiner = t.withIdentity({ subject: fx.joinerId });
 
-		// Plan limits are disabled — join should succeed even with maxMembers: 1
-		const workspaceId = await joiner.mutation(
-			api.workspaceMembers.joinWithCode,
-			{ code: fx.code },
-		);
-
-		expect(workspaceId).toBe(fx.workspaceId);
-
-		const records = await t.run(async (ctx) => {
-			const orgMember = await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_org_user", (q) =>
-					q.eq("organizationId", fx.organizationId).eq("userId", fx.joinerId),
-				)
-				.unique();
-
-			const workspaceMember = await ctx.db
-				.query("workspaceMembers")
-				.withIndex("by_workspace_user", (q) =>
-					q.eq("workspaceId", fx.workspaceId).eq("userId", fx.joinerId),
-				)
-				.unique();
-
-			const inviteCode = await ctx.db
-				.query("inviteCodes")
-				.withIndex("by_code", (q) => q.eq("code", fx.code))
-				.unique();
-
-			return { orgMember, workspaceMember, inviteCode };
+		// Set plan limit to 1 (owner already uses 1 slot)
+		await t.run(async (ctx) => {
+			await ctx.db.patch(fx.workspaceId, {
+				planLimits: { maxMembers: 1 },
+			});
 		});
-
-		expect(records.orgMember?.role).toBe("member");
-		expect(records.workspaceMember?.role).toBe("member");
-		expect(records.inviteCode?.useCount).toBe(1);
-		expect(records.inviteCode?.usedBy).toContain(fx.joinerId);
-	});
-
-	it("rejects invite joins when parent organization is deleted", async () => {
-		const t = createBackend();
-		const fx = await seedInviteFixture(t, { orgDeleted: true });
-		const joiner = t.withIdentity({ subject: fx.joinerId });
 
 		await expect(
 			joiner.mutation(api.workspaceMembers.joinWithCode, { code: fx.code }),
-		).rejects.toThrow(/organization no longer exists/i);
+		).rejects.toThrow(/plan_limit/i);
+	});
+
+	it("rejects invalid invite codes", async () => {
+		const t = createBackend();
+		const fx = await seedInviteFixture(t);
+		const joiner = t.withIdentity({ subject: fx.joinerId });
+
+		await expect(
+			joiner.mutation(api.workspaceMembers.joinWithCode, {
+				code: "INVALID",
+			}),
+		).rejects.toThrow(/invalid invite code/i);
 	});
 });
