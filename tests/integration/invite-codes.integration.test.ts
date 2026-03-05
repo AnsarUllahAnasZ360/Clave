@@ -20,35 +20,20 @@ const validateRef = makeFunctionReference<
 		workspaceName?: string;
 		workspaceId?: Id<"workspaces">;
 		workspaceSlug?: string;
-		orgSlug?: string;
 	} | null
 >("inviteCodes:validate");
 
 describe("invite codes (integration)", () => {
-	it("returns orgSlug and workspaceSlug for a valid code", async () => {
+	it("returns workspaceSlug for a valid code", async () => {
 		const t = createBackend();
 
 		const { code } = await t.run(async (ctx) => {
 			const ownerId = await ctx.db.insert("users", { name: "Owner" });
 
-			const organizationId = await ctx.db.insert("organizations", {
-				name: "Test Org",
-				slug: "test-org",
-				ownerId,
-			});
-
-			await ctx.db.insert("organizationMembers", {
-				organizationId,
-				userId: ownerId,
-				role: "owner",
-				joinedAt: Date.now(),
-			});
-
 			const workspaceId = await ctx.db.insert("workspaces", {
 				name: "Test Workspace",
 				slug: "test-ws",
 				ownerId,
-				organizationId,
 			});
 
 			await ctx.db.insert("workspaceMembers", {
@@ -82,7 +67,6 @@ describe("invite codes (integration)", () => {
 		expect(result?.valid).toBe(true);
 		expect(result?.workspaceName).toBe("Test Workspace");
 		expect(result?.workspaceSlug).toBe("test-ws");
-		expect(result?.orgSlug).toBe("test-org");
 	});
 
 	it("returns invalid for expired code", async () => {
@@ -90,16 +74,10 @@ describe("invite codes (integration)", () => {
 
 		await t.run(async (ctx) => {
 			const ownerId = await ctx.db.insert("users", { name: "Owner" });
-			const organizationId = await ctx.db.insert("organizations", {
-				name: "Org",
-				slug: "org",
-				ownerId,
-			});
 			const workspaceId = await ctx.db.insert("workspaces", {
 				name: "WS",
 				slug: "ws",
 				ownerId,
-				organizationId,
 			});
 
 			await ctx.db.insert("inviteCodes", {
