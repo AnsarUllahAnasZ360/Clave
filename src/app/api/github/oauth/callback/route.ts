@@ -22,6 +22,10 @@ export async function GET(request: NextRequest) {
 	const ghError = rawUrl.searchParams.get("error");
 	const ghErrorDescription = rawUrl.searchParams.get("error_description");
 
+	const baseUrl =
+		process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+		request.nextUrl.origin;
+
 	const clientSecret = process.env.GITHUB_CLIENT_SECRET;
 	if (!clientSecret) {
 		return oauthErrorHtml(
@@ -89,8 +93,6 @@ export async function GET(request: NextRequest) {
 		return NextResponse.redirect(errorUrl);
 	}
 
-	const baseUrl =
-		process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || rawUrl.origin;
 	const redirectUri = `${baseUrl}/api/github/oauth/callback`;
 	let tokenData: Record<string, string>;
 	try {
@@ -176,7 +178,7 @@ export async function GET(request: NextRequest) {
 
 	const redirectUrl = new URL(
 		`/${statePayload.workspaceSlug}/projects/${statePayload.projectSlug}`,
-		request.nextUrl.origin,
+		baseUrl,
 	);
 	redirectUrl.searchParams.set("github_connect", "success");
 	redirectUrl.searchParams.set("repo_owner", statePayload.repoOwner);
@@ -194,9 +196,12 @@ function buildRedirectUrl(
 	statePayload: { workspaceSlug: string; projectSlug: string },
 	error: string,
 ): URL {
+	const origin =
+		process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+		request.nextUrl.origin;
 	const url = new URL(
 		`/${statePayload.workspaceSlug}/projects/${statePayload.projectSlug}`,
-		request.nextUrl.origin,
+		origin,
 	);
 	url.searchParams.set("github_connect", "error");
 	url.searchParams.set("github_error", error);
