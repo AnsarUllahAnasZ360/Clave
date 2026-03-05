@@ -71,7 +71,7 @@ jobs:
       #   npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'next build'
       # With a production-scoped CONVEX_DEPLOY_KEY, Convex deploys to production.
       - name: Build (Convex production + Next.js)
-        run: vercel build --yes --token="${VERCEL_TOKEN}"
+        run: vercel build --prod --yes --token="${VERCEL_TOKEN}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}

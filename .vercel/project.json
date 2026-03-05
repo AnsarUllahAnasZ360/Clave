@@ -1,16 +1,5 @@
 {
 	"projectId": "prj_iSoP6oQy9I8iguHc1DbTzBvtNGiT",
 	"orgId": "team_RsjThnbDJTejm7R9qGEO6sho",
-	"projectName": "millhouse-web",
-	"settings": {
-		"createdAt": 1768877992177,
-		"framework": "nextjs",
-		"devCommand": null,
-		"installCommand": null,
-		"buildCommand": null,
-		"outputDirectory": null,
-		"rootDirectory": null,
-		"directoryListing": false,
-		"nodeVersion": "24.x"
-	}
+	"projectName": "clave"
 }
