@@ -156,9 +156,11 @@ function DevLoginContent() {
 
 				// Ensure the auth user is linked to the seeded org + workspace
 				await ensureDevMember();
-				const callbackUrl = (redirectParam
-					? `/auth/callback?redirect=${encodeURIComponent(redirectParam)}`
-					: "/auth/callback") as Route;
+				const callbackUrl = (
+					redirectParam
+						? `/auth/callback?redirect=${encodeURIComponent(redirectParam)}`
+						: "/auth/callback"
+				) as Route;
 				router.replace(callbackUrl);
 			} catch {
 				setError(

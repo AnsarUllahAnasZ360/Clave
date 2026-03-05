@@ -11,7 +11,9 @@ const isPublicRoute = createRouteMatcher([...PUBLIC_ROUTES]);
 
 export default convexAuthNextjsMiddleware(
 	async (request, { convexAuth }) => {
-		const redirectPath = getLegacyWorkspaceRedirectPath(request.nextUrl.pathname);
+		const redirectPath = getLegacyWorkspaceRedirectPath(
+			request.nextUrl.pathname,
+		);
 		if (redirectPath) {
 			const url = request.nextUrl.clone();
 			url.pathname = redirectPath;
