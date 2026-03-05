@@ -4,6 +4,7 @@
 
 "use client";
 
+import type { Route } from "next";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ShieldWarning } from "@phosphor-icons/react/dist/ssr";
 import { useAction, useMutation } from "convex/react";
@@ -155,9 +156,9 @@ function DevLoginContent() {
 
 				// Ensure the auth user is linked to the seeded org + workspace
 				await ensureDevMember();
-				const callbackUrl = redirectParam
+				const callbackUrl = (redirectParam
 					? `/auth/callback?redirect=${encodeURIComponent(redirectParam)}`
-					: "/auth/callback";
+					: "/auth/callback") as Route;
 				router.replace(callbackUrl);
 			} catch {
 				setError(

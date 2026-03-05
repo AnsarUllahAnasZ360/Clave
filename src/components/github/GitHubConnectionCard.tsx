@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import {
 	ArrowSquareOut,
 	CircleNotch,
@@ -42,6 +43,7 @@ export function GitHubConnectionCard({
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
 	const pathname = usePathname();
+	const currentPath = pathname as Route;
 	const searchParams = useSearchParams();
 
 	const connections = useQuery(api.github.getProjectConnections, {
@@ -71,7 +73,7 @@ export function GitHubConnectionCard({
 		handledOAuthRef.current = true;
 
 		if (githubConnect === "error") {
-			router.replace(pathname);
+			router.replace(currentPath);
 			const errorCode = searchParams.get("github_error") ?? "unknown";
 			const messages: Record<string, string> = {
 				server_not_configured: "GitHub OAuth is not configured on the server",
@@ -95,7 +97,7 @@ export function GitHubConnectionCard({
 			const scope = searchParams.get("scope") ?? "repo";
 
 			if (!repoOwner || !repoName || !encryptedToken) {
-				router.replace(pathname);
+				router.replace(currentPath);
 				toast.error("Incomplete OAuth response from GitHub");
 				return;
 			}
@@ -112,7 +114,7 @@ export function GitHubConnectionCard({
 				scope,
 			})
 				.then((connectionId) => {
-					router.replace(pathname);
+					router.replace(currentPath);
 					toast.success("GitHub repository connected — indexing started");
 					triggerInitialIndex({ connectionId, projectId }).catch(
 						(err: unknown) => {
@@ -121,7 +123,7 @@ export function GitHubConnectionCard({
 					);
 				})
 				.catch((err: unknown) => {
-					router.replace(pathname);
+					router.replace(currentPath);
 					handledOAuthRef.current = false; // Allow retry
 					const message =
 						err instanceof Error ? err.message : "Failed to store connection";
@@ -130,7 +132,7 @@ export function GitHubConnectionCard({
 		}
 	}, [
 		searchParams,
-		pathname,
+		currentPath,
 		router,
 		storeConnection,
 		triggerInitialIndex,
