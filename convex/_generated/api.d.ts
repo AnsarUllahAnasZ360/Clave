@@ -63,6 +63,7 @@ import type * as ai_subAgentTool from "../ai/subAgentTool.js";
 import type * as ai_subAgents from "../ai/subAgents.js";
 import type * as ai_threads from "../ai/threads.js";
 import type * as ai_titling from "../ai/titling.js";
+import type * as ai_toolMutations from "../ai/toolMutations.js";
 import type * as ai_toolQueries from "../ai/toolQueries.js";
 import type * as ai_tools_helpers from "../ai/tools/helpers.js";
 import type * as ai_tools_index from "../ai/tools/index.js";
@@ -220,6 +221,7 @@ declare const fullApi: ApiFromModules<{
   "ai/subAgents": typeof ai_subAgents;
   "ai/threads": typeof ai_threads;
   "ai/titling": typeof ai_titling;
+  "ai/toolMutations": typeof ai_toolMutations;
   "ai/toolQueries": typeof ai_toolQueries;
   "ai/tools/helpers": typeof ai_tools_helpers;
   "ai/tools/index": typeof ai_tools_index;

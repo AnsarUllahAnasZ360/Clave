@@ -80,6 +80,66 @@ function escapeCardText(text: string): string {
 		.replaceAll(">", "&gt;");
 }
 
+/**
+ * Strip markdown formatting to produce plain text for fallback fields.
+ */
+function stripMarkdown(md: string): string {
+	let result = md;
+	result = result.replace(/^#{1,6}\s+/gm, "");
+	result = result.replace(/\*\*(.+?)\*\*/g, "$1");
+	result = result.replace(/__(.+?)__/g, "$1");
+	result = result.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "$1");
+	result = result.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "$1");
+	result = result.replace(/~~(.+?)~~/g, "$1");
+	result = result.replace(/`([^`]+)`/g, "$1");
+	result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
+	result = result.replace(/^[\s]*[-*]\s+/gm, "• ");
+	return result;
+}
+
+/**
+ * Convert markdown to the HTML subset supported by Google Chat textParagraph.
+ * Supported: <b>, <i>, <br>, <a href>, <strike>.
+ * Strips unsupported markdown constructs (headings, emojis as bullets).
+ */
+function markdownToGoogleChatHtml(md: string): string {
+	let result = md;
+
+	// Remove heading markers (### Title → Title in bold)
+	result = result.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+
+	// Bold: **text** or __text__
+	result = result.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+	result = result.replace(/__(.+?)__/g, "<b>$1</b>");
+
+	// Italic: *text* or _text_ (but not inside words)
+	result = result.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "<i>$1</i>");
+	result = result.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "<i>$1</i>");
+
+	// Strikethrough: ~~text~~
+	result = result.replace(/~~(.+?)~~/g, "<strike>$1</strike>");
+
+	// Inline code: `text` → just use the text (no HTML equivalent)
+	result = result.replace(/`([^`]+)`/g, "$1");
+
+	// Links: [text](url)
+	result = result.replace(
+		/\[([^\]]+)\]\(([^)]+)\)/g,
+		'<a href="$2">$1</a>',
+	);
+
+	// Unordered list markers: - item or * item → • item
+	result = result.replace(/^[\s]*[-*]\s+/gm, "• ");
+
+	// Remove emoji-style bullet prefixes (e.g., "🔍 " at start of line)
+	result = result.replace(/^•\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/gmu, "• ");
+
+	// Newlines to <br> for card rendering
+	result = result.replace(/\n/g, "<br>");
+
+	return result;
+}
+
 function buildApprovalActionParameters(input: {
 	approvalId: string;
 	toolCallId: string;
@@ -230,7 +290,7 @@ export function buildGoogleChatAssistantTextCard(input: {
 			widgets: [
 				{
 					textParagraph: {
-						text: escapeCardText(message),
+						text: markdownToGoogleChatHtml(escapeCardText(message)),
 					},
 				},
 			],
@@ -261,9 +321,11 @@ export function buildGoogleChatAssistantTextCard(input: {
 		});
 	}
 
+	// Strip markdown for plain-text fields (text, fallbackText)
+	const plainMessage = stripMarkdown(message);
 	return {
-		text: message,
-		fallbackText: message,
+		text: plainMessage,
+		fallbackText: plainMessage,
 		cardsV2: [
 			{
 				cardId: "clave-assistant-message",

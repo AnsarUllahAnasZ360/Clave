@@ -105,6 +105,31 @@ const consumeCodeRef = makeFunctionReference<
 /** Check if text is a 6-char verification code (uppercase alphanumeric, no ambiguous chars). */
 const VERIFICATION_CODE_RE = /^[A-Z2-9]{6}$/;
 
+/**
+ * Strip markdown formatting for plain-text Google Chat messages.
+ * The bot SDK sends plain text, not HTML cards, so we remove markdown syntax.
+ */
+function stripMarkdown(md: string): string {
+	let result = md;
+	// Headings: ### Title → Title
+	result = result.replace(/^#{1,6}\s+/gm, "");
+	// Bold: **text** or __text__
+	result = result.replace(/\*\*(.+?)\*\*/g, "$1");
+	result = result.replace(/__(.+?)__/g, "$1");
+	// Italic: *text* or _text_
+	result = result.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, "$1");
+	result = result.replace(/(?<!\w)_([^_]+?)_(?!\w)/g, "$1");
+	// Strikethrough: ~~text~~
+	result = result.replace(/~~(.+?)~~/g, "$1");
+	// Inline code: `text`
+	result = result.replace(/`([^`]+)`/g, "$1");
+	// Links: [text](url) → text
+	result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
+	// List markers: - item or * item → • item
+	result = result.replace(/^[\s]*[-*]\s+/gm, "• ");
+	return result;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -261,7 +286,7 @@ async function handleMessage(
 		});
 
 		if (replyText) {
-			await sent.edit(replyText);
+			await sent.edit(stripMarkdown(replyText));
 		} else {
 			await sent.edit("Processed your request.");
 		}

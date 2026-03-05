@@ -326,8 +326,8 @@ export const searchIssues = createTool({
 		const hasFilters = !!(
 			args.status ||
 			args.priority ||
-			args.assigneeId ||
-			args.projectId
+			(args.assigneeId && args.assigneeId.trim()) ||
+			(args.projectId && args.projectId.trim())
 		);
 
 		// Build name lookup maps for human-readable output
@@ -386,9 +386,9 @@ export const searchIssues = createTool({
 							if (args.status && issue.status !== args.status) return false;
 							if (args.priority && issue.priority !== args.priority)
 								return false;
-							if (args.assigneeId && issue.assigneeId !== args.assigneeId)
+							if (args.assigneeId?.trim() && issue.assigneeId !== args.assigneeId)
 								return false;
-							if (args.projectId && issue.projectId !== args.projectId)
+							if (args.projectId?.trim() && issue.projectId !== args.projectId)
 								return false;
 							return true;
 						},
@@ -405,8 +405,8 @@ export const searchIssues = createTool({
 				userId,
 				status: args.status,
 				priority: args.priority,
-				assigneeId: args.assigneeId as Id<"users"> | undefined,
-				projectId: args.projectId as Id<"projects"> | undefined,
+				assigneeId: args.assigneeId || undefined,
+				projectId: args.projectId || undefined,
 				limit: args.limit,
 			}),
 			TOOL_TIMEOUT_MS,

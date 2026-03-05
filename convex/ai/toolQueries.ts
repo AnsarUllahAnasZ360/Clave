@@ -121,21 +121,22 @@ export const getProjectStats = internalQuery({
 			.collect();
 
 		const active = issues.filter((i) => !i.deletedAt && !i.parentId);
-		const counts = { backlog: 0, todo: 0, in_progress: 0, done: 0, total: 0 };
+		const counts = {
+			triage: 0,
+			backlog: 0,
+			todo: 0,
+			in_progress: 0,
+			in_review: 0,
+			done: 0,
+			cancelled: 0,
+			total: 0,
+		};
 
 		for (const issue of active) {
 			counts.total++;
-			if (issue.status === "backlog" || issue.status === "triage") {
-				counts.backlog++;
-			} else if (issue.status === "todo") {
-				counts.todo++;
-			} else if (
-				issue.status === "in_progress" ||
-				issue.status === "in_review"
-			) {
-				counts.in_progress++;
-			} else if (issue.status === "done" || issue.status === "cancelled") {
-				counts.done++;
+			const status = issue.status as keyof typeof counts;
+			if (status in counts && status !== "total") {
+				counts[status]++;
 			}
 		}
 
@@ -237,8 +238,8 @@ export const listIssues = internalQuery({
 		userId: v.id("users"),
 		status: v.optional(v.string()),
 		priority: v.optional(v.string()),
-		assigneeId: v.optional(v.id("users")),
-		projectId: v.optional(v.id("projects")),
+		assigneeId: v.optional(v.string()),
+		projectId: v.optional(v.string()),
 		limit: v.optional(v.float64()),
 	},
 	handler: async (ctx, args) => {
@@ -250,36 +251,48 @@ export const listIssues = internalQuery({
 			role,
 		);
 
+		// Sanitize optional ID fields — AI models may pass empty strings
+		const assigneeId =
+			args.assigneeId && args.assigneeId.trim()
+				? (args.assigneeId as Id<"users">)
+				: undefined;
+		const projectId =
+			args.projectId && args.projectId.trim()
+				? (args.projectId as Id<"projects">)
+				: undefined;
+
 		const pageSize = args.limit ?? 50;
 		const fetchLimit = pageSize * 4;
 
+		// Status groups: some statuses are logically related and should match together
+		const statusMatches = (issueStatus: string, filterStatus: string) => {
+			if (issueStatus === filterStatus) return true;
+			// "backlog" filter also matches "triage" issues
+			if (filterStatus === "backlog" && issueStatus === "triage") return true;
+			if (filterStatus === "triage" && issueStatus === "backlog") return true;
+			return false;
+		};
+
 		const buildIssueQuery = () => {
-			if (args.projectId) {
+			if (projectId) {
 				return ctx.db
 					.query("issues")
 					.withIndex("by_project", (q) =>
-						q.eq("projectId", args.projectId as Id<"projects">),
+						q.eq("projectId", projectId),
 					)
 					.order("desc");
 			}
-			if (args.assigneeId) {
+			if (assigneeId) {
 				return ctx.db
 					.query("issues")
 					.withIndex("by_workspace_assignee", (q) =>
 						q
 							.eq("workspaceId", args.workspaceId)
-							.eq("assigneeId", args.assigneeId as Id<"users">),
+							.eq("assigneeId", assigneeId),
 					)
 					.order("desc");
 			}
-			if (args.status) {
-				return ctx.db
-					.query("issues")
-					.withIndex("by_workspace_status", (q) =>
-						q.eq("workspaceId", args.workspaceId).eq("status", args.status as string),
-					)
-					.order("desc");
-			}
+			// Don't use status index — post-filter instead to handle status grouping
 			return ctx.db
 				.query("issues")
 				.withIndex("by_workspace", (q) =>
@@ -299,10 +312,10 @@ export const listIssues = internalQuery({
 				const isCreator = issue.createdBy === args.userId;
 				if (!inAccessibleProject && !isAssigned && !isCreator) return false;
 			}
-			if (args.status && issue.status !== args.status) return false;
+			if (args.status && !statusMatches(issue.status, args.status)) return false;
 			if (args.priority && issue.priority !== args.priority) return false;
-			if (args.assigneeId && issue.assigneeId !== args.assigneeId) return false;
-			if (args.projectId && issue.projectId !== args.projectId) return false;
+			if (assigneeId && issue.assigneeId !== assigneeId) return false;
+			if (projectId && issue.projectId !== projectId) return false;
 			return true;
 		});
 
