@@ -51,7 +51,7 @@ type GoogleChatIssueContext = {
 	issueId: Id<"issues">;
 	workspaceId: Id<"workspaces">;
 	workspaceSlug: string;
-	organizationSlug?: string;
+
 	identifier: string;
 	title: string;
 	status: string;
@@ -351,9 +351,7 @@ function normalizeAppBaseUrl(rawValue: string | undefined): string {
 }
 
 function buildIssueDeepLink(issueContext: GoogleChatIssueContext): string {
-	const path = issueContext.organizationSlug
-		? `/${issueContext.organizationSlug}/${issueContext.workspaceSlug}/issues/${issueContext.identifier}`
-		: `/issues/${issueContext.identifier}`;
+	const path = `/${issueContext.workspaceSlug}/issues/${issueContext.identifier}`;
 
 	const appBaseUrl = normalizeAppBaseUrl(
 		process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,

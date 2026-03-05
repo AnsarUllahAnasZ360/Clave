@@ -123,30 +123,27 @@ function getStatusDot(status: string): string {
 // ── Build entity URL ─────────────────────────────────────────────────────
 
 export function buildEntityUrl(
-	orgSlug: string,
 	workspaceSlug: string,
 	type: string,
 	id: string,
 ): string {
 	const config = getEntityConfig(type);
 	if (!config.segment) return "#";
-	return `/${orgSlug}/${workspaceSlug}/${config.segment}/${id}`;
+	return `/${workspaceSlug}/${config.segment}/${id}`;
 }
 
 // ── Component ────────────────────────────────────────────────────────────
 
 export const SearchResultCard = memo(function SearchResultCard({
 	result,
-	orgSlug,
 	workspaceSlug,
 }: {
 	result: SearchResult;
-	orgSlug: string;
 	workspaceSlug: string;
 }) {
 	const config = getEntityConfig(result.type);
 	const Icon = config.icon;
-	const url = buildEntityUrl(orgSlug, workspaceSlug, result.type, result.id);
+	const url = buildEntityUrl(workspaceSlug, result.type, result.id);
 
 	return (
 		<Link

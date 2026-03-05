@@ -26,7 +26,7 @@ export function SignInForm({
 }: {
 	defaultFlow?: "signIn" | "signUp";
 }) {
-	const { signIn } = useAuthActions();
+	const { signIn, signOut } = useAuthActions();
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const [flow, setFlow] = useState<AuthFlow>(defaultFlow);
@@ -77,6 +77,13 @@ export function SignInForm({
 		setError(null);
 		setIsLoading(true);
 		try {
+			if (flow === "signUp") {
+				try {
+					await signOut();
+				} catch {
+					// Ignore: sign-out may fail when no local auth session exists.
+				}
+			}
 			const result = await signIn("password", {
 				email: email.trim(),
 				password,
@@ -89,11 +96,14 @@ export function SignInForm({
 				return;
 			}
 			router.replace(postLoginDestination as never);
-		} catch {
+		} catch (e) {
+			const msg = e instanceof Error ? e.message.toLowerCase() : "";
 			setError(
 				flow === "signIn"
 					? "Invalid email or password."
-					: "Could not create account. Email may already be in use.",
+					: msg.includes("already") || msg.includes("exist")
+						? "An account with this email already exists. Try signing in instead."
+						: "Could not create account. Please try again.",
 			);
 		} finally {
 			setIsLoading(false);
@@ -439,7 +449,11 @@ export function SignInForm({
 			{process.env.NEXT_PUBLIC_DEV_MODE === "true" && (
 				<div className="mt-6 text-center">
 					<Link
-						href="/dev-login"
+						href={
+							safeRedirectQuery
+								? (`/dev-login?redirect=${encodeURIComponent(safeRedirectQuery)}` as never)
+								: "/dev-login"
+						}
 						prefetch={false}
 						className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 px-3 py-1.5 text-xs font-medium text-amber-500 transition-colors hover:bg-amber-500/10"
 					>

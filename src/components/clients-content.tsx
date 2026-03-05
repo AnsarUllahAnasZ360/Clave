@@ -166,7 +166,7 @@ function ClientProjectsBadge({
 }
 
 export function ClientsContent() {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const [searchQuery, setSearchQuery] = useState("");
 	const [isWizardOpen, setIsWizardOpen] = useState(false);
 	const [statusFilter, setStatusFilter] = useState<"all" | ClientStatus>("all");
@@ -624,7 +624,7 @@ export function ClientsContent() {
 															<DropdownMenuSeparator />
 															<DropdownMenuItem asChild>
 																<Link
-																	href={`/${orgSlug}/${workspaceSlug}/clients/${clientId}`}
+																	href={`/${workspaceSlug}/clients/${clientId}`}
 																	prefetch={false}
 																>
 																	View full page

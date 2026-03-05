@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	Circle,
 	CircleNotch,
 	CopySimple,
 	Globe,
@@ -436,7 +435,7 @@ export function IdentitySettingsPane() {
 						</div>
 						<p className="text-xs text-muted-foreground">
 							{visibilityValue === "public"
-								? "Anyone in the organization can discover and join this workspace."
+								? "Anyone with the link can discover and join this workspace."
 								: "Only invited members can access this workspace."}
 						</p>
 					</SettingRow>

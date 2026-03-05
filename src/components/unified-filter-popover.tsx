@@ -49,9 +49,16 @@ export function FilterOptionItem({
 	color?: string;
 }) {
 	return (
-		<button
-			type="button"
+		<div
+			role="button"
+			tabIndex={0}
 			onClick={onToggle}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					onToggle();
+				}
+			}}
 			className="flex w-full items-center gap-2 rounded-md border border-border/40 px-2.5 py-2 text-sm hover:bg-accent cursor-pointer text-left"
 		>
 			<Checkbox checked={checked} onCheckedChange={onToggle} />
@@ -63,7 +70,7 @@ export function FilterOptionItem({
 			)}
 			{icon}
 			<span className="flex-1">{label}</span>
-		</button>
+		</div>
 	);
 }
 

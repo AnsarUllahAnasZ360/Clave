@@ -80,7 +80,7 @@ function getStoredSort(): SortOption {
 
 export function DocsContent() {
 	const router = useRouter();
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	const documents = useQuery(api.documents.listByWorkspace, { workspaceId });
 	const projects = useWorkspaceProjects();
@@ -173,7 +173,7 @@ export function DocsContent() {
 			setNewTitle("");
 			setNewProjectId("");
 			// biome-ignore lint/suspicious/noExplicitAny: route type
-			router.push(`/${orgSlug}/${workspaceSlug}/docs/${docId}` as any);
+			router.push(`/${workspaceSlug}/docs/${docId}` as any);
 		} catch {
 			toast.error("Failed to create document");
 		}
@@ -184,16 +184,15 @@ export function DocsContent() {
 		workspaceId,
 		workspaceSlug,
 		router,
-		orgSlug,
 	]);
 
 	const handleDocClick = useCallback(
 		(docId: string) => {
 			if (renamingId === docId) return;
 			// biome-ignore lint/suspicious/noExplicitAny: route type
-			router.push(`/${orgSlug}/${workspaceSlug}/docs/${docId}` as any);
+			router.push(`/${workspaceSlug}/docs/${docId}` as any);
 		},
-		[workspaceSlug, router, renamingId, orgSlug],
+		[workspaceSlug, router, renamingId],
 	);
 
 	// Action handlers
@@ -230,12 +229,16 @@ export function DocsContent() {
 	}, []);
 
 	const handleCopyLink = useCallback(
-		(docId: string) => {
-			const url = `${window.location.origin}/${orgSlug}/${workspaceSlug}/docs/${docId}`;
-			navigator.clipboard.writeText(url);
-			toast.success("Link copied");
+		async (docId: string) => {
+			const url = `${window.location.origin}/${workspaceSlug}/docs/${docId}`;
+			try {
+				await navigator.clipboard.writeText(url);
+				toast.success("Link copied");
+			} catch {
+				toast.error("Failed to copy link");
+			}
 		},
-		[workspaceSlug, orgSlug],
+		[workspaceSlug],
 	);
 
 	const handleDuplicate = useCallback(

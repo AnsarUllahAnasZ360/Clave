@@ -3,7 +3,7 @@
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ function JoinPageContent() {
 	const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
 	const joinWithCode = useMutation(api.workspaceMembers.joinWithCode);
 
-	const codeFromUrl = searchParams.get("code") ?? "";
+	const codeFromUrl = searchParams.get("invite") ?? "";
 	const [code, setCode] = useState(codeFromUrl.toUpperCase());
 	const [joining, setJoining] = useState(false);
 	const [error, setError] = useState("");
@@ -32,6 +32,36 @@ function JoinPageContent() {
 		api.inviteCodes.validate,
 		code.length >= 6 ? { code } : "skip",
 	);
+
+	// Auto-join when user arrives authenticated with a valid code from the URL
+	const autoJoinAttempted = useRef(false);
+	useEffect(() => {
+		if (
+			isAuthenticated &&
+			!authLoading &&
+			codeFromUrl &&
+			validation?.valid === true &&
+			!joining &&
+			!autoJoinAttempted.current
+		) {
+			autoJoinAttempted.current = true;
+			joinWithCode({ code: codeFromUrl.toUpperCase() })
+				.then(() => {
+					toast.success("Joined workspace successfully");
+					window.location.href = "/auth/callback";
+				})
+				.catch((e) => {
+					setError(e instanceof Error ? e.message : "Failed to join workspace");
+				});
+		}
+	}, [
+		isAuthenticated,
+		authLoading,
+		codeFromUrl,
+		validation,
+		joining,
+		joinWithCode,
+	]);
 
 	const handleCodeChange = useCallback((value: string) => {
 		setCode(
@@ -51,7 +81,7 @@ function JoinPageContent() {
 
 		if (!isAuthenticated) {
 			// Redirect to sign-in with a return URL back here
-			const returnUrl = `/join?code=${encodeURIComponent(code)}`;
+			const returnUrl = `/join?invite=${encodeURIComponent(code)}`;
 			router.push(`/sign-in?redirect=${encodeURIComponent(returnUrl)}`);
 			return;
 		}
@@ -62,12 +92,7 @@ function JoinPageContent() {
 		try {
 			await joinWithCode({ code: code.trim() });
 			toast.success("Joined workspace successfully");
-			// Redirect to the workspace if we have routing info, otherwise reload
-			if (validation?.orgSlug && validation?.workspaceSlug) {
-				window.location.href = `/${validation.orgSlug}/${validation.workspaceSlug}`;
-			} else {
-				window.location.href = "/";
-			}
+			window.location.href = "/auth/callback";
 		} catch (e) {
 			const message =
 				e instanceof Error ? e.message : "Failed to join workspace";
@@ -81,14 +106,7 @@ function JoinPageContent() {
 		} finally {
 			setJoining(false);
 		}
-	}, [
-		code,
-		isAuthenticated,
-		joinWithCode,
-		router,
-		validation?.orgSlug,
-		validation?.workspaceSlug,
-	]);
+	}, [code, isAuthenticated, joinWithCode, router]);
 
 	const isValid = validation?.valid === true;
 	const isInvalid = validation && !validation.valid && code.length >= 6;

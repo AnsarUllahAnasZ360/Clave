@@ -20,7 +20,7 @@ type ClientDetailsPageProps = {
 };
 
 export function ClientDetailsPage({ clientId }: ClientDetailsPageProps) {
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const [isWizardOpen, setIsWizardOpen] = useState(false);
 
 	const client = useQuery(api.clients.getById, {
@@ -208,7 +208,7 @@ export function ClientDetailsPage({ clientId }: ClientDetailsPageProps) {
 														{relatedProjects.map((p) => (
 															<Link
 																key={p._id}
-																href={`/${orgSlug}/${workspaceSlug}/projects/${p.slug}`}
+																href={`/${workspaceSlug}/projects/${p.slug}`}
 																className="flex items-center justify-between px-4 py-3 hover:bg-muted/80"
 																prefetch={false}
 															>

@@ -99,7 +99,7 @@ function IssueFullCreateModalContent({
 	onClose,
 	onIssueCreated,
 }: Omit<IssueFullCreateModalProps, "open">) {
-	const { workspaceId, orgSlug, workspaceSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { formState, updateForm, switchMode, resetFormKeepProperties } =
 		useIssueCreate();
 	const createIssue = useMutation(api.issues.create);
@@ -111,6 +111,14 @@ function IssueFullCreateModalContent({
 	// Sprint query based on selected project
 	const activeSprints = useQuery(
 		api.sprints.listByProject,
+		formState.projectId
+			? { projectId: formState.projectId as Id<"projects"> }
+			: "skip",
+	);
+
+	// List query based on selected project
+	const projectLists = useQuery(
+		api.lists.listByProject,
 		formState.projectId
 			? { projectId: formState.projectId as Id<"projects"> }
 			: "skip",
@@ -191,6 +199,14 @@ function IssueFullCreateModalContent({
 		}));
 	}, [activeSprints]);
 
+	const listOptions = useMemo(() => {
+		if (!projectLists) return [];
+		return projectLists.map((l) => ({
+			id: l._id as string,
+			label: l.name,
+		}));
+	}, [projectLists]);
+
 	const initialDescriptionValue = useMemo(
 		() => parseAnyContentToSlate(formState.description) as Value | undefined,
 		[formState.description],
@@ -260,6 +276,9 @@ function IssueFullCreateModalContent({
 				sprintId: formState.sprintId
 					? (formState.sprintId as Id<"sprints">)
 					: undefined,
+				listId: formState.listId
+					? (formState.listId as Id<"lists">)
+					: undefined,
 				milestoneId: formState.milestoneId
 					? (formState.milestoneId as Id<"milestones">)
 					: undefined,
@@ -316,6 +335,7 @@ function IssueFullCreateModalContent({
 		(p) => p.id === formState.projectId,
 	);
 	const selectedSprint = sprintOptions.find((m) => m.id === formState.sprintId);
+	const selectedList = listOptions.find((l) => l.id === formState.listId);
 	const currentEstimate =
 		ESTIMATE_OPTIONS.find((e) => e.id === formState.estimate) ??
 		ESTIMATE_OPTIONS[0];
@@ -425,7 +445,6 @@ function IssueFullCreateModalContent({
 							<DuplicateDetection
 								duplicates={duplicates}
 								loading={duplicatesLoading}
-								orgSlug={orgSlug}
 								workspaceSlug={workspaceSlug}
 							/>
 						)}
@@ -668,6 +687,40 @@ function IssueFullCreateModalContent({
 													<span className="text-muted-foreground">
 														No sprint
 													</span>
+												)}
+											</span>
+										</button>
+									}
+								/>
+							</PropertyRow>
+						)}
+
+						{/* List (only when project selected and lists exist) */}
+						{formState.projectId && listOptions.length > 0 && (
+							<PropertyRow label="List" icon={Flag}>
+								<GenericPicker
+									items={listOptions}
+									onSelect={(item) =>
+										updateForm({
+											listId: item.id,
+											sprintId: undefined,
+										})
+									}
+									selectedId={formState.listId}
+									placeholder="Set list..."
+									renderItem={(item) => (
+										<div className="flex items-center gap-2 w-full">
+											<span className="flex-1">{item.label}</span>
+										</div>
+									)}
+									trigger={
+										<button
+											type="button"
+											className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+										>
+											<span>
+												{selectedList?.label ?? (
+													<span className="text-muted-foreground">No list</span>
 												)}
 											</span>
 										</button>

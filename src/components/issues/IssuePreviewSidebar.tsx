@@ -75,7 +75,7 @@ export function IssuePreviewSidebar({
 	issueId: Id<"issues">;
 	onClose: () => void;
 }) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const router = useRouter();
 	const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
@@ -227,9 +227,7 @@ export function IssuePreviewSidebar({
 						className="h-6 w-6 text-muted-foreground hover:text-foreground"
 						onClick={() =>
 							issue &&
-							router.push(
-								`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`,
-							)
+							router.push(`/${workspaceSlug}/issues/${issue.identifier}`)
 						}
 						title="Open full page"
 					>

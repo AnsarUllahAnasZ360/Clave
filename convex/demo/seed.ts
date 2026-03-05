@@ -21,71 +21,58 @@ import {
 	DEMO_STORY_PREFIX,
 	DEMO_TASK_PREFIX,
 	DEMO_USERS,
-	DEMO_WORKSPACE_DESCRIPTION,
-	DEMO_WORKSPACE_NAME,
-	DEMO_WORKSPACE_SLUG,
 	daysAgo,
 	daysFromNow,
 } from "./constants";
 
-// ── Phase 1: Initialize Demo Workspace ───────────────────────────────────────
+// ── Phase 1: Seed Demo Data into Existing Workspace ─────────────────────────
 
-export const initDemoWorkspace = internalMutation({
+export const seedDemoData = internalMutation({
 	args: {
-		organizationId: v.id("organizations"),
+		workspaceId: v.id("workspaces"),
 		creatorUserId: v.id("users"),
 	},
-	handler: async (ctx, { organizationId, creatorUserId }) => {
-		// Idempotency: check if demo workspace already exists for this org
-		const existing = await ctx.db
-			.query("workspaces")
-			.withIndex("by_organization", (q) =>
-				q.eq("organizationId", organizationId),
-			)
-			.filter((q) => q.eq(q.field("isDemo"), true))
-			.first();
-		if (existing) return;
+	handler: async (ctx, { workspaceId, creatorUserId }) => {
+		// Idempotency: check if this workspace is already seeded
+		const workspace = await ctx.db.get(workspaceId);
+		if (!workspace) return;
+		if (
+			workspace.demoSeedStatus === "seeding" ||
+			workspace.demoSeedStatus === "complete"
+		)
+			return;
 
-		// Create the demo workspace
-		const workspaceId = await ctx.db.insert("workspaces", {
-			name: DEMO_WORKSPACE_NAME,
-			slug: `${DEMO_WORKSPACE_SLUG}-${organizationId.slice(-6)}`,
-			ownerId: creatorUserId,
-			organizationId,
-			visibility: "public",
-			description: DEMO_WORKSPACE_DESCRIPTION,
+		// Mark workspace as seeding
+		await ctx.db.patch(workspaceId, {
 			isDemo: true,
 			demoExpiresAt: daysFromNow(DEMO_EXPIRES_DAYS),
 			demoSeedStatus: "seeding",
-			createdAt: Date.now(),
 			updatedAt: Date.now(),
 		});
 
-		// Create workspace settings
-		await ctx.db.insert("workspaceSettings", {
-			workspaceId,
-			storyPrefix: DEMO_STORY_PREFIX,
-			nextStoryNumber: 1,
-			taskPrefix: DEMO_TASK_PREFIX,
-			nextTaskNumber: 1,
-			issuePrefix: DEMO_ISSUE_PREFIX,
-			nextIssueNumber: 1,
-			aiWorkspaceContext: DEMO_AI_WORKSPACE_CONTEXT,
-			aiAssistantCharacteristics: DEMO_AI_ASSISTANT_CHARACTERISTICS,
-			customTypes: DEMO_CUSTOM_TYPES,
-			customStatuses: DEMO_CUSTOM_STATUSES,
-			workspaceSlashCommands: DEMO_SLASH_COMMANDS,
-		});
+		// Create workspace settings if not already present
+		const existingSettings = await ctx.db
+			.query("workspaceSettings")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+			.first();
+		if (!existingSettings) {
+			await ctx.db.insert("workspaceSettings", {
+				workspaceId,
+				storyPrefix: DEMO_STORY_PREFIX,
+				nextStoryNumber: 1,
+				taskPrefix: DEMO_TASK_PREFIX,
+				nextTaskNumber: 1,
+				issuePrefix: DEMO_ISSUE_PREFIX,
+				nextIssueNumber: 1,
+				aiWorkspaceContext: DEMO_AI_WORKSPACE_CONTEXT,
+				aiAssistantCharacteristics: DEMO_AI_ASSISTANT_CHARACTERISTICS,
+				customTypes: DEMO_CUSTOM_TYPES,
+				customStatuses: DEMO_CUSTOM_STATUSES,
+				workspaceSlashCommands: DEMO_SLASH_COMMANDS,
+			});
+		}
 
-		// Add creator as workspace admin
-		await ctx.db.insert("workspaceMembers", {
-			workspaceId,
-			userId: creatorUserId,
-			role: "admin",
-			joinedAt: Date.now(),
-		});
-
-		// Create demo users and add them as workspace + org members
+		// Create demo users and add them as workspace members
 		const userIds: Id<"users">[] = [];
 		for (const user of DEMO_USERS) {
 			// Check if demo user already exists
@@ -109,22 +96,6 @@ export const initDemoWorkspace = internalMutation({
 				});
 			}
 			userIds.push(userId);
-
-			// Add to org
-			const existingOrgMember = await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_org_user", (q) =>
-					q.eq("organizationId", organizationId).eq("userId", userId),
-				)
-				.first();
-			if (!existingOrgMember) {
-				await ctx.db.insert("organizationMembers", {
-					organizationId,
-					userId,
-					role: "member",
-					joinedAt: daysAgo(Math.floor(Math.random() * 60) + 30),
-				});
-			}
 
 			// Add to workspace
 			const existingWsMember = await ctx.db
@@ -165,7 +136,6 @@ export const initDemoWorkspace = internalMutation({
 			internal.demo.seedProjects.seedAllProjects,
 			{
 				workspaceId,
-				organizationId,
 				creatorUserId,
 				userIds: [creatorUserId, ...userIds],
 				labelIds,
@@ -173,6 +143,12 @@ export const initDemoWorkspace = internalMutation({
 		);
 	},
 });
+
+/**
+ * @deprecated Use seedDemoData instead. Kept temporarily for backward compatibility
+ * with any existing scheduled jobs that reference this name.
+ */
+export const initDemoWorkspace = seedDemoData;
 
 // ── Finalize: Mark seeding complete ──────────────────────────────────────────
 

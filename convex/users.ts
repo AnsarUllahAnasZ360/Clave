@@ -14,7 +14,6 @@ const destinationSourceValidator = v.union(
 const destinationValidator = v.object({
 	path: v.string(),
 	source: destinationSourceValidator,
-	organizationId: v.optional(v.id("organizations")),
 	workspaceId: v.optional(v.id("workspaces")),
 });
 
@@ -30,8 +29,8 @@ const slashCommandValidator = v.object({
 	createdBy: v.optional(v.id("users")),
 });
 
-function toPath(orgSlug: string, workspaceSlug: string) {
-	return `/${orgSlug}/${workspaceSlug}/chat`;
+function toPath(workspaceSlug: string) {
+	return `/${workspaceSlug}/chat`;
 }
 
 function byMostRecentJoinedAt<
@@ -43,37 +42,12 @@ function byMostRecentJoinedAt<
 async function resolveWorkspaceDestination(
 	ctx: QueryCtx,
 	workspaceId: Id<"workspaces">,
-	organizationMembershipIds: Set<Id<"organizations">>,
-	organizationFallbackIds: Id<"organizations">[],
-	preferredOrganizationId?: Id<"organizations">,
 ) {
 	const workspace = await ctx.db.get(workspaceId);
 	if (!workspace || workspace.deletedAt) return null;
 
-	let organizationId = workspace.organizationId;
-
-	// Legacy fallback: allow orphan workspaces (no organizationId) to pair
-	// with the user's preferred/recent organization membership.
-	if (!organizationId) {
-		if (
-			preferredOrganizationId &&
-			organizationMembershipIds.has(preferredOrganizationId)
-		) {
-			organizationId = preferredOrganizationId;
-		} else {
-			organizationId = organizationFallbackIds[0];
-		}
-	}
-
-	if (!organizationId || !organizationMembershipIds.has(organizationId))
-		return null;
-
-	const organization = await ctx.db.get(organizationId);
-	if (!organization || organization.deletedAt) return null;
-
 	return {
-		path: toPath(organization.slug, workspace.slug),
-		organizationId: organization._id,
+		path: toPath(workspace.slug),
 		workspaceId: workspace._id,
 	};
 }
@@ -84,16 +58,8 @@ async function resolvePostLoginDestinationForUser(
 		_id: Id<"users">;
 		_creationTime: number;
 		lastActiveWorkspaceId?: Id<"workspaces">;
-		lastActiveOrganizationId?: Id<"organizations">;
 	},
 ) {
-	const orgMemberships = (
-		await ctx.db
-			.query("organizationMembers")
-			.withIndex("by_user", (q) => q.eq("userId", user._id))
-			.collect()
-	).sort(byMostRecentJoinedAt);
-
 	const workspaceMemberships = (
 		await ctx.db
 			.query("workspaceMembers")
@@ -101,10 +67,6 @@ async function resolvePostLoginDestinationForUser(
 			.collect()
 	).sort(byMostRecentJoinedAt);
 
-	const organizationMembershipIds = new Set(
-		orgMemberships.map((m) => m.organizationId),
-	);
-	const organizationFallbackIds = orgMemberships.map((m) => m.organizationId);
 	const workspaceMembershipIds = new Set(
 		workspaceMemberships.map((m) => m.workspaceId),
 	);
@@ -116,9 +78,6 @@ async function resolvePostLoginDestinationForUser(
 		const resolved = await resolveWorkspaceDestination(
 			ctx,
 			user.lastActiveWorkspaceId,
-			organizationMembershipIds,
-			organizationFallbackIds,
-			user.lastActiveOrganizationId,
 		);
 		if (resolved) {
 			return { ...resolved, source: "lastActiveContext" as const };
@@ -129,9 +88,6 @@ async function resolvePostLoginDestinationForUser(
 		const resolved = await resolveWorkspaceDestination(
 			ctx,
 			membership.workspaceId,
-			organizationMembershipIds,
-			organizationFallbackIds,
-			user.lastActiveOrganizationId,
 		);
 		if (resolved) {
 			return { ...resolved, source: "recentMembership" as const };
@@ -204,7 +160,6 @@ export const current = query({
 			aiHowToWorkWithMe: v.optional(v.string()),
 			personalSlashCommands: v.optional(v.array(slashCommandValidator)),
 			lastSeenVersion: v.optional(v.string()),
-			lastActiveOrganizationId: v.optional(v.id("organizations")),
 			lastActiveWorkspaceId: v.optional(v.id("workspaces")),
 			lastActiveContextAt: v.optional(v.number()),
 			suspended: v.optional(v.boolean()),
@@ -223,8 +178,6 @@ export const current = query({
 			const url = await ctx.storage.getUrl(user.avatarStorageId);
 			if (url) avatarUrl = url;
 		}
-		// Explicitly pick fields to avoid returning auth-internal fields
-		// (emailVerificationTime, phone, phoneVerificationTime, isAnonymous)
 		return {
 			_id: user._id,
 			_creationTime: user._creationTime,
@@ -248,7 +201,6 @@ export const current = query({
 			aiHowToWorkWithMe: user.aiHowToWorkWithMe,
 			personalSlashCommands: user.personalSlashCommands,
 			lastSeenVersion: user.lastSeenVersion,
-			lastActiveOrganizationId: user.lastActiveOrganizationId,
 			lastActiveWorkspaceId: user.lastActiveWorkspaceId,
 			lastActiveContextAt: user.lastActiveContextAt,
 			suspended: user.suspended,
@@ -302,7 +254,6 @@ export const resolvePostLoginDestination = query({
 	returns: v.object({
 		path: v.string(),
 		source: destinationSourceValidator,
-		organizationId: v.optional(v.id("organizations")),
 		workspaceId: v.optional(v.id("workspaces")),
 	}),
 	handler: async (ctx) => {
@@ -397,11 +348,10 @@ export const update = mutation({
 	},
 });
 
-/** Persist the authenticated user's active organization/workspace context */
+/** Persist the authenticated user's active workspace context */
 export const setActiveContext = mutation({
 	args: {
-		organizationId: v.optional(v.id("organizations")),
-		workspaceId: v.optional(v.id("workspaces")),
+		workspaceId: v.id("workspaces"),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -410,91 +360,35 @@ export const setActiveContext = mutation({
 			throw new ConvexError("Not authenticated");
 		}
 
-		if (args.organizationId === undefined && args.workspaceId === undefined) {
-			throw new ConvexError(
-				"At least one of organizationId or workspaceId is required",
-			);
-		}
-
 		const user = await ctx.db.get(userId);
 		if (!user) {
 			throw new ConvexError("User not found");
 		}
 
 		// Early return: skip all validation reads if context hasn't changed
-		if (
-			user.lastActiveOrganizationId === args.organizationId &&
-			user.lastActiveWorkspaceId === args.workspaceId
-		) {
+		if (user.lastActiveWorkspaceId === args.workspaceId) {
 			return null;
 		}
 
-		let resolvedOrganizationId = args.organizationId;
-
-		if (resolvedOrganizationId !== undefined) {
-			const organizationId = resolvedOrganizationId;
-			const orgMembership = await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_org_user", (q) =>
-					q.eq("organizationId", organizationId).eq("userId", userId),
-				)
-				.unique();
-			if (!orgMembership) {
-				throw new ConvexError("Not an organization member");
-			}
-
-			const organization = await ctx.db.get(organizationId);
-			if (!organization || organization.deletedAt) {
-				throw new ConvexError("Organization not found");
-			}
+		const workspaceMembership = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_workspace_user", (q) =>
+				q.eq("workspaceId", args.workspaceId).eq("userId", userId),
+			)
+			.unique();
+		if (!workspaceMembership) {
+			throw new ConvexError("Not a workspace member");
 		}
 
-		if (args.workspaceId !== undefined) {
-			const workspaceId = args.workspaceId;
-			const workspaceMembership = await ctx.db
-				.query("workspaceMembers")
-				.withIndex("by_workspace_user", (q) =>
-					q.eq("workspaceId", workspaceId).eq("userId", userId),
-				)
-				.unique();
-			if (!workspaceMembership) {
-				throw new ConvexError("Not a workspace member");
-			}
-
-			const workspace = await ctx.db.get(workspaceId);
-			if (!workspace || workspace.deletedAt) {
-				throw new ConvexError("Workspace not found");
-			}
-
-			if (workspace.organizationId) {
-				if (
-					resolvedOrganizationId &&
-					resolvedOrganizationId !== workspace.organizationId
-				) {
-					throw new ConvexError(
-						"workspaceId does not belong to the provided organizationId",
-					);
-				}
-				resolvedOrganizationId = workspace.organizationId;
-			}
+		const workspace = await ctx.db.get(args.workspaceId);
+		if (!workspace || workspace.deletedAt) {
+			throw new ConvexError("Workspace not found");
 		}
 
-		const patch: {
-			lastActiveContextAt: number;
-			lastActiveOrganizationId?: Id<"organizations">;
-			lastActiveWorkspaceId?: Id<"workspaces">;
-		} = {
+		await ctx.db.patch(userId, {
 			lastActiveContextAt: Date.now(),
-		};
-
-		if (resolvedOrganizationId !== undefined) {
-			patch.lastActiveOrganizationId = resolvedOrganizationId;
-		}
-		if (args.workspaceId !== undefined) {
-			patch.lastActiveWorkspaceId = args.workspaceId;
-		}
-
-		await ctx.db.patch(userId, patch);
+			lastActiveWorkspaceId: args.workspaceId,
+		});
 		return null;
 	},
 });
@@ -549,33 +443,6 @@ export const deleteAccount = mutation({
 			throw new ConvexError("User not found");
 		}
 
-		// Check that user is not the sole owner of any organization
-		const orgMemberships = await ctx.db
-			.query("organizationMembers")
-			.withIndex("by_user", (q) => q.eq("userId", userId))
-			.collect();
-
-		for (const membership of orgMemberships) {
-			if (membership.role === "owner") {
-				// Check if there are other owners in this organization
-				const allOrgMembers = await ctx.db
-					.query("organizationMembers")
-					.withIndex("by_org", (q) =>
-						q.eq("organizationId", membership.organizationId),
-					)
-					.collect();
-				const otherOwners = allOrgMembers.filter(
-					(m) => m.role === "owner" && m.userId !== userId,
-				);
-				if (otherOwners.length === 0) {
-					const org = await ctx.db.get(membership.organizationId);
-					throw new ConvexError(
-						`You are the sole owner of "${org?.name ?? "an organization"}". Transfer ownership before deleting your account.`,
-					);
-				}
-			}
-		}
-
 		// Soft-delete user: anonymize profile
 		await ctx.db.patch(userId, {
 			deletedAt: Date.now(),
@@ -594,11 +461,6 @@ export const deleteAccount = mutation({
 			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.collect();
 		for (const membership of workspaceMemberships) {
-			await ctx.db.delete(membership._id);
-		}
-
-		// Remove from all organization memberships (non-owner already validated above)
-		for (const membership of orgMemberships) {
 			await ctx.db.delete(membership._id);
 		}
 

@@ -2,7 +2,7 @@
  * Settings barrel — re-exports all pane components and config.
  *
  * Each pane lives in its own file for code-splitting.
- * The settings page (src/app/[orgSlug]/[workspaceSlug]/settings/page.tsx)
+ * The settings page (src/app/[workspaceSlug]/settings/page.tsx)
  * imports from this barrel so existing consumer code doesn't break.
  */
 

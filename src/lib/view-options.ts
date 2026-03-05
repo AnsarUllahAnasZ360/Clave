@@ -30,3 +30,31 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
 	groupBy: "none",
 	properties: ["title", "status", "assignee", "dueDate"],
 };
+
+export type ProjectGroup = {
+	key: string;
+	label: string;
+	projects: import("@/lib/data/projects").Project[];
+};
+
+// ── localStorage persistence ─────────────────────────────────────────────────
+
+const STORAGE_KEY = "clave:project-view-options";
+
+export function loadViewOptions(): ViewOptions {
+	try {
+		const stored = localStorage.getItem(STORAGE_KEY);
+		if (stored) return { ...DEFAULT_VIEW_OPTIONS, ...JSON.parse(stored) };
+	} catch {
+		/* ignore */
+	}
+	return DEFAULT_VIEW_OPTIONS;
+}
+
+export function saveViewOptions(options: ViewOptions): void {
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(options));
+	} catch {
+		/* ignore */
+	}
+}

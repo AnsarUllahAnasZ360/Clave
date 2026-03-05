@@ -115,15 +115,11 @@ const PROJECT_UPDATES: Record<number, string[]> = {
 export const seedAllProjects = internalMutation({
 	args: {
 		workspaceId: v.id("workspaces"),
-		organizationId: v.id("organizations"),
 		creatorUserId: v.id("users"),
 		userIds: v.array(v.id("users")),
 		labelIds: v.array(v.id("labels")),
 	},
-	handler: async (
-		ctx,
-		{ workspaceId, organizationId, creatorUserId, userIds, labelIds },
-	) => {
+	handler: async (ctx, { workspaceId, creatorUserId, userIds, labelIds }) => {
 		const projectIds: Id<"projects">[] = [];
 		const allMilestoneIds: Id<"milestones">[] = [];
 		const allSprintIds: Id<"sprints">[] = [];

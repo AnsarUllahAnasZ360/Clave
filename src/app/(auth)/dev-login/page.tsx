@@ -7,8 +7,9 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ShieldWarning } from "@phosphor-icons/react/dist/ssr";
 import { useAction, useMutation } from "convex/react";
-import { notFound, useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import type { Route } from "next";
+import { notFound, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "../../../../convex/_generated/api";
 
@@ -68,11 +69,15 @@ function shouldRetryWithSignUp(error: unknown): boolean {
 	);
 }
 
-export default function DevLoginPage() {
+function DevLoginContent() {
 	const { signIn, signOut } = useAuthActions();
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const [loading, setLoading] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+
+	// Preserve redirect param (e.g. from invite code flow)
+	const redirectParam = searchParams.get("redirect") ?? "";
 
 	// Ensure dev user is linked to seeded org + workspace
 	const ensureDevMember = useMutation(api.devInit.ensureDevWorkspaceMember);
@@ -151,7 +156,12 @@ export default function DevLoginPage() {
 
 				// Ensure the auth user is linked to the seeded org + workspace
 				await ensureDevMember();
-				router.replace("/");
+				const callbackUrl = (
+					redirectParam
+						? `/auth/callback?redirect=${encodeURIComponent(redirectParam)}`
+						: "/auth/callback"
+				) as Route;
+				router.replace(callbackUrl);
 			} catch {
 				setError(
 					`Failed to sign in as ${user.name}. Check that Convex dev server is running.`,
@@ -160,7 +170,7 @@ export default function DevLoginPage() {
 				setLoading(null);
 			}
 		},
-		[signIn, signOut, router, ensureDevMember],
+		[signIn, signOut, router, ensureDevMember, redirectParam],
 	);
 	// Server+client guard: 404 in production (defense-in-depth; middleware also blocks)
 	if (!isDevMode()) {
@@ -279,7 +289,11 @@ export default function DevLoginPage() {
 
 					<div className="border-t border-border/70 bg-muted/40 px-6 py-4 text-center">
 						<a
-							href="/sign-in"
+							href={
+								redirectParam
+									? `/sign-in?redirect=${encodeURIComponent(redirectParam)}`
+									: "/sign-in"
+							}
 							className="text-sm text-muted-foreground transition-colors hover:text-foreground"
 						>
 							Use regular sign in instead
@@ -288,5 +302,19 @@ export default function DevLoginPage() {
 				</div>
 			</div>
 		</div>
+	);
+}
+
+export default function DevLoginPage() {
+	return (
+		<Suspense
+			fallback={
+				<div className="flex min-h-screen items-center justify-center bg-background">
+					<div className="animate-pulse text-muted-foreground">Loading...</div>
+				</div>
+			}
+		>
+			<DevLoginContent />
+		</Suspense>
 	);
 }

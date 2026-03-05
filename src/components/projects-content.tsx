@@ -9,8 +9,11 @@ import { ProjectHeader } from "@/components/project-header";
 import type { FilterCounts, Project } from "@/lib/data/projects";
 import { chipsToParams, paramsToChips } from "@/lib/url/filters";
 import {
-	DEFAULT_VIEW_OPTIONS,
 	type FilterChip,
+	type GroupBy,
+	loadViewOptions,
+	type ProjectGroup,
+	saveViewOptions,
 	type ViewOptions,
 } from "@/lib/view-options";
 import { api } from "../../convex/_generated/api";
@@ -26,6 +29,62 @@ const ProjectQuickCreateModal = dynamic(
 		loading: () => null,
 	},
 );
+
+function statusLabel(status: string): string {
+	switch (status) {
+		case "active":
+			return "Active";
+		case "planned":
+			return "Planned";
+		case "backlog":
+			return "Backlog";
+		case "completed":
+			return "Completed";
+		case "cancelled":
+			return "Cancelled";
+		default:
+			return status;
+	}
+}
+
+function groupProjects(projects: Project[], groupBy: GroupBy): ProjectGroup[] {
+	if (groupBy === "none") return [{ key: "all", label: "", projects }];
+
+	const groups = new Map<string, Project[]>();
+
+	for (const p of projects) {
+		if (groupBy === "status") {
+			const key = p.status;
+			const arr = groups.get(key) ?? [];
+			arr.push(p);
+			groups.set(key, arr);
+		} else if (groupBy === "assignee") {
+			const key = p.members[0] ?? "Unassigned";
+			const arr = groups.get(key) ?? [];
+			arr.push(p);
+			groups.set(key, arr);
+		} else {
+			// tags — projects with multiple tags appear in multiple groups
+			if (p.tags.length === 0) {
+				const arr = groups.get("No tags") ?? [];
+				arr.push(p);
+				groups.set("No tags", arr);
+			} else {
+				for (const t of p.tags) {
+					const arr = groups.get(t) ?? [];
+					arr.push(p);
+					groups.set(t, arr);
+				}
+			}
+		}
+	}
+
+	return Array.from(groups.entries()).map(([key, items]) => ({
+		key,
+		label: groupBy === "status" ? statusLabel(key) : key,
+		projects: items,
+	}));
+}
 
 function computeFilterCountsFromList(list: Project[]): FilterCounts {
 	const res: FilterCounts = {
@@ -62,8 +121,9 @@ export function ProjectsContent() {
 		workspaceId,
 	});
 	const allClients = useQuery(api.clients.list, { workspaceId });
-	const [viewOptions, setViewOptions] =
-		useState<ViewOptions>(DEFAULT_VIEW_OPTIONS);
+	const [viewOptions, setViewOptions] = useState<ViewOptions>(() =>
+		loadViewOptions(),
+	);
 
 	const [filters, setFilters] = useState<FilterChip[]>([]);
 
@@ -106,6 +166,10 @@ export function ProjectsContent() {
 		const chips = paramsToChips(params);
 		setFilters(chips);
 	}, [searchParams]);
+
+	useEffect(() => {
+		saveViewOptions(viewOptions);
+	}, [viewOptions]);
 
 	const replaceUrlFromChips = (chips: FilterChip[]) => {
 		const params = chipsToParams(chips);
@@ -216,6 +280,11 @@ export function ProjectsContent() {
 		return sorted;
 	}, [filters, viewOptions, projects]);
 
+	const groupedProjects = useMemo(
+		() => groupProjects(filteredProjects, viewOptions.groupBy),
+		[filteredProjects, viewOptions.groupBy],
+	);
+
 	const isLoading = rawProjects === undefined;
 
 	return (
@@ -230,7 +299,8 @@ export function ProjectsContent() {
 				onAddProject={openWizard}
 			/>
 			<ProjectCardsView
-				projects={filteredProjects}
+				groups={groupedProjects}
+				visibleProperties={viewOptions.properties}
 				loading={isLoading}
 				onCreateProject={openWizard}
 			/>

@@ -9,7 +9,6 @@ import {
 	PlanLimitDialog,
 	type PlanLimitInfo,
 } from "@/components/billing/PlanLimitDialog";
-import { useOrganization } from "@/components/providers/organization-context";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -23,7 +22,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 
 function generateSlugFromName(name: string): string {
 	return name
@@ -38,14 +36,11 @@ function generateSlugFromName(name: string): string {
 export function CreateWorkspaceDialog({
 	open,
 	onOpenChange,
-	organizationId,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	organizationId: Id<"organizations">;
 }) {
 	const router = useRouter();
-	const { orgSlug } = useOrganization();
 	const createWorkspace = useMutation(api.workspaces.create);
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
@@ -91,7 +86,6 @@ export function CreateWorkspaceDialog({
 			await createWorkspace({
 				name: name.trim(),
 				slug: slug.trim(),
-				organizationId,
 				visibility,
 			});
 			onOpenChange(false);
@@ -99,7 +93,7 @@ export function CreateWorkspaceDialog({
 			setSlug("");
 			setSlugEdited(false);
 			setVisibility("public");
-			router.push(`/${orgSlug}/${slug.trim()}/projects`);
+			router.push(`/${slug.trim()}/chat`);
 		} catch (e) {
 			if (
 				e instanceof ConvexError &&
@@ -186,7 +180,7 @@ export function CreateWorkspaceDialog({
 							</div>
 							<p className="text-xs text-muted-foreground">
 								{visibility === "public"
-									? "Anyone in the organization can discover and join this workspace."
+									? "Anyone with the link can discover and join this workspace."
 									: "Only invited members can access this workspace."}
 							</p>
 						</div>

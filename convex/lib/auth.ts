@@ -340,48 +340,6 @@ export async function checkWhiteboardWriteAccess(
 	return { userId, canWrite: false };
 }
 
-// ── Organization Auth Helpers ──────────────────────────────────────────────
-
-/** Check organization membership, return userId and member record */
-export async function requireOrgMember(
-	ctx: QueryCtx | MutationCtx,
-	organizationId: Id<"organizations">,
-) {
-	const userId = await requireAuth(ctx);
-	const member = await ctx.db
-		.query("organizationMembers")
-		.withIndex("by_org_user", (q) =>
-			q.eq("organizationId", organizationId).eq("userId", userId),
-		)
-		.unique();
-	if (!member) throw new ConvexError("Not an organization member");
-	return { userId, member };
-}
-
-/** Require organization admin or owner role */
-export async function requireOrgAdmin(
-	ctx: QueryCtx | MutationCtx,
-	organizationId: Id<"organizations">,
-) {
-	const { userId, member } = await requireOrgMember(ctx, organizationId);
-	if (member.role !== "admin" && member.role !== "owner") {
-		throw new ConvexError("Organization admin access required");
-	}
-	return { userId, member };
-}
-
-/** Require organization owner role */
-export async function requireOrgOwner(
-	ctx: QueryCtx | MutationCtx,
-	organizationId: Id<"organizations">,
-) {
-	const { userId, member } = await requireOrgMember(ctx, organizationId);
-	if (member.role !== "owner") {
-		throw new ConvexError("Organization owner access required");
-	}
-	return { userId, member };
-}
-
 /** Require superadmin platform role */
 export async function requireSuperAdmin(ctx: QueryCtx | MutationCtx) {
 	const userId = await requireAuth(ctx);

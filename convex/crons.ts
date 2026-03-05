@@ -66,4 +66,11 @@ crons.cron(
 	internal.demo.cleanup.cleanupExpiredDemos,
 );
 
+// GitHub periodic sync — catch missed webhooks every 15 minutes
+crons.interval(
+	"github periodic sync",
+	{ minutes: 15 },
+	internal.githubSyncActions.periodicSync,
+);
+
 export default crons;

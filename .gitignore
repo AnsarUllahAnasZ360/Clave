@@ -76,6 +76,12 @@ yarn-error.log*
 # Lock file (project uses bun)
 package-lock.json
 
+# Nested repo (duplicate clone)
+/Clave/
+
+# Internal secrets — never commit
+team-env-keys.md
+
 # Misc
 *.tsbuildinfo
 .vercel/*

@@ -1,15 +1,11 @@
 "use client";
 
 import {
-	Circle,
 	CircleNotch,
 	CopySimple,
 	PencilSimpleLine,
 	Plus,
 	Robot,
-	ShieldCheck,
-	SlidersHorizontal,
-	Sparkle,
 	TrashSimple,
 } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";

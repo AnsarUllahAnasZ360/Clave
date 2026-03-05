@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 PORT="${DEV_PORT:-4000}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"

@@ -119,7 +119,7 @@ export default function IssueDescriptionEditor({
 
 	const aiPlugins = useMemo(
 		() => (workspace ? [AIEditorPlugin] : []),
-		[workspace?.workspaceId],
+		[workspace?.workspaceId, workspace],
 	);
 	const hasContent = (activeContent ?? "").trim().length > 0;
 

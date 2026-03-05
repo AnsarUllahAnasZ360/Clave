@@ -124,10 +124,9 @@ const SEGMENT_TO_PAGE_TYPE: Record<string, PageContextType> = {
 
 function parseRoute(
 	pathname: string,
-	orgSlug: string,
 	workspaceSlug: string,
 ): ParsedRoute | null {
-	const prefix = `/${orgSlug}/${workspaceSlug}/`;
+	const prefix = `/${workspaceSlug}/`;
 	if (!pathname.startsWith(prefix)) return null;
 
 	const rest = pathname.slice(prefix.length);
@@ -190,11 +189,11 @@ function isPageRoute(
 
 export function useAIContext(): AIContext | null {
 	const pathname = usePathname();
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 
 	const parsed = useMemo(
-		() => parseRoute(pathname, orgSlug, workspaceSlug),
-		[pathname, orgSlug, workspaceSlug],
+		() => parseRoute(pathname, workspaceSlug),
+		[pathname, workspaceSlug],
 	);
 
 	// Fetch entity data based on context type.

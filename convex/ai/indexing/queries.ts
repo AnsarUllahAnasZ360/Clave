@@ -151,12 +151,13 @@ export const getGithubConnection = internalQuery({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
-		const connection = await ctx.db
+		const connections = await ctx.db
 			.query("githubConnections")
 			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-			.first();
+			.collect();
 
-		if (!connection || connection.status !== "active") return null;
+		const connection = connections.find((c) => c.status === "active") ?? null;
+		if (!connection) return null;
 
 		return {
 			_id: connection._id,

@@ -73,7 +73,7 @@ export function MilestoneDetailPanel({
 		api.issues.listBySprint,
 		sprintId ? { sprintId } : "skip",
 	);
-	const { workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const updateMilestone = useMutation(api.sprints.update);
 	const completeMilestone = useMutation(api.sprints.complete);
 
@@ -442,7 +442,7 @@ export function MilestoneDetailPanel({
 										return (
 											<Link
 												key={issue._id}
-												href={`/${orgSlug}/${workspaceSlug}/issues/${issue.identifier}`}
+												href={`/${workspaceSlug}/issues/${issue.identifier}`}
 												className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 transition-colors"
 												prefetch={false}
 											>

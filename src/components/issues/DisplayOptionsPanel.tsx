@@ -295,13 +295,13 @@ export function DisplayOptionsPanel({
 							{ALL_DISPLAY_PROPERTIES.map((prop) => {
 								const checked = displayProperties.includes(prop);
 								return (
-									<button
+									<label
 										key={prop}
-										type="button"
+										htmlFor={`display-prop-${prop}`}
 										className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs hover:bg-muted/50 cursor-pointer transition-colors text-left"
-										onClick={() => onDisplayPropertyToggle(prop)}
 									>
 										<Checkbox
+											id={`display-prop-${prop}`}
 											checked={checked}
 											onCheckedChange={() => onDisplayPropertyToggle(prop)}
 											tabIndex={-1}
@@ -309,7 +309,7 @@ export function DisplayOptionsPanel({
 										<span className={checked ? "" : "text-muted-foreground"}>
 											{DISPLAY_PROPERTY_LABELS[prop]}
 										</span>
-									</button>
+									</label>
 								);
 							})}
 						</div>

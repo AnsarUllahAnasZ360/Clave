@@ -106,7 +106,7 @@ type ActiveProjectItem = {
 
 export function AppSidebar() {
 	const pathname = usePathname();
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const user = useCurrentUser();
 	const { sections, toggle } = useSidebarSections({
 		initialSections: user?.sidebarSections,
@@ -136,7 +136,7 @@ export function AppSidebar() {
 		hasFavorites === true || (favorites !== undefined && favorites.length > 0);
 
 	const getHrefForNavItem = (id: NavItemId): LinkProps<string>["href"] => {
-		const base = `/${orgSlug}/${workspaceSlug}`;
+		const base = `/${workspaceSlug}`;
 		if (id === "chat") return `${base}/chat` as LinkProps<string>["href"];
 		if (id === "my-tasks") return `${base}/tasks` as LinkProps<string>["href"];
 		if (id === "projects")
@@ -151,7 +151,7 @@ export function AppSidebar() {
 	};
 
 	const isItemActive = (id: NavItemId): boolean => {
-		const base = `/${orgSlug}/${workspaceSlug}`;
+		const base = `/${workspaceSlug}`;
 		if (id === "chat") {
 			return pathname.startsWith(`${base}/chat`);
 		}
@@ -310,7 +310,7 @@ export function AppSidebar() {
 									) : (
 										recents.map((recent: RecentItem) => {
 											const getRecentHref = () => {
-												const base = `/${orgSlug}/${workspaceSlug}`;
+												const base = `/${workspaceSlug}`;
 												switch (recent.entityType) {
 													case "document":
 														return `${base}/docs/${recent.entityId}`;
@@ -441,7 +441,7 @@ export function AppSidebar() {
 											) : (
 												favorites.map((fav: FavoriteItem) => {
 													const getFavHref = () => {
-														const base = `/${orgSlug}/${workspaceSlug}`;
+														const base = `/${workspaceSlug}`;
 														switch (fav.entityType) {
 															case "project":
 																return `${base}/projects/${fav.entityId}`;
@@ -573,7 +573,7 @@ export function AppSidebar() {
 												>
 													<Link
 														href={
-															`/${orgSlug}/${workspaceSlug}/projects/${project.slug}` as LinkProps<string>["href"]
+															`/${workspaceSlug}/projects/${project.slug}` as LinkProps<string>["href"]
 														}
 														prefetch={false}
 													>
@@ -608,7 +608,7 @@ export function AppSidebar() {
 				</Collapsible>
 			</SidebarContent>
 
-			<UserFooterMenu settingsHref={`/${orgSlug}/${workspaceSlug}/settings`} />
+			<UserFooterMenu settingsHref={`/${workspaceSlug}/settings`} />
 		</Sidebar>
 	);
 }

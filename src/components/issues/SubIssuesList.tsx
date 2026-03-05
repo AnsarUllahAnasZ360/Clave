@@ -74,7 +74,6 @@ function isCompletedStatus(status: string): boolean {
 function SortableSubIssueRow({
 	subIssue,
 	workspaceSlug,
-	orgSlug,
 	member,
 	onToggle,
 }: {
@@ -86,7 +85,6 @@ function SortableSubIssueRow({
 		assigneeId?: Id<"users"> | null;
 	};
 	workspaceSlug: string;
-	orgSlug: string;
 	member?: { name: string; image?: string };
 	onToggle: (issueId: Id<"issues">, currentStatus: string) => void;
 }) {
@@ -140,7 +138,7 @@ function SortableSubIssueRow({
 			</span>
 
 			<Link
-				href={`/${orgSlug}/${workspaceSlug}/issues/${subIssue.identifier}`}
+				href={`/${workspaceSlug}/issues/${subIssue.identifier}`}
 				className={cn(
 					"text-sm truncate flex-1 hover:text-primary transition-colors",
 					isDone && "line-through text-muted-foreground",
@@ -461,7 +459,7 @@ function InlineCreateInput({
 // ── Main component ──────────────────────────────────────────────────────
 
 export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const [isCollapsibleOpen, setIsCollapsibleOpen] = useState<
 		boolean | undefined
 	>(undefined);
@@ -612,7 +610,6 @@ export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
 											key={subIssue._id}
 											subIssue={subIssue}
 											workspaceSlug={workspaceSlug}
-											orgSlug={orgSlug}
 											member={
 												subIssue.assigneeId
 													? memberMap.get(subIssue.assigneeId)

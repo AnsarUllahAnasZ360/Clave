@@ -2,9 +2,8 @@
  * @vitest-environment node
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	type CodeChunk,
 	chunkCodeFile,
 	decryptToken,
 	detectLanguage,
@@ -151,7 +150,7 @@ describe("chunkCodeFile", () => {
 			"import { foo } from 'bar';",
 			"",
 			"export function greet(name: string) {",
-			"  return `Hello ${name}`;",
+			`  return \`Hello \${name}\`;`,
 			"}",
 			"",
 			"export const PI = 3.14;",
@@ -260,7 +259,7 @@ describe("chunkCodeFile", () => {
 		const chunks = chunkCodeFile(content, "typescript");
 		const preamble = chunks.find((c) => c.chunkType === "preamble");
 		expect(preamble).toBeDefined();
-		expect(preamble!.content).toContain("import");
+		expect(preamble?.content).toContain("import");
 	});
 });
 

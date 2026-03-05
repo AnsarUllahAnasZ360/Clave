@@ -28,17 +28,17 @@ registerRoutes(http, components.stripe, {
 			const session = event.data.object;
 			const customerId = session.customer as string | null;
 			const subscriptionId = session.subscription as string | null;
-			const orgId = session.metadata?.orgId;
+			const workspaceId = session.metadata?.workspaceId;
 
 			if (!customerId) {
 				console.warn("[Billing] checkout.session.completed: no customer ID");
 				return;
 			}
 
-			// Link Stripe customer to org if orgId provided in metadata
-			if (orgId) {
+			// Link Stripe customer to workspace if workspaceId provided in metadata
+			if (workspaceId) {
 				await ctx.runMutation(internal.billing.linkStripeCustomer, {
-					organizationId: orgId as never,
+					workspaceId: workspaceId as never,
 					stripeCustomerId: customerId,
 				});
 			}
@@ -49,7 +49,7 @@ registerRoutes(http, components.stripe, {
 				| "pro"
 				| "enterprise";
 
-			await ctx.runMutation(internal.billing.updateOrgSubscriptionStatus, {
+			await ctx.runMutation(internal.billing.updateSubscriptionStatus, {
 				stripeCustomerId: customerId,
 				subscriptionId: subscriptionId ?? undefined,
 				subscriptionStatus: "active",
@@ -68,7 +68,7 @@ registerRoutes(http, components.stripe, {
 			const subscription = event.data.object;
 			const customerId = subscription.customer as string;
 
-			await ctx.runMutation(internal.billing.updateOrgSubscriptionStatus, {
+			await ctx.runMutation(internal.billing.updateSubscriptionStatus, {
 				stripeCustomerId: customerId,
 				subscriptionId: subscription.id,
 				subscriptionStatus: subscription.status,
@@ -87,7 +87,7 @@ registerRoutes(http, components.stripe, {
 			const customerId = subscription.customer as string;
 
 			// Downgrade to free plan when subscription is cancelled
-			await ctx.runMutation(internal.billing.updateOrgSubscriptionStatus, {
+			await ctx.runMutation(internal.billing.updateSubscriptionStatus, {
 				stripeCustomerId: customerId,
 				subscriptionId: subscription.id,
 				subscriptionStatus: "canceled",
@@ -112,7 +112,7 @@ registerRoutes(http, components.stripe, {
 				return;
 			}
 
-			await ctx.runMutation(internal.billing.updateOrgSubscriptionStatus, {
+			await ctx.runMutation(internal.billing.updateSubscriptionStatus, {
 				stripeCustomerId: customerId,
 				subscriptionId: subscriptionId ?? undefined,
 				subscriptionStatus: "past_due",
@@ -131,7 +131,7 @@ registerRoutes(http, components.stripe, {
 				return;
 			}
 
-			await ctx.runMutation(internal.billing.updateOrgSubscriptionStatus, {
+			await ctx.runMutation(internal.billing.updateSubscriptionStatus, {
 				stripeCustomerId: customerId,
 				subscriptionId: subscriptionId ?? undefined,
 				subscriptionStatus: "active",

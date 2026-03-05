@@ -14,13 +14,6 @@ import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { Input } from "@/components/ui/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import {
 	DEFAULT_ISSUE_TYPES,
 	DEFAULT_PRIORITIES,
 	DEFAULT_STATUSES,

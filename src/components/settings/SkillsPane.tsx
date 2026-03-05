@@ -1,7 +1,6 @@
 "use client";
 
 import {
-	Circle,
 	CircleNotch,
 	PencilSimpleLine,
 	Plus,

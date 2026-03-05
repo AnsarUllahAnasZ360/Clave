@@ -1,6 +1,6 @@
 "use client";
 
-import { CopySimple, Info, Spinner } from "@phosphor-icons/react/dist/ssr";
+import { CopySimple, Spinner } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -401,9 +401,13 @@ export function AccountSettingsPane() {
 							variant="ghost"
 							size="icon-sm"
 							className="shrink-0"
-							onClick={() => {
-								navigator.clipboard.writeText(user._id);
-								toast.success("User ID copied");
+							onClick={async () => {
+								try {
+									await navigator.clipboard.writeText(user._id);
+									toast.success("User ID copied");
+								} catch {
+									toast.error("Failed to copy");
+								}
 							}}
 						>
 							<CopySimple className="h-4 w-4" />

@@ -79,6 +79,7 @@ type ProjectOverviewProps = {
 	project: {
 		_id: Id<"projects">;
 		name: string;
+		slug: string;
 		summary?: string;
 		description?: string;
 		richDescription?: string;
@@ -162,7 +163,10 @@ export function ProjectOverview({
 			<Separator />
 			<div className="space-y-2">
 				<h3 className="text-sm font-medium text-foreground">Integrations</h3>
-				<GitHubConnectionCard projectId={project._id} />
+				<GitHubConnectionCard
+					projectId={project._id}
+					projectSlug={project.slug}
+				/>
 			</div>
 			<Separator />
 			<MilestonesSection

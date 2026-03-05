@@ -7,7 +7,7 @@ interface WorkspaceContextValue {
 	workspaceId: Id<"workspaces">;
 	workspaceSlug: string;
 	workspaceName: string;
-	orgSlug: string;
+
 	logoUrl?: string | null;
 	isDemo?: boolean;
 }

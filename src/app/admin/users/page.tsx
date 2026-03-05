@@ -159,7 +159,6 @@ export default function AdminUsersPage() {
 								<TableHead>User</TableHead>
 								<TableHead>Email</TableHead>
 								<TableHead>Role</TableHead>
-								<TableHead className="text-center">Orgs</TableHead>
 								<TableHead className="text-center">Workspaces</TableHead>
 								<TableHead>Last Active</TableHead>
 								<TableHead>Status</TableHead>
@@ -212,9 +211,6 @@ export default function AdminUsersPage() {
 											) : (
 												<Badge variant="outline">Regular</Badge>
 											)}
-										</TableCell>
-										<TableCell className="text-center">
-											{user.orgCount}
 										</TableCell>
 										<TableCell className="text-center">
 											{user.workspaceCount}

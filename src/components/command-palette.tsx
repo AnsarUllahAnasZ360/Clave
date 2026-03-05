@@ -101,7 +101,7 @@ export function CommandPalette() {
 	const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const semanticGeneration = useRef(0);
 	const router = useRouter();
-	const { workspaceId, workspaceSlug, orgSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const issueCreate = useIssueCreateOptional();
 	const embeddedAction = useAction(api.ai.embedded.embeddedAction);
 
@@ -220,7 +220,7 @@ export function CommandPalette() {
 		[router],
 	);
 
-	const basePath = `/${orgSlug}/${workspaceSlug}`;
+	const basePath = `/${workspaceSlug}`;
 
 	return (
 		<CommandDialog

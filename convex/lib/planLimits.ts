@@ -1,60 +1,92 @@
+import { ConvexError } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
-type LimitKey = "maxMembers" | "maxWorkspaces";
+type LimitKey = "maxMembers";
 
 /** Default free plan limits used when no plan record exists */
-const _FREE_PLAN_DEFAULTS = {
+const FREE_PLAN_DEFAULTS = {
 	maxMembers: 5,
-	maxWorkspaces: 2,
 } as const;
 
 /**
- * Get current usage counts for an organization.
- * Returns { members, workspaces } counts.
+ * Get current usage counts for a workspace.
+ * Returns { members } count.
  */
 export async function getCurrentUsage(
 	ctx: QueryCtx | MutationCtx,
-	organizationId: Id<"organizations">,
-): Promise<{ members: number; workspaces: number }> {
+	workspaceId: Id<"workspaces">,
+): Promise<{ members: number }> {
 	const members = await ctx.db
-		.query("organizationMembers")
-		.withIndex("by_org", (q) => q.eq("organizationId", organizationId))
+		.query("workspaceMembers")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
 		.collect();
-
-	// Exclude demo users from the member count
-	let realMemberCount = 0;
-	for (const member of members) {
-		const user = await ctx.db.get(member.userId);
-		if (user && !user.isDemoUser) {
-			realMemberCount++;
-		}
-	}
-
-	const workspaces = await ctx.db
-		.query("workspaces")
-		.withIndex("by_organization", (q) => q.eq("organizationId", organizationId))
-		.collect();
-
-	// Only count non-deleted, non-demo workspaces
-	const activeWorkspaces = workspaces.filter((w) => !w.deletedAt && !w.isDemo);
 
 	return {
-		members: realMemberCount,
-		workspaces: activeWorkspaces.length,
+		members: members.length,
 	};
 }
 
 /**
- * Plan limit check — currently disabled (unlimited).
+ * Check if the workspace is at or over its plan limit for the given key.
+ * Throws ConvexError({ kind: "plan_limit", ... }) if the limit is reached.
  *
- * Kept as a no-op so call-sites don't need to change. Re-enable when
- * billing tiers are enforced.
+ * Priority: workspace.planLimits override > plans table > free plan defaults.
  */
 export async function checkPlanLimit(
-	_ctx: QueryCtx | MutationCtx,
-	_organizationId: Id<"organizations">,
-	_limit: LimitKey,
+	ctx: QueryCtx | MutationCtx,
+	workspaceId: Id<"workspaces">,
+	limit: LimitKey,
 ): Promise<void> {
-	// No-op: all plans are unlimited for now.
+	const workspace = await ctx.db.get(workspaceId);
+	if (!workspace) {
+		throw new ConvexError("Workspace not found");
+	}
+
+	const planKey = workspace.plan ?? "free";
+
+	// Determine the max limit value
+	let max: number | undefined;
+
+	// 1. Check per-workspace override first
+	if (workspace.planLimits) {
+		const override = workspace.planLimits[limit];
+		if (override !== undefined) {
+			max = override;
+		}
+	}
+
+	// 2. Fall back to plans table
+	if (max === undefined) {
+		const planRecord = await ctx.db
+			.query("plans")
+			.withIndex("by_key", (q) => q.eq("key", planKey))
+			.unique();
+
+		if (planRecord) {
+			max = planRecord.limits[limit];
+		}
+	}
+
+	// 3. Fall back to hardcoded free defaults
+	if (max === undefined) {
+		max = FREE_PLAN_DEFAULTS[limit];
+		console.warn(
+			`[PlanLimits] No plan record found for "${planKey}", using free defaults`,
+		);
+	}
+
+	// Get current usage
+	const usage = await getCurrentUsage(ctx, workspaceId);
+	const current = usage.members;
+
+	if (current >= max) {
+		throw new ConvexError({
+			kind: "plan_limit" as const,
+			limit,
+			current,
+			max,
+			plan: planKey,
+		});
+	}
 }

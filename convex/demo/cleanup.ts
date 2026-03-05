@@ -324,12 +324,6 @@ async function cleanupDemoWorkspace(
 			.withIndex("by_user", (q) => q.eq("userId", user._id))
 			.first();
 		if (!remainingMemberships) {
-			// Remove org memberships too
-			const orgMemberships = await ctx.db
-				.query("organizationMembers")
-				.withIndex("by_user", (q) => q.eq("userId", user._id))
-				.collect();
-			for (const om of orgMemberships) await ctx.db.delete(om._id);
 			await ctx.db.delete(user._id);
 		}
 	}

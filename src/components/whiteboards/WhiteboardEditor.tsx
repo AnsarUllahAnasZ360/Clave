@@ -84,7 +84,7 @@ export default function WhiteboardEditor({
 	const lastRemoteTimestampRef = useRef(0);
 
 	// Save status for user feedback
-	const [saveStatus, setSaveStatusRaw] = useState<SaveStatus>("idle");
+	const [_saveStatus, setSaveStatusRaw] = useState<SaveStatus>("idle");
 	const onSaveStatusChangeRef = useRef(onSaveStatusChange);
 	onSaveStatusChangeRef.current = onSaveStatusChange;
 	const setSaveStatus = useCallback((status: SaveStatus) => {
@@ -570,7 +570,7 @@ export default function WhiteboardEditor({
 					});
 			}, SAVE_DEBOUNCE_MS);
 		},
-		[whiteboardId, updateSceneMutation],
+		[whiteboardId, updateSceneMutation, setSaveStatus],
 	);
 
 	if (!mounted || whiteboard === undefined) {

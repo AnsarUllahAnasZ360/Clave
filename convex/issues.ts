@@ -83,6 +83,7 @@ const issueDocValidator = v.object({
 	workspaceId: v.id("workspaces"),
 	projectId: v.optional(v.id("projects")),
 	sprintId: v.optional(v.id("sprints")),
+	listId: v.optional(v.id("lists")),
 	milestoneId: v.optional(v.id("milestones")),
 	parentId: v.optional(v.id("issues")),
 	identifier: v.string(),
@@ -113,6 +114,7 @@ const issueWithParentValidator = v.object({
 	workspaceId: v.id("workspaces"),
 	projectId: v.optional(v.id("projects")),
 	sprintId: v.optional(v.id("sprints")),
+	listId: v.optional(v.id("lists")),
 	milestoneId: v.optional(v.id("milestones")),
 	parentId: v.optional(v.id("issues")),
 	identifier: v.string(),
@@ -341,6 +343,42 @@ export const listBySprint = query({
 		const issues = await ctx.db
 			.query("issues")
 			.withIndex("by_sprint_sort", (q) => q.eq("sprintId", args.sprintId))
+			.collect();
+
+		return issues.filter((issue) => !issue.deletedAt);
+	},
+});
+
+/** Issues for a specific list, ordered by sortOrder */
+export const listByList = query({
+	args: {
+		listId: v.id("lists"),
+	},
+	returns: v.array(issueDocValidator),
+	handler: async (ctx, args) => {
+		const list = await ctx.db.get(args.listId);
+		if (!list || list.deletedAt) return [];
+
+		const project = await ctx.db.get(list.projectId);
+		if (!project || project.deletedAt) return [];
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			project.workspaceId,
+		);
+
+		if (member.role !== "admin") {
+			const hasAccess = await canAccessProject(
+				ctx,
+				list.projectId,
+				userId,
+				member.role as "admin" | "member",
+			);
+			if (!hasAccess) return [];
+		}
+
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_list_sort", (q) => q.eq("listId", args.listId))
 			.collect();
 
 		return issues.filter((issue) => !issue.deletedAt);
@@ -727,6 +765,7 @@ export const create = mutation({
 		workspaceId: v.id("workspaces"),
 		projectId: v.optional(v.id("projects")),
 		sprintId: v.optional(v.id("sprints")),
+		listId: v.optional(v.id("lists")),
 		milestoneId: v.optional(v.id("milestones")),
 		parentId: v.optional(v.id("issues")),
 		title: v.string(),
@@ -799,6 +838,25 @@ export const create = mutation({
 			sprintProjectId = sprintProject._id;
 		}
 
+		// Mutual exclusivity: listId and sprintId cannot both be set
+		if (args.listId && args.sprintId) {
+			throw new ConvexError(
+				"An issue cannot belong to both a list and a sprint",
+			);
+		}
+
+		let listProjectId: Id<"projects"> | undefined;
+		if (args.listId) {
+			const list = await ctx.db.get(args.listId);
+			if (!list || list.deletedAt) {
+				throw new ConvexError("List not found");
+			}
+			if (list.workspaceId !== args.workspaceId) {
+				throw new ConvexError("List must belong to the same workspace");
+			}
+			listProjectId = list.projectId;
+		}
+
 		let milestoneProjectId: Id<"projects"> | undefined;
 		if (args.milestoneId) {
 			const milestone = await ctx.db.get(args.milestoneId);
@@ -839,7 +897,11 @@ export const create = mutation({
 			);
 		}
 
-		let projectId = explicitProjectId ?? sprintProjectId ?? milestoneProjectId;
+		let projectId =
+			explicitProjectId ??
+			sprintProjectId ??
+			listProjectId ??
+			milestoneProjectId;
 
 		if (args.parentId) {
 			const parent = await ctx.db.get(args.parentId);
@@ -873,12 +935,19 @@ export const create = mutation({
 			await ensureAssigneeInWorkspace(ctx, args.workspaceId, args.assigneeId);
 		}
 
-		// Compute sortOrder: append at end of sprint/project bucket
+		// Compute sortOrder: append at end of sprint/list/milestone/project bucket
 		let lastSortOrder: number | null = null;
 		if (args.sprintId) {
 			const last = await ctx.db
 				.query("issues")
 				.withIndex("by_sprint_sort", (q) => q.eq("sprintId", args.sprintId))
+				.order("desc")
+				.first();
+			if (last) lastSortOrder = last.sortOrder;
+		} else if (args.listId) {
+			const last = await ctx.db
+				.query("issues")
+				.withIndex("by_list_sort", (q) => q.eq("listId", args.listId))
 				.order("desc")
 				.first();
 			if (last) lastSortOrder = last.sortOrder;
@@ -907,6 +976,7 @@ export const create = mutation({
 			workspaceId: args.workspaceId,
 			projectId,
 			sprintId: args.sprintId,
+			listId: args.listId,
 			milestoneId: args.milestoneId,
 			parentId: args.parentId,
 			identifier,
@@ -982,6 +1052,7 @@ export const update = mutation({
 		assigneeId: v.optional(v.id("users")),
 		projectId: v.optional(v.id("projects")),
 		sprintId: v.optional(v.id("sprints")),
+		listId: v.optional(v.id("lists")),
 		milestoneId: v.optional(v.id("milestones")),
 		labelIds: v.optional(v.array(v.id("labels"))),
 		startDate: v.optional(v.number()),
@@ -1033,10 +1104,39 @@ export const update = mutation({
 			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
 		}
 
-		const resolvedSprintId =
-			args.sprintId !== undefined ? args.sprintId : issue.sprintId;
+		// Mutual exclusivity: setting sprintId clears listId and vice versa
+		const resolvedSprintId = (() => {
+			if (args.listId !== undefined && args.listId !== null) return undefined; // listId set → clear sprint
+			if (args.sprintId !== undefined) return args.sprintId;
+			if (args.listId === null) return issue.sprintId; // explicit clear of list keeps sprint
+			return issue.sprintId;
+		})();
+
+		const resolvedListId = (() => {
+			if (args.sprintId !== undefined && args.sprintId !== null)
+				return undefined; // sprintId set → clear list
+			if (args.listId !== undefined) return args.listId;
+			return issue.listId;
+		})();
+
 		const resolvedMilestoneId =
 			args.milestoneId !== undefined ? args.milestoneId : issue.milestoneId;
+
+		if (resolvedListId) {
+			const list = await ctx.db.get(resolvedListId);
+			if (!list || list.deletedAt) {
+				throw new ConvexError("List not found");
+			}
+			if (list.workspaceId !== issue.workspaceId) {
+				throw new ConvexError("List must belong to the same workspace");
+			}
+			if (targetProjectId && list.projectId !== targetProjectId) {
+				throw new ConvexError("List does not belong to the target project");
+			}
+			if (!targetProjectId) {
+				targetProjectId = list.projectId;
+			}
+		}
 
 		if (resolvedSprintId) {
 			const sprint = await ctx.db.get(resolvedSprintId);
@@ -1106,6 +1206,8 @@ export const update = mutation({
 		const patch: Record<string, unknown> = {
 			...updates,
 			projectId: targetProjectId ?? undefined,
+			sprintId: resolvedSprintId ?? undefined,
+			listId: resolvedListId ?? undefined,
 			updatedAt: Date.now(),
 		};
 
@@ -1369,6 +1471,34 @@ export const update = mutation({
 			internal.ai.indexing.issueIndexer.indexIssue,
 			{ issueId: args.issueId },
 		);
+
+		// Outbound GitHub sync — push changes if this issue has a sync mapping
+		// and the change didn't originate from GitHub (loop prevention)
+		if (issue.githubSyncSource !== "github") {
+			const syncRecord = await ctx.db
+				.query("githubIssueSync")
+				.withIndex("by_clave_issue", (q) => q.eq("claveIssueId", args.issueId))
+				.first();
+
+			if (syncRecord) {
+				// Check if the connection has issue sync enabled
+				const connection = await ctx.db.get(syncRecord.connectionId);
+				if (connection?.issueSyncEnabled) {
+					await ctx.scheduler.runAfter(
+						0,
+						internal.githubSyncActions.pushIssueToGithub,
+						{ syncRecordId: syncRecord._id },
+					);
+				}
+			}
+		}
+
+		// Clear the sync source flag after processing
+		if (issue.githubSyncSource) {
+			await ctx.db.patch(args.issueId, {
+				githubSyncSource: undefined,
+			});
+		}
 	},
 });
 
@@ -2724,7 +2854,6 @@ const googleChatIssueContextValidator = v.object({
 	issueId: v.id("issues"),
 	workspaceId: v.id("workspaces"),
 	workspaceSlug: v.string(),
-	organizationSlug: v.optional(v.string()),
 	identifier: v.string(),
 	title: v.string(),
 	status: v.string(),
@@ -3015,16 +3144,14 @@ export const getGoogleChatIssueContextInternal = internalQuery({
 			return null;
 		}
 
-		const [organization, assignee] = await Promise.all([
-			workspace.organizationId ? ctx.db.get(workspace.organizationId) : null,
-			issue.assigneeId ? ctx.db.get(issue.assigneeId) : null,
-		]);
+		const assignee = issue.assigneeId
+			? await ctx.db.get(issue.assigneeId)
+			: null;
 
 		return {
 			issueId: issue._id,
 			workspaceId: issue.workspaceId,
 			workspaceSlug: workspace.slug,
-			organizationSlug: organization?.slug,
 			identifier: issue.identifier,
 			title: issue.title,
 			status: issue.status,

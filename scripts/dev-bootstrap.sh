@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -129,8 +129,14 @@ cleanup_port_listeners() {
 }
 
 resolve_binaries() {
+  local BIN_DIR="${PROJECT_DIR}/node_modules/.bin"
+  # Prefer Unix scripts (next, convex) for WSL/Linux; fall back to .exe for Windows
   if [[ ! -x "$CONVEX_BIN" ]]; then
-    if command -v convex >/dev/null 2>&1; then
+    if [[ -x "$BIN_DIR/convex" ]]; then
+      CONVEX_BIN="$BIN_DIR/convex"
+    elif [[ -x "$BIN_DIR/convex.exe" ]]; then
+      CONVEX_BIN="$BIN_DIR/convex.exe"
+    elif command -v convex >/dev/null 2>&1; then
       CONVEX_BIN="$(command -v convex)"
     else
       log 'Convex CLI not found. Run: bun install'
@@ -139,7 +145,11 @@ resolve_binaries() {
   fi
 
   if [[ ! -x "$NEXT_BIN" ]]; then
-    if command -v next >/dev/null 2>&1; then
+    if [[ -x "$BIN_DIR/next" ]]; then
+      NEXT_BIN="$BIN_DIR/next"
+    elif [[ -x "$BIN_DIR/next.exe" ]]; then
+      NEXT_BIN="$BIN_DIR/next.exe"
+    elif command -v next >/dev/null 2>&1; then
       NEXT_BIN="$(command -v next)"
     else
       log 'Next.js CLI not found. Run: bun install'
@@ -218,7 +228,8 @@ if listener_pids | grep -q .; then
   exit 1
 fi
 
-printf -v NEXT_COMMAND '%q dev --turbopack -p %q' "$NEXT_BIN" "$PORT"
+# Use 'bunx next' to avoid Windows/WSL path conflicts (next.exe path fails when Convex runs in mixed env)
+printf -v NEXT_COMMAND 'bunx next dev --turbopack -p %q' "$PORT"
 
 log "Starting Convex + Next.js on http://localhost:${PORT}"
 (

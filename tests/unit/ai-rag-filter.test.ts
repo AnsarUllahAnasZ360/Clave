@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
 	createFilteredRagTool,
 	RAG_CONTENT_TYPES,
-	type RagContentType,
 } from "../../convex/ai/ragFilter";
 
 // ── RAG_CONTENT_TYPES ────────────────────────────────────────────────────

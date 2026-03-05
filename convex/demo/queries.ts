@@ -8,9 +8,9 @@ import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { requireAuth } from "../lib/auth";
 
-/** Get the demo workspace for the current user's organization */
+/** Get demo workspace info by workspace ID */
 export const getDemoWorkspace = query({
-	args: { organizationId: v.id("organizations") },
+	args: { workspaceId: v.id("workspaces") },
 	returns: v.union(
 		v.object({
 			_id: v.id("workspaces"),
@@ -28,25 +28,18 @@ export const getDemoWorkspace = query({
 		}),
 		v.null(),
 	),
-	handler: async (ctx, { organizationId }) => {
+	handler: async (ctx, { workspaceId }) => {
 		await requireAuth(ctx);
 
-		const demoWorkspace = await ctx.db
-			.query("workspaces")
-			.withIndex("by_organization", (q) =>
-				q.eq("organizationId", organizationId),
-			)
-			.filter((q) => q.eq(q.field("isDemo"), true))
-			.first();
-
-		if (!demoWorkspace || demoWorkspace.deletedAt) return null;
+		const workspace = await ctx.db.get(workspaceId);
+		if (!workspace || workspace.deletedAt || !workspace.isDemo) return null;
 
 		return {
-			_id: demoWorkspace._id,
-			name: demoWorkspace.name,
-			slug: demoWorkspace.slug,
-			demoSeedStatus: demoWorkspace.demoSeedStatus,
-			demoExpiresAt: demoWorkspace.demoExpiresAt,
+			_id: workspace._id,
+			name: workspace.name,
+			slug: workspace.slug,
+			demoSeedStatus: workspace.demoSeedStatus,
+			demoExpiresAt: workspace.demoExpiresAt,
 		};
 	},
 });
@@ -73,35 +66,110 @@ export const dismissDemoOnboarding = mutation({
 	},
 });
 
-/** Seed demo workspace for an existing organization (dev/admin only) */
-export const seedForExistingOrg = mutation({
-	args: { organizationId: v.id("organizations") },
-	returns: v.string(),
-	handler: async (ctx, { organizationId }) => {
+/** Auto-create a demo workspace for a new user (called from onboarding) */
+export const createDemoWorkspaceForUser = mutation({
+	args: {},
+	returns: v.object({ slug: v.string(), workspaceId: v.id("workspaces") }),
+	handler: async (ctx) => {
 		const userId = await requireAuth(ctx);
 
-		// Check org exists
-		const org = await ctx.db.get(organizationId);
-		if (!org) return "Organization not found";
-
-		// Check if demo already exists
-		const existing = await ctx.db
-			.query("workspaces")
-			.withIndex("by_organization", (q) =>
-				q.eq("organizationId", organizationId),
-			)
-			.filter((q) => q.eq(q.field("isDemo"), true))
+		// Check if the user already has any workspaces
+		const existingMemberships = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
 			.first();
-		if (existing)
-			return `Demo workspace already exists: ${existing.slug} (status: ${existing.demoSeedStatus ?? "unknown"})`;
+		if (existingMemberships) {
+			// User already has a workspace — find it and return its slug
+			const ws = await ctx.db.get(existingMemberships.workspaceId);
+			if (ws && !ws.deletedAt) {
+				return { slug: ws.slug, workspaceId: ws._id };
+			}
+		}
+
+		// Generate a unique slug for the demo workspace
+		const user = await ctx.db.get(userId);
+		const baseName = user?.name ?? "Demo";
+		const baseSlug = baseName
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-|-$/g, "");
+		const slug = `${baseSlug}-demo-${Date.now().toString(36)}`;
+
+		const now = Date.now();
+
+		// Create the workspace
+		const workspaceId = await ctx.db.insert("workspaces", {
+			name: `${baseName}'s Demo`,
+			slug,
+			ownerId: userId,
+			visibility: "public",
+			plan: "free",
+			createdAt: now,
+			updatedAt: now,
+		});
+
+		// Add user as admin
+		await ctx.db.insert("workspaceMembers", {
+			workspaceId,
+			userId,
+			role: "admin",
+			joinedAt: now,
+		});
+
+		// Create default workspace settings
+		await ctx.db.insert("workspaceSettings", {
+			workspaceId,
+			storyPrefix: "CLV",
+			nextStoryNumber: 1,
+			taskPrefix: "TSK",
+			nextTaskNumber: 1,
+		});
+
+		// Provision built-in Excalidraw MCP connector
+		const { internal } = await import("../_generated/api");
+		await ctx.runMutation(
+			internal.mcpServers.ensureSystemExcalidrawServerInternal,
+			{ workspaceId, createdBy: userId },
+		);
+
+		// Schedule demo data seeding
+		await ctx.scheduler.runAfter(0, internal.demo.seed.seedDemoData, {
+			workspaceId,
+			creatorUserId: userId,
+		});
+
+		return { slug, workspaceId };
+	},
+});
+
+/** Seed demo data into an existing workspace (dev/admin only) */
+export const seedForWorkspace = mutation({
+	args: { workspaceId: v.id("workspaces") },
+	returns: v.string(),
+	handler: async (ctx, { workspaceId }) => {
+		const userId = await requireAuth(ctx);
+
+		// Check workspace exists
+		const workspace = await ctx.db.get(workspaceId);
+		if (!workspace) return "Workspace not found";
+
+		// Check if demo already seeded
+		if (workspace.isDemo && workspace.demoSeedStatus) {
+			return `Demo data already exists for workspace: ${workspace.slug} (status: ${workspace.demoSeedStatus})`;
+		}
 
 		// Schedule the seed
 		const { internal } = await import("../_generated/api");
-		await ctx.scheduler.runAfter(0, internal.demo.seed.initDemoWorkspace, {
-			organizationId,
+		await ctx.scheduler.runAfter(0, internal.demo.seed.seedDemoData, {
+			workspaceId,
 			creatorUserId: userId,
 		});
 
 		return "Demo workspace seeding started. Refresh in a few seconds.";
 	},
 });
+
+/**
+ * @deprecated Use seedForWorkspace instead. Kept temporarily for backward compatibility.
+ */
+export const seedForExistingOrg = seedForWorkspace;

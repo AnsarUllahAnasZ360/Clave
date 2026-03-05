@@ -1,5 +1,4 @@
 import { ConvexError, v } from "convex/values";
-import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import {
 	requireAuth,
@@ -121,39 +120,8 @@ export const joinWithCode = mutation({
 			throw new ConvexError("Workspace no longer exists");
 		}
 
-		if (!workspace.organizationId) {
-			throw new ConvexError("Workspace is not linked to an organization");
-		}
-
-		const organizationId = workspace.organizationId;
-		const organization = await ctx.db.get(organizationId);
-		if (!organization || organization.deletedAt) {
-			throw new ConvexError("Organization no longer exists");
-		}
-
-		// Ensure workspace members are also organization members.
-		const existingOrgMember = await ctx.db
-			.query("organizationMembers")
-			.withIndex("by_org_user", (q) =>
-				q.eq("organizationId", organizationId).eq("userId", userId),
-			)
-			.unique();
-
-		let addedOrgMembership = false;
-		if (!existingOrgMember) {
-			// Apply plan checks before adding a new organization seat.
-			await checkPlanLimit(ctx, organizationId, "maxMembers");
-
-			await ctx.db.insert("organizationMembers", {
-				organizationId,
-				userId,
-				role: "member",
-				joinedAt: Date.now(),
-				invitedBy: inviteCode.createdBy,
-			});
-
-			addedOrgMembership = true;
-		}
+		// Check plan member limit before adding
+		await checkPlanLimit(ctx, inviteCode.workspaceId, "maxMembers");
 
 		// Check if user is already a workspace member
 		const existingMember = await ctx.db
@@ -164,12 +132,6 @@ export const joinWithCode = mutation({
 			.unique();
 
 		if (existingMember) {
-			if (addedOrgMembership) {
-				// Fire-and-forget seat sync when organization membership changed.
-				await ctx.scheduler.runAfter(0, internal.billing.syncSeatCount, {
-					organizationId,
-				});
-			}
 			// Already a member, just return the workspace ID.
 			return inviteCode.workspaceId;
 		}
@@ -188,13 +150,6 @@ export const joinWithCode = mutation({
 			useCount: inviteCode.useCount + 1,
 			usedBy: [...usedBy, userId],
 		});
-
-		if (addedOrgMembership) {
-			// Fire-and-forget seat sync when organization membership changed.
-			await ctx.scheduler.runAfter(0, internal.billing.syncSeatCount, {
-				organizationId,
-			});
-		}
 
 		return inviteCode.workspaceId;
 	},

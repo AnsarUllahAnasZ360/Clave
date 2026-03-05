@@ -31,13 +31,13 @@ import type {
 export function detectAIContext(pathname: string | null): AIContext {
 	if (!pathname) return { page: "global" };
 
-	// Match /{orgSlug}/{workspaceSlug}/{section}/{id?}
+	// Match /{workspaceSlug}/{section}/{id?}
 	const segments = pathname.split("/").filter(Boolean);
-	// segments: [orgSlug, workspaceSlug, section, id?]
-	if (segments.length < 3) return { page: "global" };
+	// segments: [workspaceSlug, section, id?]
+	if (segments.length < 2) return { page: "global" };
 
-	const section = segments[2];
-	const entityId = segments[3];
+	const section = segments[1];
+	const entityId = segments[2];
 
 	const sectionToPage: Record<string, AIContextPage> = {
 		issues: "issue",

@@ -68,7 +68,6 @@ export const validate = query({
 			workspaceName: v.optional(v.string()),
 			workspaceId: v.optional(v.id("workspaces")),
 			workspaceSlug: v.optional(v.string()),
-			orgSlug: v.optional(v.string()),
 		}),
 		v.null(),
 	),
@@ -98,19 +97,11 @@ export const validate = query({
 			return { valid: false };
 		}
 
-		// Get org slug for post-join redirect
-		let orgSlug: string | undefined;
-		if (workspace.organizationId) {
-			const org = await ctx.db.get(workspace.organizationId);
-			if (org) orgSlug = org.slug;
-		}
-
 		return {
 			valid: true,
 			workspaceName: workspace.name,
 			workspaceId: workspace._id,
 			workspaceSlug: workspace.slug,
-			orgSlug,
 		};
 	},
 });

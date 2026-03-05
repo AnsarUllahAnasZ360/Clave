@@ -11,7 +11,6 @@ import {
 import { useAction, useQuery } from "convex/react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { useOrganization } from "@/components/providers/organization-context";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,17 +81,17 @@ const planBadgeColors: Record<string, string> = {
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
-	const org = useOrganization();
 	const workspace = useWorkspaceOptional();
-	const orgSlug = org.orgSlug;
 
-	const subscription = useQuery(api.billing.getOrgSubscription, {
-		organizationId: org.organizationId,
-	});
+	const subscription = useQuery(
+		api.billing.getSubscription,
+		workspace ? { workspaceId: workspace.workspaceId } : "skip",
+	);
 	const plans = useQuery(api.billing.getPlans);
-	const usageSummary = useQuery(api.billing.getUsageSummary, {
-		organizationId: org.organizationId,
-	});
+	const usageSummary = useQuery(
+		api.billing.getUsageSummary,
+		workspace ? { workspaceId: workspace.workspaceId } : "skip",
+	);
 
 	const createCheckout = useAction(api.billing.createCheckoutSession);
 	const createPortal = useAction(api.billing.createPortalSession);
@@ -102,8 +101,8 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 
 	const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 	const billingPath = workspace
-		? `/${orgSlug}/${workspace.workspaceSlug}/settings/billing`
-		: `/organizations/${orgSlug}/settings?section=billing`;
+		? `/${workspace.workspaceSlug}/settings/billing`
+		: "/settings/billing";
 
 	const buildBillingUrl = useCallback(
 		(includeSuccess: boolean) => {
@@ -121,13 +120,13 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 	const handleUpgrade = useCallback(
 		async (priceId: string, planKey: string) => {
 			if (!isAdmin) {
-				toast.error("Only org admins can manage billing");
+				toast.error("Only workspace admins can manage billing");
 				return;
 			}
 			setCheckoutLoading(planKey);
 			try {
 				const result = await createCheckout({
-					organizationId: org.organizationId,
+					workspaceId: workspace?.workspaceId ?? ("" as never),
 					priceId,
 					successUrl: buildBillingUrl(true),
 					cancelUrl: buildBillingUrl(false),
@@ -145,18 +144,18 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 				setCheckoutLoading(null);
 			}
 		},
-		[createCheckout, org.organizationId, isAdmin, buildBillingUrl],
+		[createCheckout, workspace?.workspaceId, isAdmin, buildBillingUrl],
 	);
 
 	const handleManageBilling = useCallback(async () => {
 		if (!isAdmin) {
-			toast.error("Only org admins can manage billing");
+			toast.error("Only workspace admins can manage billing");
 			return;
 		}
 		setPortalLoading(true);
 		try {
 			const result = await createPortal({
-				organizationId: org.organizationId,
+				workspaceId: workspace?.workspaceId ?? ("" as never),
 				returnUrl: buildBillingUrl(false),
 			});
 			if (result.url) {
@@ -171,7 +170,7 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 		} finally {
 			setPortalLoading(false);
 		}
-	}, [createPortal, org.organizationId, buildBillingUrl, isAdmin]);
+	}, [createPortal, workspace?.workspaceId, buildBillingUrl, isAdmin]);
 
 	// Loading state
 	if (
@@ -213,7 +212,7 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 			<div>
 				<h2 className="text-xl font-semibold">Billing</h2>
 				<p className="text-sm text-muted-foreground mt-1">
-					Manage your organization&apos;s plan and billing.
+					Manage your workspace plan and billing.
 				</p>
 			</div>
 
@@ -280,15 +279,6 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 									current={usageSummary.members.current}
 									max={usageSummary.members.max}
 									label="Members"
-								/>
-							</CardContent>
-						</Card>
-						<Card>
-							<CardContent className="py-4">
-								<UsageIndicator
-									current={usageSummary.workspaces.current}
-									max={usageSummary.workspaces.max}
-									label="Workspaces"
 								/>
 							</CardContent>
 						</Card>
@@ -375,12 +365,6 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 												? "Unlimited"
 												: plan.limits.maxMembers}{" "}
 											members
-										</div>
-										<div>
-											{plan.limits.maxWorkspaces >= 999999
-												? "Unlimited"
-												: plan.limits.maxWorkspaces}{" "}
-											workspaces
 										</div>
 									</div>
 

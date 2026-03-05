@@ -2,7 +2,6 @@
 
 import { ConvexProvider, ConvexReactClient, useQuery } from "convex/react";
 import Link from "next/link";
-import { useMemo } from "react";
 import { api } from "../../../convex/_generated/api";
 
 const convex = new ConvexReactClient(

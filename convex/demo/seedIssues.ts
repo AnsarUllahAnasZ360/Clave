@@ -9,6 +9,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 import { internalMutation } from "../_generated/server";
 import { DEMO_PROJECTS, daysAgo, daysFromNow, hoursAgo } from "./constants";
 
@@ -72,7 +73,7 @@ function weightedPick<T>(
 	return items[items.length - 1];
 }
 
-function pickRandom<T>(arr: readonly T[], rand: () => number): T {
+function _pickRandom<T>(arr: readonly T[], rand: () => number): T {
 	return arr[Math.floor(rand() * arr.length)];
 }
 
@@ -6198,9 +6199,8 @@ const batchArgs = {
 
 // ── Issue creation helper ────────────────────────────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: Convex mutation ctx type is complex and varies by generated types
 async function createIssuesForProjects(
-	ctx: any,
+	ctx: MutationCtx,
 	args: {
 		workspaceId: Id<"workspaces">;
 		creatorUserId: Id<"users">;
@@ -6290,7 +6290,7 @@ async function createIssuesForProjects(
 				}
 			}
 
-			const createdDaysAgo = Math.floor(rand() * 60) + 1;
+			const _createdDaysAgo = Math.floor(rand() * 60) + 1;
 
 			const issueId = await ctx.db.insert("issues", {
 				workspaceId: args.workspaceId,

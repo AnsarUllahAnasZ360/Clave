@@ -62,6 +62,7 @@ export function ProjectHeader({
 					options={viewOptions}
 					onChange={onViewOptionsChange}
 					allowedViewTypes={["list"]}
+					context="projects"
 				/>
 				<Button
 					variant="ghost"

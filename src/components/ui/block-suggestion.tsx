@@ -134,7 +134,7 @@ export function BlockSuggestionCard({
 				<div className="relative mt-1 mb-4 pl-[32px]">
 					<div className="flex flex-col gap-2">
 						{suggestion.type === "remove" &&
-							suggestionText2Array(suggestion.text!).map((text, index) => (
+							suggestionText2Array(suggestion.text!).map((text, _index) => (
 								<div key={`remove-${text}`} className="flex items-center gap-2">
 									<span className="text-muted-foreground text-sm">Delete:</span>
 
@@ -143,7 +143,7 @@ export function BlockSuggestionCard({
 							))}
 
 						{suggestion.type === "insert" &&
-							suggestionText2Array(suggestion.newText!).map((text, index) => (
+							suggestionText2Array(suggestion.newText!).map((text, _index) => (
 								<div key={`insert-${text}`} className="flex items-center gap-2">
 									<span className="text-muted-foreground text-sm">Add:</span>
 
