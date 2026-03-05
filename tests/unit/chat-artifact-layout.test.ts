@@ -4,7 +4,7 @@ import {
 	ARTIFACT_PANEL_MAX_RATIO,
 	clampArtifactWidth,
 	getArtifactBounds,
-} from "../../src/app/[orgSlug]/[workspaceSlug]/chat/layout";
+} from "../../src/app/[workspaceSlug]/chat/layout";
 
 describe("chat artifact panel layout helpers", () => {
 	it("opens at 40% width on sufficiently wide containers", () => {

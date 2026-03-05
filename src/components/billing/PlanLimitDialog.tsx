@@ -109,9 +109,7 @@ export function PlanLimitDialog({
 											)}
 										</div>
 										<span className="text-sm tabular-nums text-muted-foreground">
-											{limitInfo.limit === "maxMembers"
-												? `${plan.limits.maxMembers === 999999 ? "Unlimited" : plan.limits.maxMembers} members`
-												: `${plan.limits.maxWorkspaces === 999999 ? "Unlimited" : plan.limits.maxWorkspaces} workspaces`}
+											{`${plan.limits.maxMembers === 999999 ? "Unlimited" : plan.limits.maxMembers} members`}
 										</span>
 									</div>
 								))}

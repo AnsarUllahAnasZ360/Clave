@@ -18,7 +18,6 @@ type AuthFixture = {
 	memberId: Id<"users">;
 	outsiderId: Id<"users">;
 	superAdminId: Id<"users">;
-	organizationId: Id<"organizations">;
 	workspaceId: Id<"workspaces">;
 	projectOwnedId: Id<"projects">;
 	projectRestrictedId: Id<"projects">;
@@ -46,36 +45,10 @@ async function seedAuthFixture(
 			role: "superadmin",
 		});
 
-		const organizationId = await ctx.db.insert("organizations", {
-			name: "Test Org",
-			slug: "test-org-auth",
-			ownerId,
-		});
-
-		await ctx.db.insert("organizationMembers", {
-			organizationId,
-			userId: ownerId,
-			role: "owner",
-			joinedAt: Date.now(),
-		});
-		await ctx.db.insert("organizationMembers", {
-			organizationId,
-			userId: adminId,
-			role: "admin",
-			joinedAt: Date.now(),
-		});
-		await ctx.db.insert("organizationMembers", {
-			organizationId,
-			userId: memberId,
-			role: "member",
-			joinedAt: Date.now(),
-		});
-
 		const workspaceId = await ctx.db.insert("workspaces", {
 			name: "Test Workspace",
 			slug: "test-ws-auth",
 			ownerId: adminId,
-			organizationId,
 		});
 
 		await ctx.db.insert("workspaceMembers", {
@@ -180,7 +153,6 @@ async function seedAuthFixture(
 			memberId,
 			outsiderId,
 			superAdminId,
-			organizationId,
 			workspaceId,
 			projectOwnedId,
 			projectRestrictedId,
@@ -211,7 +183,7 @@ import {
 } from "../../convex/lib/auth";
 
 describe("auth helpers", () => {
-	// ── requireAuth (tested via organizations.list which calls requireAuth) ──
+	// ── requireAuth (tested via workspaceSettings.get which calls requireAuth) ──
 
 	describe("requireAuth", () => {
 		it("returns data when authenticated", async () => {
@@ -219,19 +191,21 @@ describe("auth helpers", () => {
 			const fx = await seedAuthFixture(t);
 			const member = t.withIdentity({ subject: fx.memberId });
 
-			// organizations.list calls requireAuth internally
-			const orgs = await member.query(api.organizations.list, {});
-			expect(orgs).toHaveLength(1);
-			expect(orgs[0].name).toBe("Test Org");
+			const settings = await member.query(api.workspaceSettings.get, {
+				workspaceId: fx.workspaceId,
+			});
+			expect(settings).not.toBeNull();
 		});
 
 		it("throws when not authenticated", async () => {
 			const t = createBackend();
-			await seedAuthFixture(t);
+			const fx = await seedAuthFixture(t);
 
-			await expect(t.query(api.organizations.list, {})).rejects.toThrow(
-				/not authenticated/i,
-			);
+			await expect(
+				t.query(api.workspaceSettings.get, {
+					workspaceId: fx.workspaceId,
+				}),
+			).rejects.toThrow(/not authenticated/i);
 		});
 	});
 
@@ -310,125 +284,6 @@ describe("auth helpers", () => {
 					storyPrefix: "NO",
 				}),
 			).rejects.toThrow(/admin access required/i);
-		});
-	});
-
-	// ── requireOrgMember (tested via organizationMembers.list) ───────────────
-
-	describe("requireOrgMember", () => {
-		it("allows org member to list members", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const member = t.withIdentity({ subject: fx.memberId });
-
-			const members = await member.query(api.organizationMembers.list, {
-				organizationId: fx.organizationId,
-			});
-			expect(members.length).toBeGreaterThanOrEqual(3);
-		});
-
-		it("throws for non-org-member", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const outsider = t.withIdentity({ subject: fx.outsiderId });
-
-			await expect(
-				outsider.query(api.organizationMembers.list, {
-					organizationId: fx.organizationId,
-				}),
-			).rejects.toThrow(/not an organization member/i);
-		});
-	});
-
-	// ── requireOrgAdmin (tested via organizations.update) ────────────────────
-
-	describe("requireOrgAdmin", () => {
-		it("allows admin", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const admin = t.withIdentity({ subject: fx.adminId });
-
-			await admin.mutation(api.organizations.update, {
-				organizationId: fx.organizationId,
-				name: "Updated Org",
-			});
-
-			const org = await admin.query(api.organizations.getById, {
-				organizationId: fx.organizationId,
-			});
-			expect(org?.name).toBe("Updated Org");
-		});
-
-		it("allows owner (owner implies admin)", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const owner = t.withIdentity({ subject: fx.ownerId });
-
-			await owner.mutation(api.organizations.update, {
-				organizationId: fx.organizationId,
-				description: "Owner updated",
-			});
-
-			const org = await owner.query(api.organizations.getById, {
-				organizationId: fx.organizationId,
-			});
-			expect(org?.description).toBe("Owner updated");
-		});
-
-		it("throws for regular member", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const member = t.withIdentity({ subject: fx.memberId });
-
-			await expect(
-				member.mutation(api.organizations.update, {
-					organizationId: fx.organizationId,
-					name: "Should Fail",
-				}),
-			).rejects.toThrow(/organization admin access required/i);
-		});
-	});
-
-	// ── requireOrgOwner (tested via organizations.remove) ────────────────────
-
-	describe("requireOrgOwner", () => {
-		it("allows owner to delete", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const owner = t.withIdentity({ subject: fx.ownerId });
-
-			await owner.mutation(api.organizations.remove, {
-				organizationId: fx.organizationId,
-			});
-
-			const org = await owner.query(api.organizations.getById, {
-				organizationId: fx.organizationId,
-			});
-			expect(org).toBeNull();
-		});
-
-		it("throws for admin", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const admin = t.withIdentity({ subject: fx.adminId });
-
-			await expect(
-				admin.mutation(api.organizations.remove, {
-					organizationId: fx.organizationId,
-				}),
-			).rejects.toThrow(/organization owner access required/i);
-		});
-
-		it("throws for regular member", async () => {
-			const t = createBackend();
-			const fx = await seedAuthFixture(t);
-			const member = t.withIdentity({ subject: fx.memberId });
-
-			await expect(
-				member.mutation(api.organizations.remove, {
-					organizationId: fx.organizationId,
-				}),
-			).rejects.toThrow(/organization owner access required/i);
 		});
 	});
 

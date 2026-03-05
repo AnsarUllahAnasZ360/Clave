@@ -33,7 +33,13 @@ export async function GET(request: NextRequest) {
 	if (ghError) {
 		if (stateParam) {
 			try {
-				const statePayload = await verifyOAuthState(stateParam, clientSecret);
+				const statePayload = (await verifyOAuthState(
+					stateParam,
+					clientSecret,
+				)) as {
+					workspaceSlug: string;
+					projectSlug: string;
+				};
 				const errorUrl = buildRedirectUrl(request, statePayload, ghError);
 				return NextResponse.redirect(errorUrl);
 			} catch {
@@ -62,7 +68,10 @@ export async function GET(request: NextRequest) {
 		repoName: string;
 	};
 	try {
-		statePayload = await verifyOAuthState(stateParam, clientSecret);
+		statePayload = (await verifyOAuthState(
+			stateParam,
+			clientSecret,
+		)) as typeof statePayload;
 	} catch {
 		return oauthErrorHtml(
 			"Invalid OAuth State",

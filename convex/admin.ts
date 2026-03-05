@@ -663,3 +663,26 @@ export const getAnalyticsHealth = query({
 		};
 	},
 });
+
+/** Plan distribution across workspaces */
+export const getPlanDistribution = query({
+	args: {},
+	handler: async (ctx) => {
+		await requireSuperAdmin(ctx);
+
+		const workspaces = await ctx.db.query("workspaces").collect();
+		const active = workspaces.filter((w) => !w.deletedAt);
+
+		let free = 0;
+		let pro = 0;
+		let enterprise = 0;
+		for (const ws of active) {
+			const plan = ws.plan ?? "free";
+			if (plan === "pro") pro++;
+			else if (plan === "enterprise") enterprise++;
+			else free++;
+		}
+
+		return { free, pro, enterprise };
+	},
+});

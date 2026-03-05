@@ -79,6 +79,7 @@ type ProjectOverviewProps = {
 	project: {
 		_id: Id<"projects">;
 		name: string;
+		slug: string;
 		summary?: string;
 		description?: string;
 		richDescription?: string;
