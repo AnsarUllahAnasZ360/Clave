@@ -9,6 +9,7 @@ import {
 } from "../whiteboardMcp";
 import {
 	buildUserNameMap,
+	resolveToolUserId,
 	resolveWorkspaceId,
 	TOOL_TIMEOUT_MS,
 	withTimeout,
@@ -548,23 +549,24 @@ export const updateIssue = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Resolve issueId from identifier if needed
 		let resolvedIssueId: Id<"issues">;
 		if (args.issueId) {
-			// Validate the issueId by looking up the issue
-			const issue = await ctx.runQuery(api.issues.getById, {
-				issueId: args.issueId as Id<"issues">,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueById,
+				{ issueId: args.issueId as Id<"issues">, userId },
+			);
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: "Issue not found." };
 			}
 			resolvedIssueId = issue._id;
 		} else if (args.identifier) {
-			const issue = await ctx.runQuery(api.issues.getByIdentifier, {
-				workspaceId,
-				identifier: args.identifier,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueByIdentifier,
+				{ workspaceId, identifier: args.identifier, userId },
+			);
 			if (!issue) {
 				return { error: `Issue "${args.identifier}" not found.` };
 			}
@@ -711,22 +713,29 @@ export const addComment = createTool({
 		let entityType: string;
 		let entityId: string;
 
+		const userId = resolveToolUserId(ctx);
+
 		if (args.issueId || args.identifier) {
 			// Resolve issue
 			let resolvedIssueId: Id<"issues">;
 			if (args.issueId) {
-				const issue = await ctx.runQuery(api.issues.getById, {
-					issueId: args.issueId as Id<"issues">,
-				});
+				const issue = await ctx.runQuery(
+					internal.ai.toolQueries.getIssueById,
+					{ issueId: args.issueId as Id<"issues">, userId },
+				);
 				if (!issue || issue.workspaceId !== workspaceId) {
 					return { error: "Issue not found." };
 				}
 				resolvedIssueId = issue._id;
 			} else {
-				const issue = await ctx.runQuery(api.issues.getByIdentifier, {
-					workspaceId,
-					identifier: args.identifier as string,
-				});
+				const issue = await ctx.runQuery(
+					internal.ai.toolQueries.getIssueByIdentifier,
+					{
+						workspaceId,
+						identifier: args.identifier as string,
+						userId,
+					},
+				);
 				if (!issue) {
 					return { error: `Issue "${args.identifier}" not found.` };
 				}
@@ -795,24 +804,26 @@ export const assignIssue = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Resolve issueId from identifier if needed
 		let resolvedIssueId: Id<"issues">;
 		let issueIdentifier: string;
 		if (args.issueId) {
-			const issue = await ctx.runQuery(api.issues.getById, {
-				issueId: args.issueId as Id<"issues">,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueById,
+				{ issueId: args.issueId as Id<"issues">, userId },
+			);
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: "Issue not found." };
 			}
 			resolvedIssueId = issue._id;
 			issueIdentifier = issue.identifier;
 		} else if (args.identifier) {
-			const issue = await ctx.runQuery(api.issues.getByIdentifier, {
-				workspaceId,
-				identifier: args.identifier,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueByIdentifier,
+				{ workspaceId, identifier: args.identifier, userId },
+			);
 			if (!issue) {
 				return { error: `Issue "${args.identifier}" not found.` };
 			}
@@ -912,12 +923,16 @@ export const batchUpdateIssues = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Validate all issueIds belong to this workspace
 		const issueIds = args.issueIds as Id<"issues">[];
 		const identifiers: string[] = [];
 		for (const issueId of issueIds) {
-			const issue = await ctx.runQuery(api.issues.getById, { issueId });
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueById,
+				{ issueId, userId },
+			);
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: `Issue not found or not in workspace: ${issueId}` };
 			}
@@ -1174,7 +1189,9 @@ export const generateWhiteboardDiagram = createTool({
 
 		const whiteboardId = args.whiteboardId as Id<"whiteboards">;
 		const board = await withTimeout(
-			ctx.runQuery(api.whiteboards.getById, { whiteboardId }),
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardById, {
+				whiteboardId,
+			}),
 			TOOL_TIMEOUT_MS,
 			"generateWhiteboardDiagram:getById",
 		);

@@ -4,7 +4,7 @@
  * Provides workspace resolution, timeout wrappers, and content
  * truncation used across both read and write tool sets.
  */
-import { api, internal } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ToolContext } from "./types";
 
@@ -199,16 +199,29 @@ export function plateJsonToPlainText(json: string | undefined): string {
 // ── Name resolution helpers ──────────────────────────────────────────────
 
 /**
+ * Resolve the userId from the tool context.
+ * Tools running from external contexts (Google Chat webhook) have
+ * ctx.userId set by the agent framework.
+ */
+export function resolveToolUserId(ctx: ToolContext): Id<"users"> {
+	if (!ctx.userId) {
+		throw new Error("No user context available — cannot resolve userId.");
+	}
+	return ctx.userId as Id<"users">;
+}
+
+/**
  * Build a userId → name lookup map for all members in the workspace.
- * Used by read tools to resolve human-readable names from IDs.
+ * Uses internal query to bypass auth for external contexts.
  */
 export async function buildUserNameMap(
 	ctx: ToolContext,
 	workspaceId: Id<"workspaces">,
 ): Promise<Map<string, string>> {
-	const members = await ctx.runQuery(api.workspaceMembers.list, {
-		workspaceId,
-	});
+	const members = await ctx.runQuery(
+		internal.ai.toolQueries.listMembers,
+		{ workspaceId },
+	);
 	const map = new Map<string, string>();
 	for (const m of members) {
 		if (m.user?.name) map.set(m.userId, m.user.name);
@@ -218,13 +231,17 @@ export async function buildUserNameMap(
 
 /**
  * Build a projectId → name lookup map for all accessible projects.
- * Used by read tools to resolve human-readable project names from IDs.
+ * Uses internal query to bypass auth for external contexts.
  */
 export async function buildProjectNameMap(
 	ctx: ToolContext,
 	workspaceId: Id<"workspaces">,
 ): Promise<Map<string, string>> {
-	const projects = await ctx.runQuery(api.projects.list, { workspaceId });
+	const userId = resolveToolUserId(ctx);
+	const projects = await ctx.runQuery(
+		internal.ai.toolQueries.listProjects,
+		{ workspaceId, userId },
+	);
 	const map = new Map<string, string>();
 	for (const p of projects) {
 		map.set(p._id, p.name);
