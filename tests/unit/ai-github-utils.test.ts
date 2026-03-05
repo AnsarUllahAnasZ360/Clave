@@ -150,7 +150,7 @@ describe("chunkCodeFile", () => {
 			"import { foo } from 'bar';",
 			"",
 			"export function greet(name: string) {",
-			"  return `Hello ${name}`;",
+			`  return \`Hello \${name}\`;`,
 			"}",
 			"",
 			"export const PI = 3.14;",
