@@ -316,3 +316,50 @@ feat|fix|chore|docs: description
 
 - Ansar
 ```
+
+## Cursor Cloud specific instructions
+
+### Environment overview
+
+Clave is a Next.js 16 + Convex real-time backend app. The frontend runs locally on port 4000; the backend runs in Convex Cloud (no local backend process needed).
+
+### Required secrets (injected as env vars)
+
+| Secret | Purpose |
+|--------|---------|
+| `Deployment_URL` | Convex deployment cloud URL (e.g. `https://adept-puma-535.convex.cloud`) |
+| `HTTP_Actions_URL` | Convex site URL for HTTP actions (e.g. `https://adept-puma-535.convex.site`) |
+| `Dev_Deployment_key` | Convex dev deployment key for CLI operations |
+
+### Starting the dev server
+
+Next.js env vars from injected secrets override `.env.local`. You must explicitly set the correct Convex URLs when starting Next.js:
+
+```bash
+NEXT_PUBLIC_CONVEX_URL="$Deployment_URL" \
+NEXT_PUBLIC_CONVEX_SITE_URL="$HTTP_Actions_URL" \
+npx next dev --turbopack -p 4000
+```
+
+The `.env.local` file should contain `NEXT_PUBLIC_DEV_MODE=true` plus the Convex URLs (though process env takes precedence).
+
+### Deploying Convex functions
+
+Use the dev deployment key to deploy functions to the user's Convex deployment:
+
+```bash
+CONVEX_DEPLOY_KEY="$Dev_Deployment_key" npx convex deploy --typecheck=disable
+```
+
+This is needed when the codebase has changed and the Convex functions need to be updated.
+
+### Dev login
+
+Navigate to `http://localhost:4000/dev-login` to sign in without OAuth. The page shows hardcoded dev users. Password auth with email verification (Resend OTP) is enabled when `AUTH_RESEND_KEY` is set on the deployment. If Resend is in test mode (domain not verified), dev-login sign-up will fail because verification emails can't be sent to the dev email addresses. Temporarily unset `AUTH_RESEND_KEY` on the Convex deployment to bypass this, then restore it after sign-up.
+
+### Key gotchas
+
+- **`bun run dev` will not work in Cloud Agent** — it starts `convex dev` which requires interactive Convex authentication. Use `npx next dev --turbopack -p 4000` directly instead.
+- **Env var precedence**: process env vars override `.env.local` in Next.js. Always pass `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` explicitly when launching Next.js.
+- **Lint/typecheck/test commands**: `bun run lint`, `bun run typecheck`, `bun run test:unit`, `bun run test:integration` all work directly. See `CLAUDE.md` Commands section for the full list.
+- **Never run** `test:gate`, `test:all`, `test:e2e`, or the full test suite — those are CI-only per repo policy.

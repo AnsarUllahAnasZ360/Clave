@@ -2,6 +2,8 @@
 
 import {
 	ChatCircleText,
+	CopySimple,
+	Info,
 	Lock,
 	Plug,
 	ShieldCheck,
@@ -259,6 +261,31 @@ export function GoogleChatIntegrationsPane() {
 			</div>
 
 			<SettingSection title="Connection">
+				{!isConnected && (
+					<div className="flex gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+						<Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+						<div className="space-y-1 text-xs text-muted-foreground">
+							<p className="font-medium text-foreground">Before connecting</p>
+							<ol className="list-decimal space-y-0.5 pl-3.5">
+								<li>Create a Google Cloud project with the Chat API enabled</li>
+								<li>Create a service account and download the JSON key</li>
+								<li>
+									Set{" "}
+									<code className="rounded bg-muted px-1 py-0.5">
+										GOOGLE_CHAT_CREDENTIALS
+									</code>{" "}
+									in Convex with the full JSON key
+								</li>
+								<li>
+									Configure the Chat app in Google Cloud Console with the
+									webhook endpoint below
+								</li>
+								<li>Publish the app to your Google Workspace domain</li>
+							</ol>
+						</div>
+					</div>
+				)}
+
 				<SettingRow
 					label="Current status"
 					description="Connection status for the Google Chat integration."
@@ -277,7 +304,7 @@ export function GoogleChatIntegrationsPane() {
 
 				<SettingRow
 					label="App display name"
-					description="Stored connection metadata for Google Chat app identity."
+					description="Name of your Chat app as configured in Google Cloud Console."
 				>
 					<Input
 						placeholder="Clave"
@@ -288,10 +315,10 @@ export function GoogleChatIntegrationsPane() {
 
 				<SettingRow
 					label="Auth audience"
-					description="Expected OIDC audience for inbound webhook tokens."
+					description="Must match the webhook endpoint URL. Used to verify inbound webhook tokens from Google."
 				>
 					<Input
-						placeholder="https://clave.z360.app/api/webhooks/google-chat"
+						placeholder={webhookEndpoint}
 						value={audience}
 						onChange={(event) => setAudience(event.target.value)}
 					/>
@@ -299,10 +326,27 @@ export function GoogleChatIntegrationsPane() {
 
 				<SettingRow
 					label="Webhook endpoint"
-					description="Configure this endpoint in Google Chat API settings."
+					description="Copy this URL into your Google Cloud Console Chat API configuration."
 				>
-					<div className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
-						{webhookEndpoint}
+					<div className="flex items-center gap-2">
+						<div className="flex-1 rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+							{webhookEndpoint}
+						</div>
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-8 shrink-0 px-2"
+							onClick={async () => {
+								try {
+									await navigator.clipboard.writeText(webhookEndpoint);
+									toast.success("Webhook endpoint copied");
+								} catch {
+									toast.error("Failed to copy");
+								}
+							}}
+						>
+							<CopySimple className="h-4 w-4" />
+						</Button>
 					</div>
 				</SettingRow>
 
@@ -313,7 +357,7 @@ export function GoogleChatIntegrationsPane() {
 						className="inline-flex items-center gap-2"
 					>
 						<ChatCircleText className="h-4 w-4" />
-						Connect Google Chat
+						{isConnected ? "Reconnect" : "Connect Google Chat"}
 					</Button>
 					<Button
 						variant="outline"
@@ -323,6 +367,20 @@ export function GoogleChatIntegrationsPane() {
 						Disconnect
 					</Button>
 				</div>
+
+				{isConnected && (
+					<div className="flex gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+						<Info className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+						<div className="space-y-1 text-xs text-muted-foreground">
+							<p className="font-medium text-emerald-400">Connected</p>
+							<p>
+								To find the bot in Google Chat, open chat.google.com and search
+								for your app name. The app must be published in your Google
+								Workspace domain to appear in search.
+							</p>
+						</div>
+					</div>
+				)}
 			</SettingSection>
 
 			<SettingSection title="Policy">

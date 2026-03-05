@@ -180,27 +180,44 @@ bun run changeset    # Add changeset before merging user-facing changes
 
 ### Architecture
 
-- **One GitHub Actions workflow** (`ci.yml`) — lint, typecheck, tests, changesets/releases
-- **Vercel Git integration** handles all deployments (preview + production) — no deploy workflows needed
-- **Convex deploys inside Vercel build** — build command: `npx convex deploy --cmd 'next build'`
-- **Scoped deploy keys** — Vercel has two `CONVEX_DEPLOY_KEY` env vars: Production-scoped (prod key) and Preview-scoped (preview key)
+Three GitHub Actions workflows — contributors need only repository access; no Vercel or Convex seats required.
 
-### PR flow
+| Workflow | Trigger | Does |
+|---|---|---|
+| `ci.yml` | Every PR + push to `main` | Lint · typecheck · unit/integration tests · changeset warning |
+| `preview.yml` | PR open/update (not draft) | Convex preview deploy + Vercel preview deploy + PR comment |
+| `production.yml` | CI passes on `main` (workflow_run) | Convex prod deploy + Vercel prod deploy + release/tag |
 
-1. `ci.yml` — lint → typecheck → unit tests → integration tests (blocks merge on failure)
-2. Vercel auto-deploys preview (via Git integration) — runs `npx convex deploy --cmd 'next build'` with preview deploy key
-3. Convex preview deployments auto-expire after 5 days
+**Vercel Git integration must be disabled** — otherwise Vercel double-deploys alongside Actions.
 
-### Production flow (push to `main`)
+### How deployments work
 
-1. `ci.yml` — same checks, plus release job (changesets → version PR or git tag + GitHub release)
-2. Vercel auto-deploys production (via Git integration) — runs `npx convex deploy --cmd 'next build'` with production deploy key
+```
+vercel pull → vercel build → vercel deploy [--prod]
+```
+
+`vercel build` runs the `vercel.json` buildCommand:
+```
+npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'next build'
+```
+The `CONVEX_DEPLOY_KEY` type controls the target:
+- `preview:<team>:<project>|<base64>` → Convex preview (auto-named from branch)
+- `prod:<instance>|<base64>` → Convex production
+
+### Required GitHub secrets
+
+| Secret | Used by |
+|---|---|
+| `CONVEX_DEPLOY_KEY_PREVIEW` | `preview.yml` |
+| `CONVEX_DEPLOY_KEY_PROD` | `production.yml` |
+| `VERCEL_TOKEN` | `preview.yml`, `production.yml` |
 
 ### Changesets
 
 - Add before merging any user-facing change: `bun run changeset`
 - Include the `.changeset/*.md` file in the PR (CI warns if missing)
 - Changesets action manages version PRs and git tags automatically
+- Internal refactors / chores: no changeset required
 
 ### Test Policy
 

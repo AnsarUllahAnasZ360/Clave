@@ -1,0 +1,146 @@
+name: Production Deploy
+
+# Triggers only after CI passes on main — never deploys broken code.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: production
+  cancel-in-progress: false # queue; never cancel an in-flight production deploy
+
+# ─── Secrets required ─────────────────────────────────────────────────────────
+# CONVEX_DEPLOY_KEY_PROD — production-scoped Convex deploy key
+#                          format: prod:<instance>|<base64>
+# VERCEL_TOKEN           — Vercel access token
+# GITHUB_TOKEN           — auto-provided (release job tags + releases)
+#
+# GitHub Environment "production" is recommended (Settings → Environments).
+# Add required reviewers there to gate production deploys if desired.
+# ──────────────────────────────────────────────────────────────────────────────
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    name: Deploy Production
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # vercel build runs the vercel.json buildCommand which calls:
+      #   npx convex deploy --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL --cmd 'next build'
+      # With a production-scoped CONVEX_DEPLOY_KEY, Convex deploys to production.
+      - name: Build (Convex production + Next.js)
+        run: vercel build --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
+
+      - name: Deploy to Vercel (Production)
+        run: vercel deploy --prebuilt --prod
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+  release:
+    name: Release
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    continue-on-error: true # release failure never blocks a completed deployment
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # If there are pending changesets → opens/updates "Version Packages" PR.
+      # If no pending changesets (version already bumped) → outputs hasChangesets=false
+      # so the tag + release steps below can run.
+      - name: Create Release PR or publish version
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: bun run changeset:version
+          commit: "chore: version packages"
+          title: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get current version
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        id: pkg-version
+        run: echo "value=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        id: tag-check
+        run: |
+          if git rev-parse "v${{ steps.pkg-version.outputs.value }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create git tag and GitHub release
+        if: steps.changesets.outputs.hasChangesets == 'false' && steps.tag-check.outputs.exists == 'false'
+        run: |
+          VERSION="v${{ steps.pkg-version.outputs.value }}"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+          gh release create "$VERSION" --generate-notes --title "$VERSION"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

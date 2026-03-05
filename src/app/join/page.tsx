@@ -87,11 +87,24 @@ function JoinPageContent() {
 			toast.success("Joined workspace successfully");
 			window.location.href = "/auth/callback";
 		} catch (e) {
-			setError(e instanceof Error ? e.message : "Failed to join workspace");
+			const message =
+				e instanceof Error ? e.message : "Failed to join workspace";
+			if (message.includes("plan_limit") || message.includes("limit")) {
+				setError(
+					"This workspace's organization has reached its member limit. Contact the workspace admin to upgrade their plan.",
+				);
+			} else {
+				setError(message);
+			}
 		} finally {
 			setJoining(false);
 		}
-	}, [code, isAuthenticated, joinWithCode, router]);
+	}, [
+		code,
+		isAuthenticated,
+		joinWithCode,
+		router,
+	]);
 
 	const isValid = validation?.valid === true;
 	const isInvalid = validation && !validation.valid && code.length >= 6;
