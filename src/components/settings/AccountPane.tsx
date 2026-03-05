@@ -1,6 +1,6 @@
 "use client";
 
-import { CopySimple, Info, Spinner } from "@phosphor-icons/react/dist/ssr";
+import { CopySimple, Spinner } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useRef, useState } from "react";

@@ -347,9 +347,7 @@ export const IssueListRow = memo(function IssueListRow({
 															statusConfig.color,
 														)}
 													/>
-													<span className="truncate">
-														{statusConfig.label}
-													</span>
+													<span className="truncate">{statusConfig.label}</span>
 												</>
 											) : (
 												<span className="text-muted-foreground truncate">

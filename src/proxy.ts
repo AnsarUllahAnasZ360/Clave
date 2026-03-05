@@ -59,7 +59,5 @@ export default convexAuthNextjsMiddleware(
 
 export const config = {
 	// Exclude API routes that must receive raw OAuth callbacks (no middleware touching the request)
-	matcher: [
-		"/((?!api/mcp/excalidraw|api/github/oauth|.*\\..*|_next).*)",
-	],
+	matcher: ["/((?!api/mcp/excalidraw|api/github/oauth|.*\\..*|_next).*)"],
 };

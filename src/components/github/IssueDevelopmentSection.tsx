@@ -12,7 +12,6 @@ import {
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { CreateBranchDialog } from "@/components/github/CreateBranchDialog";
-import { LinkedPrBadge } from "@/components/github/LinkedPrBadge";
 import { PrLinkDialog } from "@/components/github/PrLinkDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -74,7 +73,7 @@ export function IssueDevelopmentSection({
 	const branchCount = gitBranchName ? 1 : 0;
 	const totalCount = prCount + commitCount + branchCount;
 
-	const handleCopyBranch = useCallback(async () => {
+	const _handleCopyBranch = useCallback(async () => {
 		try {
 			const branch = `feat/${slugify(`${identifier}-${title}`)}`;
 			await copyText(branch);
@@ -185,9 +184,7 @@ export function IssueDevelopmentSection({
 							<div className="space-y-1.5">
 								<div className="flex items-center gap-1.5 text-xs text-muted-foreground">
 									<GitCommitHorizontal className="h-3 w-3" />
-									<span className="font-medium">
-										Commits ({commitCount})
-									</span>
+									<span className="font-medium">Commits ({commitCount})</span>
 								</div>
 								<div className="pl-[18px] space-y-1">
 									{linkedCommits?.slice(0, 5).map((commit) => (

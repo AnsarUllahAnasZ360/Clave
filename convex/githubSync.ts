@@ -74,22 +74,19 @@ export const listPullRequests = query({
 					.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
 		if (!activeConnection) return [];
 
-		let prs;
-		if (args.state) {
-			prs = await ctx.db
-				.query("githubPullRequests")
-				.withIndex("by_project_state", (idx) =>
-					idx.eq("projectId", args.projectId).eq("state", args.state!),
-				)
-				.order("desc")
-				.take((args.limit ?? 50) * 2);
-		} else {
-			prs = await ctx.db
-				.query("githubPullRequests")
-				.withIndex("by_project", (idx) => idx.eq("projectId", args.projectId))
-				.order("desc")
-				.take((args.limit ?? 50) * 2);
-		}
+		const prs = args.state
+			? await ctx.db
+					.query("githubPullRequests")
+					.withIndex("by_project_state", (idx) =>
+						idx.eq("projectId", args.projectId).eq("state", args.state!),
+					)
+					.order("desc")
+					.take((args.limit ?? 50) * 2)
+			: await ctx.db
+					.query("githubPullRequests")
+					.withIndex("by_project", (idx) => idx.eq("projectId", args.projectId))
+					.order("desc")
+					.take((args.limit ?? 50) * 2);
 
 		const filtered = prs.filter(
 			(pr) => pr.connectionId === activeConnection._id,
@@ -187,12 +184,12 @@ export const listLinkedCommits = query({
 		await requireWorkspaceMember(ctx, issue.workspaceId);
 
 		const activeConnectionId = issue.projectId
-			? [...(await ctx.db
-					.query("githubConnections")
-					.withIndex("by_project", (q) =>
-						q.eq("projectId", issue.projectId!),
-					)
-					.collect())]
+			? [
+					...(await ctx.db
+						.query("githubConnections")
+						.withIndex("by_project", (q) => q.eq("projectId", issue.projectId!))
+						.collect()),
+				]
 					.filter((c) => c.status === "active")
 					.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]?._id
 			: null;

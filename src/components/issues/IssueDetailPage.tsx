@@ -277,9 +277,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	// Redirect legacy Convex ID URLs to identifier-based URLs
 	useEffect(() => {
 		if (isLegacyId && legacyIssue) {
-			router.replace(
-				`/${workspaceSlug}/issues/${legacyIssue.identifier}`,
-			);
+			router.replace(`/${workspaceSlug}/issues/${legacyIssue.identifier}`);
 		}
 	}, [isLegacyId, legacyIssue, router, workspaceSlug]);
 

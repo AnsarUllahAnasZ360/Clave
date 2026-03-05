@@ -79,10 +79,10 @@ describe("invite codes (integration)", () => {
 
 		const result = await t.query(validateRef, { code });
 		expect(result).not.toBeNull();
-		expect(result!.valid).toBe(true);
-		expect(result!.workspaceName).toBe("Test Workspace");
-		expect(result!.workspaceSlug).toBe("test-ws");
-		expect(result!.orgSlug).toBe("test-org");
+		expect(result?.valid).toBe(true);
+		expect(result?.workspaceName).toBe("Test Workspace");
+		expect(result?.workspaceSlug).toBe("test-ws");
+		expect(result?.orgSlug).toBe("test-org");
 	});
 
 	it("returns invalid for expired code", async () => {
@@ -114,6 +114,6 @@ describe("invite codes (integration)", () => {
 
 		const result = await t.query(validateRef, { code: "EXPIRE" });
 		expect(result).not.toBeNull();
-		expect(result!.valid).toBe(false);
+		expect(result?.valid).toBe(false);
 	});
 });

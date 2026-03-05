@@ -9,13 +9,12 @@ import { ProjectHeader } from "@/components/project-header";
 import type { FilterCounts, Project } from "@/lib/data/projects";
 import { chipsToParams, paramsToChips } from "@/lib/url/filters";
 import {
-	DEFAULT_VIEW_OPTIONS,
 	type FilterChip,
 	type GroupBy,
-	type ProjectGroup,
-	type ViewOptions,
 	loadViewOptions,
+	type ProjectGroup,
 	saveViewOptions,
+	type ViewOptions,
 } from "@/lib/view-options";
 import { api } from "../../convex/_generated/api";
 import { useWorkspace } from "./providers/workspace-context";
@@ -48,12 +47,8 @@ function statusLabel(status: string): string {
 	}
 }
 
-function groupProjects(
-	projects: Project[],
-	groupBy: GroupBy,
-): ProjectGroup[] {
-	if (groupBy === "none")
-		return [{ key: "all", label: "", projects }];
+function groupProjects(projects: Project[], groupBy: GroupBy): ProjectGroup[] {
+	if (groupBy === "none") return [{ key: "all", label: "", projects }];
 
 	const groups = new Map<string, Project[]>();
 
@@ -126,8 +121,8 @@ export function ProjectsContent() {
 		workspaceId,
 	});
 	const allClients = useQuery(api.clients.list, { workspaceId });
-	const [viewOptions, setViewOptions] = useState<ViewOptions>(
-		() => loadViewOptions(),
+	const [viewOptions, setViewOptions] = useState<ViewOptions>(() =>
+		loadViewOptions(),
 	);
 
 	const [filters, setFilters] = useState<FilterChip[]>([]);

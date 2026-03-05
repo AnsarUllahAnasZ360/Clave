@@ -720,9 +720,7 @@ function IssueFullCreateModalContent({
 										>
 											<span>
 												{selectedList?.label ?? (
-													<span className="text-muted-foreground">
-														No list
-													</span>
+													<span className="text-muted-foreground">No list</span>
 												)}
 											</span>
 										</button>

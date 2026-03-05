@@ -227,9 +227,7 @@ export function IssuePreviewSidebar({
 						className="h-6 w-6 text-muted-foreground hover:text-foreground"
 						onClick={() =>
 							issue &&
-							router.push(
-								`/${workspaceSlug}/issues/${issue.identifier}`,
-							)
+							router.push(`/${workspaceSlug}/issues/${issue.identifier}`)
 						}
 						title="Open full page"
 					>

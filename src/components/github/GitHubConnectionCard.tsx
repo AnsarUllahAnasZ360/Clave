@@ -35,7 +35,10 @@ type GitHubConnectionCardProps = {
 	projectSlug: string;
 };
 
-export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectionCardProps) {
+export function GitHubConnectionCard({
+	projectId,
+	projectSlug,
+}: GitHubConnectionCardProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
 	const pathname = usePathname();
@@ -50,7 +53,8 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 
 	const [repoUrl, setRepoUrl] = useState("");
 	const [isConnecting, setIsConnecting] = useState(false);
-	const [disconnectingId, setDisconnectingId] = useState<Id<"githubConnections"> | null>(null);
+	const [disconnectingId, setDisconnectingId] =
+		useState<Id<"githubConnections"> | null>(null);
 	const [showConnectForm, setShowConnectForm] = useState(false);
 	const [showPatFallback, setShowPatFallback] = useState(false);
 	const [patToken, setPatToken] = useState("");
@@ -76,7 +80,9 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 				repo_fetch_failed: "Failed to fetch repository info",
 				encryption_failed: "Failed to secure token",
 			};
-			toast.error(messages[errorCode] ?? `GitHub connection failed: ${errorCode}`);
+			toast.error(
+				messages[errorCode] ?? `GitHub connection failed: ${errorCode}`,
+			);
 			return;
 		}
 
@@ -122,7 +128,15 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 					toast.error(message);
 				});
 		}
-	}, [searchParams, pathname, router, storeConnection, triggerInitialIndex, workspaceId, projectId]);
+	}, [
+		searchParams,
+		pathname,
+		router,
+		storeConnection,
+		triggerInitialIndex,
+		workspaceId,
+		projectId,
+	]);
 
 	const parseGithubUrl = useCallback((url: string) => {
 		const trimmed = url.trim().replace(/\/+$/, "");
@@ -153,7 +167,14 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 		});
 
 		window.location.href = `/api/github/oauth/authorize?${params.toString()}`;
-	}, [repoUrl, parseGithubUrl, projectId, workspaceId, workspaceSlug]);
+	}, [
+		repoUrl,
+		parseGithubUrl,
+		projectId,
+		workspaceId,
+		workspaceSlug,
+		projectSlug,
+	]);
 
 	// PAT fallback connect
 	const handlePatConnect = useCallback(async () => {
@@ -204,16 +225,12 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 			setRepoUrl("");
 			setPatToken("");
 
-			triggerInitialIndex({ connectionId, projectId }).catch(
-				(err: unknown) => {
-					console.error("Failed to trigger indexing:", err);
-				},
-			);
+			triggerInitialIndex({ connectionId, projectId }).catch((err: unknown) => {
+				console.error("Failed to trigger indexing:", err);
+			});
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to connect repository",
+				error instanceof Error ? error.message : "Failed to connect repository",
 			);
 		} finally {
 			setIsConnecting(false);
@@ -383,8 +400,7 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 								<>
 									<span>·</span>
 									<span>
-										Last synced{" "}
-										{new Date(conn.lastSyncAt).toLocaleDateString()}
+										Last synced {new Date(conn.lastSyncAt).toLocaleDateString()}
 									</span>
 								</>
 							)}
@@ -480,8 +496,8 @@ export function GitHubConnectionCard({ projectId, projectSlug }: GitHubConnectio
 									className="underline hover:text-foreground"
 								>
 									github.com/settings/tokens
-								</a>
-								{" "}with{" "}
+								</a>{" "}
+								with{" "}
 								<code className="text-[10px] bg-muted px-1 py-0.5 rounded">
 									repo
 								</code>{" "}

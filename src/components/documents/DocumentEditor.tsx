@@ -329,7 +329,7 @@ function DocumentEditorInner({
 	const createDocument = useMutation(api.yjsV3.ensureDocument);
 	const updateContent = useMutation(api.documents.updateContent);
 	const [error, setError] = useState<string | null>(null);
-	const [retryKey, setRetryKey] = useState(0);
+	const [_retryKey, setRetryKey] = useState(0);
 	const [isSynced, setIsSynced] = useState(false);
 	const [gifPickerOpen, setGifPickerOpen] = useState(false);
 	const [embedDialogOpen, setEmbedDialogOpen] = useState(false);
@@ -414,7 +414,7 @@ function DocumentEditorInner({
 				}),
 			],
 		});
-	}, [client, documentId, shareMode, clientSessionId, retryKey]);
+	}, [client, documentId, shareMode, clientSessionId]);
 
 	// Ensure Yjs document exists before initializing collaboration.
 	// If the backend contract is missing, fail fast to avoid silent retry loops.
@@ -526,7 +526,7 @@ function DocumentEditorInner({
 			cancelled = true;
 			destroyYjs();
 		};
-	}, [editor, documentId, retryKey]);
+	}, [editor, documentId]);
 
 	// Periodic Slate JSON snapshot saving to documents.content
 	// Replicates the onSnapshot behavior from prosemirrorSync

@@ -54,7 +54,14 @@ function JoinPageContent() {
 					setError(e instanceof Error ? e.message : "Failed to join workspace");
 				});
 		}
-	}, [isAuthenticated, authLoading, codeFromUrl, validation, joining, joinWithCode]);
+	}, [
+		isAuthenticated,
+		authLoading,
+		codeFromUrl,
+		validation,
+		joining,
+		joinWithCode,
+	]);
 
 	const handleCodeChange = useCallback((value: string) => {
 		setCode(
@@ -99,12 +106,7 @@ function JoinPageContent() {
 		} finally {
 			setJoining(false);
 		}
-	}, [
-		code,
-		isAuthenticated,
-		joinWithCode,
-		router,
-	]);
+	}, [code, isAuthenticated, joinWithCode, router]);
 
 	const isValid = validation?.valid === true;
 	const isInvalid = validation && !validation.valid && code.length >= 6;

@@ -17,8 +17,8 @@
  *   migrations/removeOrganizations:run  {}
  */
 
-import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
+import { internalMutation } from "../_generated/server";
 
 export const run = internalMutation({
 	args: {},
@@ -62,8 +62,7 @@ export const run = internalMutation({
 				if (ws.stripeCustomerId || ws.subscriptionId) continue;
 
 				const patch: Record<string, unknown> = {};
-				if (org.stripeCustomerId)
-					patch.stripeCustomerId = org.stripeCustomerId;
+				if (org.stripeCustomerId) patch.stripeCustomerId = org.stripeCustomerId;
 				if (org.subscriptionId) patch.subscriptionId = org.subscriptionId;
 				if (org.subscriptionStatus)
 					patch.subscriptionStatus = org.subscriptionStatus;
@@ -80,9 +79,7 @@ export const run = internalMutation({
 		}
 
 		// ── 2. Delete all organizationMembers ──────────────────────────────
-		const orgMembers = await ctx.db
-			.query("organizationMembers")
-			.collect();
+		const orgMembers = await ctx.db.query("organizationMembers").collect();
 		for (const member of orgMembers) {
 			await ctx.db.delete(member._id);
 			orgMembersDeleted += 1;

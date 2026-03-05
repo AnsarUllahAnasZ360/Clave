@@ -1613,7 +1613,6 @@ export function InboxPage() {
 									<ProjectUpdatePreviewPanel
 										notification={selectedNotification}
 										workspaceSlug={workspaceSlug}
-
 									/>
 								);
 							}
@@ -1622,7 +1621,6 @@ export function InboxPage() {
 									<DocumentPreviewPanel
 										notification={selectedNotification}
 										workspaceSlug={workspaceSlug}
-
 									/>
 								);
 							}
@@ -1631,7 +1629,6 @@ export function InboxPage() {
 									<WhiteboardPreviewPanel
 										notification={selectedNotification}
 										workspaceSlug={workspaceSlug}
-
 									/>
 								);
 							}
@@ -1640,7 +1637,6 @@ export function InboxPage() {
 									notification={selectedNotification}
 									workspaceId={workspaceId}
 									workspaceSlug={workspaceSlug}
-
 								/>
 							);
 						})()

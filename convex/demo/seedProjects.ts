@@ -119,10 +119,7 @@ export const seedAllProjects = internalMutation({
 		userIds: v.array(v.id("users")),
 		labelIds: v.array(v.id("labels")),
 	},
-	handler: async (
-		ctx,
-		{ workspaceId, creatorUserId, userIds, labelIds },
-	) => {
+	handler: async (ctx, { workspaceId, creatorUserId, userIds, labelIds }) => {
 		const projectIds: Id<"projects">[] = [];
 		const allMilestoneIds: Id<"milestones">[] = [];
 		const allSprintIds: Id<"sprints">[] = [];

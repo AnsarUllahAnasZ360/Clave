@@ -36,7 +36,11 @@ export const seedDemoData = internalMutation({
 		// Idempotency: check if this workspace is already seeded
 		const workspace = await ctx.db.get(workspaceId);
 		if (!workspace) return;
-		if (workspace.demoSeedStatus === "seeding" || workspace.demoSeedStatus === "complete") return;
+		if (
+			workspace.demoSeedStatus === "seeding" ||
+			workspace.demoSeedStatus === "complete"
+		)
+			return;
 
 		// Mark workspace as seeding
 		await ctx.db.patch(workspaceId, {

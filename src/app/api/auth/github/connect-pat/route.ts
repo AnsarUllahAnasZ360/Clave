@@ -39,7 +39,9 @@ export async function POST(request: NextRequest) {
 		}
 		if (status === 404) {
 			return NextResponse.json(
-				{ error: `Repository ${repoOwner}/${repoName} not found — check the URL and token permissions` },
+				{
+					error: `Repository ${repoOwner}/${repoName} not found — check the URL and token permissions`,
+				},
 				{ status: 404 },
 			);
 		}

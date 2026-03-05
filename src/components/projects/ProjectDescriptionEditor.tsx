@@ -109,7 +109,7 @@ export default function ProjectDescriptionEditor({
 
 	const aiPlugins = useMemo(
 		() => (workspace ? [AIEditorPlugin] : []),
-		[workspace?.workspaceId],
+		[workspace?.workspaceId, workspace],
 	);
 
 	if (!mounted) {

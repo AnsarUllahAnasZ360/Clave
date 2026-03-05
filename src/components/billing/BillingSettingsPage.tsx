@@ -366,8 +366,6 @@ export function BillingSettingsPage({ isAdmin }: { isAdmin: boolean }) {
 												: plan.limits.maxMembers}{" "}
 											members
 										</div>
-
-
 									</div>
 
 									{/* Features */}

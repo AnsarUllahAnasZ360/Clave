@@ -117,11 +117,7 @@ export async function GET(request: NextRequest) {
 	const { access_token, token_type, scope } = tokenData;
 
 	if (!access_token) {
-		const errorUrl = buildRedirectUrl(
-			request,
-			statePayload,
-			"no_access_token",
-		);
+		const errorUrl = buildRedirectUrl(request, statePayload, "no_access_token");
 		return NextResponse.redirect(errorUrl);
 	}
 

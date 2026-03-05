@@ -57,8 +57,8 @@ export function DuplicateDetection({
 					const statusCfg = getStatusConfig(issue.status);
 					const StatusIcon = statusCfg.icon;
 					const issueUrl = workspaceSlug
-							? `/${workspaceSlug}/issues/${issue._id}`
-							: undefined;
+						? `/${workspaceSlug}/issues/${issue._id}`
+						: undefined;
 
 					return (
 						<div

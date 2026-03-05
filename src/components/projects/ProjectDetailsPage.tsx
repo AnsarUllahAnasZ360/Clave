@@ -9,9 +9,9 @@ import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { ProjectGitHubTab } from "@/components/github/ProjectGitHubTab";
 import { DisplayOptionsPanel } from "@/components/issues/DisplayOptionsPanel";
 import type { IssueCardData } from "@/components/issues/IssueBoardCard";
 import { IssueBoardView } from "@/components/issues/IssueBoardView";
@@ -24,6 +24,7 @@ import {
 	MyIssuesFilterPopover,
 	useIssueFilters,
 } from "@/components/issues/MyIssuesFilterPopover";
+import { CreateListDialog } from "@/components/lists/CreateListDialog";
 import {
 	type ActivityActionFilter,
 	ActivityFeed,
@@ -35,8 +36,6 @@ import { ProjectHeader } from "@/components/projects/ProjectHeader";
 import { ProjectOverview } from "@/components/projects/ProjectOverview";
 import { ProjectPropertiesPanel } from "@/components/projects/ProjectPropertiesPanel";
 import { ResourcesTab } from "@/components/projects/ResourcesTab";
-import { ProjectGitHubTab } from "@/components/github/ProjectGitHubTab";
-import { CreateListDialog } from "@/components/lists/CreateListDialog";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -65,7 +64,6 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 	const [showMeta, setShowMeta] = useState(true);
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [activeTab, setActiveTab] = useState("overview");
-
 
 	const project = useQuery(api.projects.getBySlug, { workspaceId, slug });
 	const stats = useQuery(
@@ -833,7 +831,9 @@ function ProjectListsTab({
 								{list.icon ?? "📋"}
 							</span>
 							<div className="flex-1 min-w-0">
-								<span className="text-sm font-medium truncate">{list.name}</span>
+								<span className="text-sm font-medium truncate">
+									{list.name}
+								</span>
 								{list.description && (
 									<p className="text-xs text-muted-foreground truncate mt-0.5">
 										{list.description}

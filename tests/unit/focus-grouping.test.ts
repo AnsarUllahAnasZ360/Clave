@@ -191,7 +191,7 @@ describe("focus-grouping", () => {
 			const result = groupByFocus(issues, new Set());
 			const milestone = result.find((g) => g.group === "milestone");
 			expect(milestone).toBeDefined();
-			expect(milestone!.issues[0]._id).toBe("2"); // in_progress first
+			expect(milestone?.issues[0]._id).toBe("2"); // in_progress first
 		});
 
 		it("groups are ordered according to FOCUS_GROUP_ORDER", () => {

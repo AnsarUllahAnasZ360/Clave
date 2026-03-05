@@ -200,9 +200,7 @@ export default function ChatThreadPage() {
 			chat.activeThreadId !== prevActiveRef.current
 		) {
 			prevActiveRef.current = chat.activeThreadId;
-			router.push(
-				`/${workspaceSlug}/chat/${chat.activeThreadId}` as Route,
-			);
+			router.push(`/${workspaceSlug}/chat/${chat.activeThreadId}` as Route);
 		}
 	}, [chat.activeThreadId, threadId, workspaceSlug, router]);
 

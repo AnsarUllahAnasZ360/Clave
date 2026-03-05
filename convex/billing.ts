@@ -297,12 +297,9 @@ export const createPortalSession = action({
 			billingEmail: string | null;
 			stripeCustomerId: string | null;
 			plan: "free" | "pro" | "enterprise";
-		} | null = await ctx.runQuery(
-			internal.billing.getWorkspaceForCheckout,
-			{
-				workspaceId: args.workspaceId,
-			},
-		);
+		} | null = await ctx.runQuery(internal.billing.getWorkspaceForCheckout, {
+			workspaceId: args.workspaceId,
+		});
 		if (!wsInfo) {
 			throw new Error("Workspace not found or access denied");
 		}
@@ -526,12 +523,9 @@ export const syncSeatCount = internalAction({
 	args: { workspaceId: v.id("workspaces") },
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		const seatInfo = await ctx.runQuery(
-			internal.billing.getWorkspaceSeatInfo,
-			{
-				workspaceId: args.workspaceId,
-			},
-		);
+		const seatInfo = await ctx.runQuery(internal.billing.getWorkspaceSeatInfo, {
+			workspaceId: args.workspaceId,
+		});
 
 		if (!seatInfo) {
 			console.warn(

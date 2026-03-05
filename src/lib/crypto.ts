@@ -103,9 +103,7 @@ export async function verifyOAuthState(
 		false,
 		["verify"],
 	);
-	const sig = Uint8Array.from(
-		Buffer.from(sigB64, "base64url"),
-	);
+	const sig = Uint8Array.from(Buffer.from(sigB64, "base64url"));
 	const valid = await crypto.subtle.verify(
 		"HMAC",
 		key,

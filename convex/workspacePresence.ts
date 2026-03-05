@@ -1,7 +1,7 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireAuth, requireWorkspaceMember } from "./lib/auth";
+import { requireWorkspaceMember } from "./lib/auth";
 
 export const PRESENCE_TOUCH_FRESH_MS = 8000;
 

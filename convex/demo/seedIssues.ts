@@ -72,7 +72,7 @@ function weightedPick<T>(
 	return items[items.length - 1];
 }
 
-function pickRandom<T>(arr: readonly T[], rand: () => number): T {
+function _pickRandom<T>(arr: readonly T[], rand: () => number): T {
 	return arr[Math.floor(rand() * arr.length)];
 }
 
@@ -6290,7 +6290,7 @@ async function createIssuesForProjects(
 				}
 			}
 
-			const createdDaysAgo = Math.floor(rand() * 60) + 1;
+			const _createdDaysAgo = Math.floor(rand() * 60) + 1;
 
 			const issueId = await ctx.db.insert("issues", {
 				workspaceId: args.workspaceId,

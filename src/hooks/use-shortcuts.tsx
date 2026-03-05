@@ -486,9 +486,7 @@ export function ShortcutProvider({ children }: { children: ReactNode }) {
 		if (!hasWorkspaceContext) return;
 		function handleOpenClipboard() {
 			// biome-ignore lint/suspicious/noExplicitAny: dynamic workspace paths
-			router.push(
-				`/${workspaceSlug}/settings?section=dictation` as any,
-			);
+			router.push(`/${workspaceSlug}/settings?section=dictation` as any);
 		}
 		window.addEventListener(
 			"clave:open-dictation-clipboard",

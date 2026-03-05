@@ -66,7 +66,6 @@ export function LinkedResources({
 					key={docId}
 					docId={docId}
 					workspaceSlug={workspaceSlug}
-	
 					onUnlink={() => handleUnlink("document", docId)}
 				/>
 			))}
@@ -75,7 +74,6 @@ export function LinkedResources({
 					key={boardId}
 					boardId={boardId}
 					workspaceSlug={workspaceSlug}
-	
 					onUnlink={() => handleUnlink("whiteboard", boardId)}
 				/>
 			))}

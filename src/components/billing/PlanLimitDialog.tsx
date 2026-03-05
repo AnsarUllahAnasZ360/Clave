@@ -128,9 +128,7 @@ export function PlanLimitDialog({
 						onClick={() => {
 							onClose();
 							if (workspace) {
-								router.push(
-									`/${workspace.workspaceSlug}/settings/billing`,
-								);
+								router.push(`/${workspace.workspaceSlug}/settings/billing`);
 							}
 						}}
 					>

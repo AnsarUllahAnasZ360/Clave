@@ -1,12 +1,12 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { FolderOpen, Plus } from "@phosphor-icons/react/dist/ssr";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { ProjectCard } from "@/components/project-card";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ProjectGroup } from "@/lib/view-options";
 import { cn } from "@/lib/utils";
+import type { ProjectGroup } from "@/lib/view-options";
 
 type ProjectCardsViewProps = {
 	groups: ProjectGroup[];
@@ -23,7 +23,8 @@ export function ProjectCardsView({
 }: ProjectCardsViewProps) {
 	const totalProjects = groups.reduce((n, g) => n + g.projects.length, 0);
 	const isEmpty = !loading && totalProjects === 0;
-	const isGrouped = groups.length > 1 || (groups.length === 1 && groups[0].label !== "");
+	const isGrouped =
+		groups.length > 1 || (groups.length === 1 && groups[0].label !== "");
 
 	return (
 		<div className="p-4">
@@ -106,7 +107,10 @@ export function ProjectCardsView({
 function GroupSection({
 	group,
 	visibleProperties,
-}: { group: ProjectGroup; visibleProperties?: string[] }) {
+}: {
+	group: ProjectGroup;
+	visibleProperties?: string[];
+}) {
 	const [collapsed, setCollapsed] = useState(false);
 
 	return (

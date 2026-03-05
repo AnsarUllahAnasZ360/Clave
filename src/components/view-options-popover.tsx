@@ -23,8 +23,8 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { DEFAULT_VIEW_OPTIONS } from "@/lib/view-options";
 import { cn } from "@/lib/utils";
+import { DEFAULT_VIEW_OPTIONS } from "@/lib/view-options";
 
 type Options = {
 	viewType: "list" | "board" | "timeline";
@@ -130,46 +130,45 @@ export function ViewOptionsPopover({
 					<div className={cn(viewTypes.length > 1 ? "mt-4" : "", "space-y-3")}>
 						{/* Tasks Dropdown — only for task views */}
 						{context === "tasks" && (
-						<div className="flex items-center justify-between">
-							<span className="text-sm">Tasks</span>
-							<Popover open={tasksOpen} onOpenChange={setTasksOpen}>
-								<PopoverTrigger asChild>
-									<Button
-										variant="outline"
-										size="sm"
-										className="h-8 gap-2 rounded-lg border-border/60 px-3 bg-transparent"
-									>
-										{taskOptions.find((o) => o.id === options.tasks)?.icon && (
-											<TextIndent className="h-4 w-4" />
-										)}
-										{taskOptions.find((o) => o.id === options.tasks)?.label}
-										<CaretUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-									</Button>
-								</PopoverTrigger>
-								<PopoverContent className="w-40 rounded-xl p-1" align="end">
-									{taskOptions.map((option) => (
-										<button
-											type="button"
-											key={option.id}
-											onClick={() => {
-												onChange({
-													...options,
-													tasks: option.id as Options["tasks"],
-												});
-												setTasksOpen(false);
-											}}
-											className={cn(
-												"flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent",
-												options.tasks === option.id && "bg-accent",
-											)}
+							<div className="flex items-center justify-between">
+								<span className="text-sm">Tasks</span>
+								<Popover open={tasksOpen} onOpenChange={setTasksOpen}>
+									<PopoverTrigger asChild>
+										<Button
+											variant="outline"
+											size="sm"
+											className="h-8 gap-2 rounded-lg border-border/60 px-3 bg-transparent"
 										>
-											<option.icon className="h-4 w-4" />
-											{option.label}
-										</button>
-									))}
-								</PopoverContent>
-							</Popover>
-						</div>
+											{taskOptions.find((o) => o.id === options.tasks)
+												?.icon && <TextIndent className="h-4 w-4" />}
+											{taskOptions.find((o) => o.id === options.tasks)?.label}
+											<CaretUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+										</Button>
+									</PopoverTrigger>
+									<PopoverContent className="w-40 rounded-xl p-1" align="end">
+										{taskOptions.map((option) => (
+											<button
+												type="button"
+												key={option.id}
+												onClick={() => {
+													onChange({
+														...options,
+														tasks: option.id as Options["tasks"],
+													});
+													setTasksOpen(false);
+												}}
+												className={cn(
+													"flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-accent",
+													options.tasks === option.id && "bg-accent",
+												)}
+											>
+												<option.icon className="h-4 w-4" />
+												{option.label}
+											</button>
+										))}
+									</PopoverContent>
+								</Popover>
+							</div>
 						)}
 
 						{/* Ordering Dropdown */}
@@ -216,15 +215,15 @@ export function ViewOptionsPopover({
 
 						{/* Show absent parent — only for task views */}
 						{context === "tasks" && (
-						<div className="flex items-center justify-between">
-							<span className="text-sm">Show absent parent</span>
-							<Switch
-								checked={options.showAbsentParent}
-								onCheckedChange={(checked) =>
-									onChange({ ...options, showAbsentParent: checked })
-								}
-							/>
-						</div>
+							<div className="flex items-center justify-between">
+								<span className="text-sm">Show absent parent</span>
+								<Switch
+									checked={options.showAbsentParent}
+									onCheckedChange={(checked) =>
+										onChange({ ...options, showAbsentParent: checked })
+									}
+								/>
+							</div>
 						)}
 
 						{/* Show closed projects */}

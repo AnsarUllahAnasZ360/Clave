@@ -60,11 +60,19 @@ export function CreateBranchDialog({
 	const updateIssue = useMutation(api.issues.update);
 
 	// Stable refs for actions to avoid stale closures
-	const actionsRef = useRef({ listBranches: listBranchesAction, createBranch: createBranchAction });
-	actionsRef.current = { listBranches: listBranchesAction, createBranch: createBranchAction };
+	const actionsRef = useRef({
+		listBranches: listBranchesAction,
+		createBranch: createBranchAction,
+	});
+	actionsRef.current = {
+		listBranches: listBranchesAction,
+		createBranch: createBranchAction,
+	};
 
 	const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
-	const [branches, setBranches] = useState<Array<{ name: string; isDefault: boolean }>>([]);
+	const [branches, setBranches] = useState<
+		Array<{ name: string; isDefault: boolean }>
+	>([]);
 	const [baseBranch, setBaseBranch] = useState("");
 	const [branchName, setBranchName] = useState("");
 	const [isLoadingBranches, setIsLoadingBranches] = useState(false);
@@ -87,7 +95,11 @@ export function CreateBranchDialog({
 			const result = await actionsRef.current.listBranches({
 				connectionId: connectionId as Id<"githubConnections">,
 			});
-			console.log("[CreateBranch] listBranches returned:", result.length, "branches");
+			console.log(
+				"[CreateBranch] listBranches returned:",
+				result.length,
+				"branches",
+			);
 			// Only apply if we're still looking at the same connection
 			if (fetchedForRef.current !== connectionId) {
 				console.log("[CreateBranch] Stale response, ignoring");
@@ -130,7 +142,14 @@ export function CreateBranchDialog({
 			setBranchName(`feat/${slugify(`${identifier}-${title}`)}`);
 			fetchBranches(firstId);
 		}
-	}, [open, connections, selectedConnectionId, identifier, title, fetchBranches]);
+	}, [
+		open,
+		connections,
+		selectedConnectionId,
+		identifier,
+		title,
+		fetchBranches,
+	]);
 
 	// When user changes connection in dropdown
 	const handleConnectionChange = useCallback(
@@ -197,12 +216,20 @@ export function CreateBranchDialog({
 			setIsCreating(false);
 			console.log("[CreateBranch] Done, isCreating=false");
 		}
-	}, [selectedConnectionId, baseBranch, branchName, updateIssue, issueId, onOpenChange]);
+	}, [
+		selectedConnectionId,
+		baseBranch,
+		branchName,
+		updateIssue,
+		issueId,
+		onOpenChange,
+	]);
 
 	const activeConnections = connections
 		?.filter((c) => c.status === "active")
 		.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-	const noConnections = connections !== undefined && (activeConnections?.length ?? 0) === 0;
+	const noConnections =
+		connections !== undefined && (activeConnections?.length ?? 0) === 0;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>

@@ -30,7 +30,14 @@ export function AuthRedirect() {
 		}
 
 		router.replace(destinationPath as never);
-	}, [bootState?.isAuthenticated, destinationPath, pathname, router]);
+	}, [
+		bootState?.isAuthenticated,
+		destinationPath,
+		pathname,
+		router,
+		bootState,
+		destination,
+	]);
 
 	return null;
 }

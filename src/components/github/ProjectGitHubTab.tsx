@@ -5,8 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { CommitList } from "@/components/github/CommitList";
 import { IssueSyncSettings } from "@/components/github/IssueSyncSettings";
 import { PullRequestList } from "@/components/github/PullRequestList";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	Select,
 	SelectContent,
@@ -14,6 +12,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -57,16 +57,14 @@ export function ProjectGitHubTab({
 			[...connections]
 				.filter((c) => c.status !== "disconnected")
 				.sort((a, b) => {
-					if (a.status !== b.status)
-						return a.status === "active" ? -1 : 1;
+					if (a.status !== b.status) return a.status === "active" ? -1 : 1;
 					return b.createdAt - a.createdAt;
 				}),
 		[connections],
 	);
 
-	const [selectedConnectionId, setSelectedConnectionId] = useState<
-		Id<"githubConnections"> | null
-	>(null);
+	const [selectedConnectionId, setSelectedConnectionId] =
+		useState<Id<"githubConnections"> | null>(null);
 	const effectiveConnectionId =
 		selectedConnectionId ?? selectableConnections[0]?._id ?? null;
 

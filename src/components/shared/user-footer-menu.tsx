@@ -39,9 +39,7 @@ interface UserFooterMenuProps {
 	settingsHref?: string;
 }
 
-export function UserFooterMenu({
-	settingsHref = "/",
-}: UserFooterMenuProps) {
+export function UserFooterMenu({ settingsHref = "/" }: UserFooterMenuProps) {
 	const router = useRouter();
 	const { signOut } = useAuthActions();
 	const user = useQuery(api.users.current);

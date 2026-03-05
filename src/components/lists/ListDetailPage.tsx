@@ -62,10 +62,7 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 			<div className="flex flex-1 flex-col items-center justify-center min-w-0 m-2 border border-border rounded-lg h-[calc(100svh-1rem)]">
 				<p className="text-muted-foreground text-sm">List not found</p>
 				<Button asChild variant="outline" className="mt-4">
-					<Link
-						href={`/${workspaceSlug}/projects`}
-						prefetch={false}
-					>
+					<Link href={`/${workspaceSlug}/projects`} prefetch={false}>
 						Back to projects
 					</Link>
 				</Button>
@@ -135,9 +132,7 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 								<>
 									<CaretRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
 									<Link
-										href={
-											`/${workspaceSlug}/projects/${project.slug}` as never
-										}
+										href={`/${workspaceSlug}/projects/${project.slug}` as never}
 										className="text-muted-foreground hover:text-foreground transition-colors truncate max-w-[160px]"
 										prefetch={false}
 									>
@@ -192,10 +187,7 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 							projectId={list.projectId}
 						/>
 					) : (
-						<IssueListView
-							issues={issueListData}
-							projectId={list.projectId}
-						/>
+						<IssueListView issues={issueListData} projectId={list.projectId} />
 					)}
 				</TabsContent>
 			</Tabs>

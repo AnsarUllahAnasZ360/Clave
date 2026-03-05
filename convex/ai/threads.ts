@@ -459,7 +459,7 @@ export const searchThreads = query({
 		const titleMatches = new Set<string>();
 		const results: typeof visibleThreads = [];
 		for (const thread of visibleThreads) {
-			if (thread.title && thread.title.toLowerCase().includes(trimmed)) {
+			if (thread.title?.toLowerCase().includes(trimmed)) {
 				titleMatches.add(thread.threadId);
 				results.push(thread);
 			}

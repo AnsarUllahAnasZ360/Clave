@@ -297,9 +297,11 @@ export function DisplayOptionsPanel({
 								return (
 									<label
 										key={prop}
+										htmlFor={`display-prop-${prop}`}
 										className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs hover:bg-muted/50 cursor-pointer transition-colors text-left"
 									>
 										<Checkbox
+											id={`display-prop-${prop}`}
 											checked={checked}
 											onCheckedChange={() => onDisplayPropertyToggle(prop)}
 											tabIndex={-1}

@@ -145,39 +145,37 @@ export function WorkspaceSelector() {
 					</button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="w-64">
-					{(allWorkspaces ?? []).map(
-						(workspaceOption: WorkspaceOption) => (
-							<DropdownMenuItem
-								key={workspaceOption._id}
-								className="cursor-pointer"
-								onSelect={() => handleSwitchWorkspace(workspaceOption.slug)}
-							>
-								{workspaceOption.isDemo ? (
-									<div className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-sienna-500 to-sienna-700 flex items-center justify-center text-xs">
-										🚀
-									</div>
-								) : (
-									<Avatar className="h-6 w-6 rounded-full bg-blue-800">
-										{workspaceOption.logoUrl ? (
-											<AvatarImage
-												src={workspaceOption.logoUrl}
-												alt={workspaceOption.name}
-												className="object-cover"
-											/>
-										) : (
-											<AvatarFallback className="text-[11px] font-bold text-white">
-												{workspaceOption.name[0]?.toUpperCase()}
-											</AvatarFallback>
-										)}
-									</Avatar>
-								)}
-								<span className="flex-1 truncate">{workspaceOption.name}</span>
-								{activeWorkspace.workspaceId === workspaceOption._id && (
-									<Check className="h-4 w-4 text-primary" />
-								)}
-							</DropdownMenuItem>
-						),
-					)}
+					{(allWorkspaces ?? []).map((workspaceOption: WorkspaceOption) => (
+						<DropdownMenuItem
+							key={workspaceOption._id}
+							className="cursor-pointer"
+							onSelect={() => handleSwitchWorkspace(workspaceOption.slug)}
+						>
+							{workspaceOption.isDemo ? (
+								<div className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-sienna-500 to-sienna-700 flex items-center justify-center text-xs">
+									🚀
+								</div>
+							) : (
+								<Avatar className="h-6 w-6 rounded-full bg-blue-800">
+									{workspaceOption.logoUrl ? (
+										<AvatarImage
+											src={workspaceOption.logoUrl}
+											alt={workspaceOption.name}
+											className="object-cover"
+										/>
+									) : (
+										<AvatarFallback className="text-[11px] font-bold text-white">
+											{workspaceOption.name[0]?.toUpperCase()}
+										</AvatarFallback>
+									)}
+								</Avatar>
+							)}
+							<span className="flex-1 truncate">{workspaceOption.name}</span>
+							{activeWorkspace.workspaceId === workspaceOption._id && (
+								<Check className="h-4 w-4 text-primary" />
+							)}
+						</DropdownMenuItem>
+					))}
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
 						className="cursor-pointer"
@@ -193,8 +191,6 @@ export function WorkspaceSelector() {
 						<SignIn className="h-4 w-4" />
 						<span>Join workspace</span>
 					</DropdownMenuItem>
-	
-
 				</DropdownMenuContent>
 			</DropdownMenu>
 

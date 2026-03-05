@@ -52,7 +52,6 @@ type GoogleChatIssueContext = {
 	workspaceId: Id<"workspaces">;
 	workspaceSlug: string;
 
-
 	identifier: string;
 	title: string;
 	status: string;

@@ -100,8 +100,7 @@ export default function ChatPage() {
 	const effectiveContext = contextCleared ? null : routeContext;
 	const prefetchThreadRoute = useCallback(
 		(threadId: string) => {
-			const targetRoute =
-				`/${workspaceSlug}/chat/${threadId}` as Route;
+			const targetRoute = `/${workspaceSlug}/chat/${threadId}` as Route;
 			if (prefetchedRoutesRef.current.has(targetRoute)) return;
 			prefetchedRoutesRef.current.add(targetRoute);
 			router.prefetch(targetRoute);

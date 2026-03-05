@@ -766,6 +766,7 @@ export function IssueListView({
 			<div
 				className="sticky top-0 z-10 flex items-center gap-x-6 h-8 border-b border-border bg-muted/60 text-xs font-medium text-muted-foreground shrink-0"
 				role="row"
+				tabIndex={-1}
 			>
 				{visibleColumns.map((col) => (
 					<div
@@ -777,6 +778,7 @@ export function IssueListView({
 							col !== "priority" && "truncate",
 						)}
 						role="columnheader"
+						tabIndex={-1}
 					>
 						{columnLabels.get(col) ?? col}
 					</div>

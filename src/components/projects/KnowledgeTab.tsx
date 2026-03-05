@@ -174,13 +174,7 @@ export function KnowledgeTab({ projectId, workspaceId }: KnowledgeTabProps) {
 		} catch {
 			toast.error("Failed to create whiteboard");
 		}
-	}, [
-		createWhiteboard,
-		workspaceId,
-		projectId,
-		workspaceSlug,
-		router,
-	]);
+	}, [createWhiteboard, workspaceId, projectId, workspaceSlug, router]);
 
 	const handleItemClick = useCallback(
 		(item: KnowledgeItem) => {

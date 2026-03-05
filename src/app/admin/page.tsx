@@ -97,8 +97,8 @@ export default function AdminDashboardPage() {
 						Platform Command Center
 					</h2>
 					<p className="max-w-2xl text-sm text-zinc-300">
-						Track growth, enforce access policy, and manage workspaces
-						from one audited surface.
+						Track growth, enforce access policy, and manage workspaces from one
+						audited surface.
 					</p>
 				</div>
 			</div>

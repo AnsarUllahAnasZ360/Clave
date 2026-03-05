@@ -170,12 +170,7 @@ export const registerWebhook = internalAction({
 							content_type: "json",
 							secret: webhookSecret,
 						},
-						events: [
-							"push",
-							"pull_request",
-							"pull_request_review",
-							"issues",
-						],
+						events: ["push", "pull_request", "pull_request_review", "issues"],
 						active: true,
 					}),
 				},
@@ -845,14 +840,8 @@ export const processWebhookPullRequest = internalAction({
 		if (settings) {
 			const prefix = settings.issuePrefix ?? settings.storyPrefix;
 			if (prefix) {
-				const escapedPrefix = prefix.replace(
-					/[.*+?^${}()|[\]\\]/g,
-					"\\$&",
-				);
-				const pattern = new RegExp(
-					`\\b${escapedPrefix}-(\\d{1,6})\\b`,
-					"i",
-				);
+				const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+				const pattern = new RegExp(`\\b${escapedPrefix}-(\\d{1,6})\\b`, "i");
 				const sources = [
 					pr.head?.ref ?? "",
 					pr.title ?? "",
@@ -894,12 +883,8 @@ export const processWebhookPullRequest = internalAction({
 			baseBranch: pr.base?.ref ?? "",
 			htmlUrl: pr.html_url,
 			isDraft: pr.draft ?? false,
-			mergedAt: pr.merged_at
-				? new Date(pr.merged_at).getTime()
-				: undefined,
-			closedAt: pr.closed_at
-				? new Date(pr.closed_at).getTime()
-				: undefined,
+			mergedAt: pr.merged_at ? new Date(pr.merged_at).getTime() : undefined,
+			closedAt: pr.closed_at ? new Date(pr.closed_at).getTime() : undefined,
 			reviewDecision: undefined,
 			linkedIssueId,
 			githubCreatedAt: new Date(pr.created_at).getTime(),
@@ -937,7 +922,11 @@ export const processWebhookPrReview = internalAction({
 		if (!connection || connection.status !== "active") return null;
 
 		// Map review state to our review decision
-		let reviewDecision: "approved" | "changes_requested" | "pending" | undefined;
+		let reviewDecision:
+			| "approved"
+			| "changes_requested"
+			| "pending"
+			| undefined;
 		switch (review.state) {
 			case "approved":
 				reviewDecision = "approved";
@@ -970,12 +959,8 @@ export const processWebhookPrReview = internalAction({
 			baseBranch: pr.base?.ref ?? "",
 			htmlUrl: pr.html_url,
 			isDraft: pr.draft ?? false,
-			mergedAt: pr.merged_at
-				? new Date(pr.merged_at).getTime()
-				: undefined,
-			closedAt: pr.closed_at
-				? new Date(pr.closed_at).getTime()
-				: undefined,
+			mergedAt: pr.merged_at ? new Date(pr.merged_at).getTime() : undefined,
+			closedAt: pr.closed_at ? new Date(pr.closed_at).getTime() : undefined,
 			reviewDecision,
 			githubCreatedAt: new Date(pr.created_at).getTime(),
 			githubUpdatedAt: new Date(pr.updated_at).getTime(),
@@ -1051,7 +1036,12 @@ export const processWebhookIssue = internalAction({
 			}
 
 			// Update the existing Clave issue
-			const claveStatus = ghIssue.state === "closed" ? "done" : ghIssue.assignee ? "in_progress" : "todo";
+			const claveStatus =
+				ghIssue.state === "closed"
+					? "done"
+					: ghIssue.assignee
+						? "in_progress"
+						: "todo";
 			await ctx.runMutation(internal.githubSync.updateIssueFromGithub, {
 				issueId: existingSync.claveIssueId,
 				title: ghIssue.title,

@@ -1106,8 +1106,7 @@ export const update = mutation({
 
 		// Mutual exclusivity: setting sprintId clears listId and vice versa
 		const resolvedSprintId = (() => {
-			if (args.listId !== undefined && args.listId !== null)
-				return undefined; // listId set → clear sprint
+			if (args.listId !== undefined && args.listId !== null) return undefined; // listId set → clear sprint
 			if (args.sprintId !== undefined) return args.sprintId;
 			if (args.listId === null) return issue.sprintId; // explicit clear of list keeps sprint
 			return issue.sprintId;
@@ -1478,9 +1477,7 @@ export const update = mutation({
 		if (issue.githubSyncSource !== "github") {
 			const syncRecord = await ctx.db
 				.query("githubIssueSync")
-				.withIndex("by_clave_issue", (q) =>
-					q.eq("claveIssueId", args.issueId),
-				)
+				.withIndex("by_clave_issue", (q) => q.eq("claveIssueId", args.issueId))
 				.first();
 
 			if (syncRecord) {
