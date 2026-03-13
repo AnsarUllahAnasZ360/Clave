@@ -125,9 +125,10 @@ export const createDemoWorkspaceForUser = mutation({
 			nextTaskNumber: 1,
 		});
 
-		// Provision built-in Excalidraw MCP connector
+		// Provision built-in Excalidraw MCP connector and schedule demo seeding
 		const { internal } = await import("../_generated/api");
-		await ctx.runMutation(
+		await ctx.scheduler.runAfter(
+			0,
 			internal.mcpServers.ensureSystemExcalidrawServerInternal,
 			{ workspaceId, createdBy: userId },
 		);
