@@ -3,7 +3,7 @@
 	"version": "0.1.0",
 	"private": true,
 	"scripts": {
-		"dev": "bash scripts/dev-bootstrap.sh",
+		"dev": "bash scripts/cleanup.sh && bash scripts/dev-bootstrap.sh",
 		"dev:clean": "bash scripts/cleanup.sh",
 		"dev:next": "bash scripts/dev.sh",
 		"dev:next:logged": "bash scripts/dev-with-access-log.sh",

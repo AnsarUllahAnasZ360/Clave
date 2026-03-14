@@ -5,11 +5,23 @@ PORT="${DEV_PORT:-4000}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 UNKILLABLE=0
 
+USE_POWERSHELL=false
+if command -v powershell.exe &>/dev/null; then
+  USE_POWERSHELL=true
+fi
+
 kill_pid() {
   local pid="$1"
   local label="$2"
 
   if [[ -z "${pid//[[:space:]]/}" ]]; then
+    return 0
+  fi
+
+  echo "Stopping ${label} process $pid"
+
+  if $USE_POWERSHELL; then
+    powershell.exe -NoProfile -Command "Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
     return 0
   fi
 
@@ -20,7 +32,6 @@ kill_pid() {
   local pgrp=""
   pgrp="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
 
-  echo "Stopping ${label} process $pid"
   if [[ -n "$pgrp" ]]; then
     kill "-$pgrp" 2>/dev/null || true
     sleep 0.5
@@ -108,87 +119,121 @@ is_next_server_under_project_stack() {
   return 1
 }
 
-# ── Port cleanup ───────────────────────────────────────────────────────────
-if pids=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null); then
-  echo "Killing processes on port $PORT: $(echo "$pids" | tr '\n' ' ')"
-  while IFS= read -r pid; do
-    if [[ -z "$pid" ]]; then
-      continue
-    fi
-    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
-    if is_project_process "$cmdline" || is_next_dev_process "$cmdline" || is_next_server_process "$cmdline" || is_convex_dev_process "$cmdline"; then
-      if is_next_server_process "$cmdline" && ! is_next_server_under_project_stack "$pid"; then
-        echo "Port ${PORT} is in use by non-project process."
-        echo "PID ${pid}: ${cmdline:-unknown}"
+# ── Windows cleanup (single PowerShell call) ──────────────────────────────
+if $USE_POWERSHELL; then
+  result=$(powershell.exe -NoProfile -Command "
+    \$killed = @()
+
+    # Kill processes on port
+    \$lines = netstat -ano 2>\$null | Select-String ':${PORT}\s.*LISTENING'
+    \$portPids = \$lines | ForEach-Object { (\$_ -split '\s+')[-1] } | Sort-Object -Unique
+    foreach (\$p in \$portPids) {
+      if (\$p -and \$p -ne '0') {
+        try { Stop-Process -Id \$p -Force -ErrorAction Stop; \$killed += \"port:\$p\" } catch {}
+      }
+    }
+
+    # Kill stale convex/esbuild
+    foreach (\$name in @('convex','esbuild')) {
+      Get-Process -Name \$name -ErrorAction SilentlyContinue | ForEach-Object {
+        try { Stop-Process -Id \$_.Id -Force -ErrorAction Stop; \$killed += \"\$name:\$(\$_.Id)\" } catch {}
+      }
+    }
+
+    if (\$killed.Count -gt 0) { \$killed -join ',' } else { 'clean' }
+  " 2>/dev/null | tr -d '\r')
+
+  if [[ "$result" == "clean" ]]; then
+    echo "Port $PORT is free"
+  else
+    IFS=',' read -ra ITEMS <<< "$result"
+    for item in "${ITEMS[@]}"; do
+      IFS=':' read -r type pid <<< "$item"
+      case "$type" in
+        port) echo "Killed port $PORT listener (PID $pid)" ;;
+        *) echo "Killed stale $type (PID $pid)" ;;
+      esac
+    done
+    sleep 1
+  fi
+else
+  # ── Unix port cleanup ─────────────────────────────────────────────────
+  if pids=$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null); then
+    echo "Killing processes on port $PORT: $(echo "$pids" | tr '\n' ' ')"
+    while IFS= read -r pid; do
+      if [[ -z "$pid" ]]; then
         continue
       fi
-      kill_pid "$pid" "process on dev port $PORT"
-      continue
-    else
-      echo "Port ${PORT} is in use by non-project process."
-      echo "PID ${pid}: ${cmdline:-unknown}"
-      exit 1
-    fi
-done <<< "$pids"
-else
-  echo "Port $PORT is free"
-fi
-
-# ── Stale convex dev processes (from previous agent sessions) ──────────────
-while IFS= read -r pid; do
-  if [[ -n "$pid" ]]; then
-    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
-    if is_project_process "$cmdline" || is_convex_dev_process "$cmdline"; then
-      # Don't kill the bootstrap process that might be running this script
-      if [[ "$pid" != "$$" && "$pid" != "$PPID" ]]; then
-        kill_pid "$pid" "stale convex dev"
-      fi
-    fi
-  fi
-done < <(pgrep -f "convex dev" 2>/dev/null || true)
-
-# ── Orphaned next-server processes (not currently listening) ────────────────
-while IFS= read -r pid; do
-  if [[ -n "$pid" ]]; then
-    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
-    if is_next_server_process "$cmdline" && is_next_server_under_project_stack "$pid"; then
-      kill_pid "$pid" "orphaned project next-server process"
-    fi
-  fi
-done < <(pgrep -f "next-server" 2>/dev/null || true)
-
-# ── Esbuild zombie cleanup ────────────────────────────────────────────────
-ESBUILD_TOTAL=0
-ESBUILD_KILLED=0
-while IFS= read -r pid; do
-  if [[ -n "$pid" ]]; then
-    cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
-    if is_project_process "$cmdline" || is_esbuild_dev_process "$cmdline"; then
-      ESBUILD_TOTAL=$((ESBUILD_TOTAL + 1))
-      if is_uninterruptible_process "$pid"; then
-        UNKILLABLE=$((UNKILLABLE + 1))
+      cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      if is_project_process "$cmdline" || is_next_dev_process "$cmdline" || is_next_server_process "$cmdline" || is_convex_dev_process "$cmdline"; then
+        if is_next_server_process "$cmdline" && ! is_next_server_under_project_stack "$pid"; then
+          echo "Port ${PORT} is in use by non-project process."
+          echo "PID ${pid}: ${cmdline:-unknown}"
+          continue
+        fi
+        kill_pid "$pid" "process on dev port $PORT"
+        continue
       else
-        kill_pid "$pid" "stale esbuild"
-        ESBUILD_KILLED=$((ESBUILD_KILLED + 1))
+        echo "Port ${PORT} is in use by non-project process."
+        echo "PID ${pid}: ${cmdline:-unknown}"
+        exit 1
+      fi
+    done <<< "$pids"
+  else
+    echo "Port $PORT is free"
+  fi
+
+  # ── Unix stale process cleanup ────────────────────────────────────────
+  while IFS= read -r pid; do
+    if [[ -n "$pid" ]]; then
+      cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      if is_project_process "$cmdline" || is_convex_dev_process "$cmdline"; then
+        if [[ "$pid" != "$$" && "$pid" != "$PPID" ]]; then
+          kill_pid "$pid" "stale convex dev"
+        fi
       fi
     fi
+  done < <(pgrep -f "convex dev" 2>/dev/null || true)
+
+  while IFS= read -r pid; do
+    if [[ -n "$pid" ]]; then
+      cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      if is_next_server_process "$cmdline" && is_next_server_under_project_stack "$pid"; then
+        kill_pid "$pid" "orphaned project next-server process"
+      fi
+    fi
+  done < <(pgrep -f "next-server" 2>/dev/null || true)
+
+  ESBUILD_TOTAL=0
+  ESBUILD_KILLED=0
+  while IFS= read -r pid; do
+    if [[ -n "$pid" ]]; then
+      cmdline=$(ps -p "$pid" -o args= 2>/dev/null || true)
+      if is_project_process "$cmdline" || is_esbuild_dev_process "$cmdline"; then
+        ESBUILD_TOTAL=$((ESBUILD_TOTAL + 1))
+        if is_uninterruptible_process "$pid"; then
+          UNKILLABLE=$((UNKILLABLE + 1))
+        else
+          kill_pid "$pid" "stale esbuild"
+          ESBUILD_KILLED=$((ESBUILD_KILLED + 1))
+        fi
+      fi
+    fi
+  done < <(pgrep -f "esbuild" 2>/dev/null || true)
+
+  if [[ "$UNKILLABLE" -gt 0 ]]; then
+    echo ""
+    echo "WARNING: $UNKILLABLE esbuild processes are stuck in uninterruptible state."
+    echo "   A reboot is the only way to clear them."
+    echo ""
   fi
-done < <(pgrep -f "esbuild" 2>/dev/null || true)
 
-if [[ "$UNKILLABLE" -gt 0 ]]; then
-  echo ""
-  echo "⚠  $UNKILLABLE esbuild processes are stuck in uninterruptible state (UE)."
-  echo "   These are kernel zombies — kill -9 cannot touch them."
-  echo "   They are harmless but waste memory. A reboot is the only way to clear them."
-  echo ""
-fi
-
-if [[ "$ESBUILD_KILLED" -gt 0 ]]; then
-  echo "Killed $ESBUILD_KILLED esbuild processes"
-fi
-
-if [[ "$ESBUILD_TOTAL" -eq 0 ]]; then
-  echo "No stale esbuild processes"
+  if [[ "${ESBUILD_KILLED:-0}" -gt 0 ]]; then
+    echo "Killed $ESBUILD_KILLED esbuild processes"
+  fi
+  if [[ "${ESBUILD_TOTAL:-0}" -eq 0 ]]; then
+    echo "No stale esbuild processes"
+  fi
 fi
 
 # ── Agent Browser CLI cleanup ─────────────────────────────────────────────
@@ -202,19 +247,20 @@ if command -v agent-browser &>/dev/null; then
       fi
     done <<< "$sessions"
   fi
-  if pkill -f 'agent-browser.*daemon' 2>/dev/null; then
-    echo "Killed agent-browser daemons"
+  if command -v pkill &>/dev/null; then
+    pkill -f 'agent-browser.*daemon' 2>/dev/null && echo "Killed agent-browser daemons" || true
   fi
 fi
 
-# Kill orphaned playwright headless shells
-if pkill -f 'chrome-headless-shell' 2>/dev/null; then
-  echo "Killed orphaned playwright headless browsers"
+if command -v pkill &>/dev/null; then
+  pkill -f 'chrome-headless-shell' 2>/dev/null && echo "Killed orphaned playwright headless browsers" || true
+  pkill -f 'Google Chrome.*mcp-chrome' 2>/dev/null && echo "Killed orphaned MCP headless Chrome" || true
 fi
 
-# Kill orphaned MCP headless Chrome
-if pkill -f 'Google Chrome.*mcp-chrome' 2>/dev/null; then
-  echo "Killed orphaned MCP headless Chrome"
+# ── Lock file cleanup ─────────────────────────────────────────────────────
+if [[ -f "$PROJECT_DIR/.dev/dev-bootstrap.pid" ]]; then
+  echo "Removing stale lock file"
+  rm -f "$PROJECT_DIR/.dev/dev-bootstrap.pid"
 fi
 
 # ── Next.js cache cleanup ─────────────────────────────────────────────────
