@@ -119,41 +119,35 @@ is_next_server_under_project_stack() {
   return 1
 }
 
-# ── Windows cleanup (single PowerShell call) ──────────────────────────────
+# ── Windows cleanup (netstat + taskkill — no PowerShell subshell needed) ───
 if $USE_POWERSHELL; then
-  result=$(powershell.exe -NoProfile -Command "
-    \$killed = @()
+  KILLED=0
 
-    # Kill processes on port
-    \$lines = netstat -ano 2>\$null | Select-String ':${PORT}\s.*LISTENING'
-    \$portPids = \$lines | ForEach-Object { (\$_ -split '\s+')[-1] } | Sort-Object -Unique
-    foreach (\$p in \$portPids) {
-      if (\$p -and \$p -ne '0') {
-        try { Stop-Process -Id \$p -Force -ErrorAction Stop; \$killed += \"port:\$p\" } catch {}
-      }
-    }
+  # Kill processes listening on the dev port
+  while IFS= read -r line; do
+    pid=$(echo "$line" | tr -s ' ' | tr -d '\r' | rev | cut -d' ' -f1 | rev)
+    if [[ -n "$pid" && "$pid" != "0" ]]; then
+      echo "Killing port $PORT listener (PID $pid)"
+      taskkill.exe //PID "$pid" //F >>/dev/null 2>&1 || true
+      KILLED=$((KILLED + 1))
+    fi
+  done < <(netstat.exe -ano 2>/dev/null | grep ":${PORT} " | grep "LISTENING" | tr -d '\r')
 
-    # Kill stale convex/esbuild
-    foreach (\$name in @('convex','esbuild')) {
-      Get-Process -Name \$name -ErrorAction SilentlyContinue | ForEach-Object {
-        try { Stop-Process -Id \$_.Id -Force -ErrorAction Stop; \$killed += \"\$name:\$(\$_.Id)\" } catch {}
-      }
-    }
+  # Kill stale convex/esbuild processes
+  for name in convex esbuild; do
+    while IFS= read -r line; do
+      pid=$(echo "$line" | tr -s ' ' | tr -d '\r' | rev | cut -d' ' -f1 | rev)
+      if [[ -n "$pid" && "$pid" != "0" ]]; then
+        echo "Killed stale $name (PID $pid)"
+        taskkill.exe //PID "$pid" //F >>/dev/null 2>&1 || true
+        KILLED=$((KILLED + 1))
+      fi
+    done < <(tasklist.exe 2>/dev/null | grep -i "^${name}" | tr -d '\r')
+  done
 
-    if (\$killed.Count -gt 0) { \$killed -join ',' } else { 'clean' }
-  " 2>/dev/null | tr -d '\r')
-
-  if [[ "$result" == "clean" ]]; then
+  if [[ "$KILLED" -eq 0 ]]; then
     echo "Port $PORT is free"
   else
-    IFS=',' read -ra ITEMS <<< "$result"
-    for item in "${ITEMS[@]}"; do
-      IFS=':' read -r type pid <<< "$item"
-      case "$type" in
-        port) echo "Killed port $PORT listener (PID $pid)" ;;
-        *) echo "Killed stale $type (PID $pid)" ;;
-      esac
-    done
     sleep 1
   fi
 else
