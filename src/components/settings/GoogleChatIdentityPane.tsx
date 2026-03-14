@@ -12,11 +12,7 @@ import { toast } from "sonner";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
 import { Button } from "@/components/ui/button";
 import type { Id } from "../../../convex/_generated/dataModel";
-import {
-	PaneDescription,
-	PaneTitle,
-	SettingSection,
-} from "./settings-shared";
+import { PaneDescription, PaneTitle, SettingSection } from "./settings-shared";
 
 const getMyLinkRef = makeFunctionReference<
 	"query",
@@ -124,9 +120,7 @@ export function GoogleChatIdentityPane() {
 			toast.success("Google Chat identity unlinked");
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to unlink identity",
+				error instanceof Error ? error.message : "Failed to unlink identity",
 			);
 		} finally {
 			setIsUnlinking(false);
@@ -144,8 +138,8 @@ export function GoogleChatIdentityPane() {
 			<div>
 				<PaneTitle>Google Chat identity</PaneTitle>
 				<PaneDescription className="mt-1">
-					Link your Google Chat account to your Clave identity so actions
-					you take in Google Chat are attributed to you.
+					Link your Google Chat account to your Clave identity so actions you
+					take in Google Chat are attributed to you.
 				</PaneDescription>
 			</div>
 
@@ -164,12 +158,9 @@ export function GoogleChatIdentityPane() {
 							</div>
 						</div>
 						<div className="flex items-center gap-4 text-xs text-muted-foreground">
+							<span>Chat ID: {myLink.chatUserId}</span>
 							<span>
-								Chat ID: {myLink.chatUserId}
-							</span>
-							<span>
-								Linked{" "}
-								{new Date(myLink.linkedAt).toLocaleDateString()}
+								Linked {new Date(myLink.linkedAt).toLocaleDateString()}
 							</span>
 						</div>
 					</div>
@@ -200,17 +191,9 @@ export function GoogleChatIdentityPane() {
 									</span>
 								</div>
 								<ol className="list-decimal list-inside space-y-1 text-xs text-muted-foreground leading-relaxed">
-									<li>
-										Open a DM with the Clave bot in Google
-										Chat
-									</li>
-									<li>
-										Send the code above as a message
-									</li>
-									<li>
-										This page will update automatically once
-										linked
-									</li>
+									<li>Open a DM with the Clave bot in Google Chat</li>
+									<li>Send the code above as a message</li>
+									<li>This page will update automatically once linked</li>
 								</ol>
 							</div>
 							<Button
@@ -225,9 +208,8 @@ export function GoogleChatIdentityPane() {
 						<div className="space-y-4">
 							<div className="rounded-lg border border-border bg-muted/30 px-4 py-4 space-y-2">
 								<p className="text-sm text-foreground">
-									Generate a one-time code, then DM it to the
-									Clave bot in Google Chat to link your
-									identity.
+									Generate a one-time code, then DM it to the Clave bot in
+									Google Chat to link your identity.
 								</p>
 								<p className="text-xs text-muted-foreground">
 									The code is valid for 5 minutes.

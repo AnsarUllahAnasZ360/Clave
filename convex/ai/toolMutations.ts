@@ -6,8 +6,7 @@
  * and perform the same operations + RBAC checks as the public mutations,
  * enabling write tools to work from any context.
  */
-import { ConvexError } from "convex/values";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -111,15 +110,11 @@ export const updateIssue = internalMutation({
 		issueId: v.id("issues"),
 		title: v.optional(v.string()),
 		description: v.optional(v.string()),
-		status: v.optional(
-			v.union(...issueStatusValues.map((s) => v.literal(s))),
-		),
+		status: v.optional(v.union(...issueStatusValues.map((s) => v.literal(s)))),
 		priority: v.optional(
 			v.union(...issuePriorityValues.map((s) => v.literal(s))),
 		),
-		type: v.optional(
-			v.union(...issueTypeValues.map((s) => v.literal(s))),
-		),
+		type: v.optional(v.union(...issueTypeValues.map((s) => v.literal(s)))),
 		assigneeId: v.optional(v.id("users")),
 	},
 	returns: v.null(),
@@ -129,11 +124,7 @@ export const updateIssue = internalMutation({
 			throw new ConvexError("Issue not found");
 		}
 
-		const member = await requireMembership(
-			ctx,
-			issue.workspaceId,
-			args.userId,
-		);
+		const member = await requireMembership(ctx, issue.workspaceId, args.userId);
 
 		// RBAC: verify project access for member users
 		if (member.role !== "admin" && issue.projectId) {
@@ -153,11 +144,7 @@ export const updateIssue = internalMutation({
 		}
 
 		if (args.assigneeId) {
-			await ensureAssigneeInWorkspace(
-				ctx,
-				issue.workspaceId,
-				args.assigneeId,
-			);
+			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
 		}
 
 		const { userId: _userId, issueId: _issueId, ...updates } = args;
@@ -235,10 +222,7 @@ export const updateIssue = internalMutation({
 			});
 			logged = true;
 		}
-		if (
-			args.assigneeId !== undefined &&
-			args.assigneeId !== issue.assigneeId
-		) {
+		if (args.assigneeId !== undefined && args.assigneeId !== issue.assigneeId) {
 			const oldName = issue.assigneeId
 				? ((await ctx.db.get(issue.assigneeId))?.name ?? "someone")
 				: "unassigned";
@@ -255,7 +239,10 @@ export const updateIssue = internalMutation({
 			});
 			logged = true;
 		}
-		if (args.description !== undefined && args.description !== issue.description) {
+		if (
+			args.description !== undefined &&
+			args.description !== issue.description
+		) {
 			await logActivity(ctx, {
 				...baseLog,
 				description: `updated description on ${issue.identifier}`,
@@ -273,8 +260,7 @@ export const updateIssue = internalMutation({
 		// Notify subscribers for significant field changes
 		const significantChange =
 			(args.status && args.status !== issue.status) ||
-			(args.assigneeId !== undefined &&
-				args.assigneeId !== issue.assigneeId) ||
+			(args.assigneeId !== undefined && args.assigneeId !== issue.assigneeId) ||
 			(args.priority && args.priority !== issue.priority);
 
 		if (significantChange) {
@@ -316,11 +302,7 @@ export const assignIssue = internalMutation({
 			throw new ConvexError("Issue not found");
 		}
 
-		const member = await requireMembership(
-			ctx,
-			issue.workspaceId,
-			args.userId,
-		);
+		const member = await requireMembership(ctx, issue.workspaceId, args.userId);
 
 		// RBAC: verify project access for member users
 		if (member.role !== "admin" && issue.projectId) {
@@ -340,11 +322,7 @@ export const assignIssue = internalMutation({
 		}
 
 		if (args.assigneeId) {
-			await ensureAssigneeInWorkspace(
-				ctx,
-				issue.workspaceId,
-				args.assigneeId,
-			);
+			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
 		}
 
 		const oldAssigneeId = issue.assigneeId;
@@ -470,9 +448,7 @@ export const createComment = internalMutation({
 		const actor = await ctx.db.get(args.userId);
 		const actorName = actor?.name ?? "Someone";
 		const preview =
-			args.body.length > 100
-				? `${args.body.substring(0, 100)}...`
-				: args.body;
+			args.body.length > 100 ? `${args.body.substring(0, 100)}...` : args.body;
 
 		if (args.issueId) {
 			await notifySubscribers(ctx, args.issueId, {
@@ -514,11 +490,7 @@ export const createDocument = internalMutation({
 	},
 	returns: v.id("documents"),
 	handler: async (ctx, args) => {
-		const member = await requireMembership(
-			ctx,
-			args.workspaceId,
-			args.userId,
-		);
+		const member = await requireMembership(ctx, args.workspaceId, args.userId);
 
 		// RBAC: verify project access for member users
 		if (member.role !== "admin" && args.projectId) {
@@ -603,7 +575,8 @@ export const updateDocumentContent = internalMutation({
 		});
 
 		// Index document for search
-		const shouldIndex = !document.updatedAt || now - document.updatedAt > 30_000;
+		const shouldIndex =
+			!document.updatedAt || now - document.updatedAt > 30_000;
 		if (shouldIndex) {
 			await ctx.scheduler.runAfter(
 				0,
@@ -626,11 +599,7 @@ export const createLabel = internalMutation({
 	},
 	returns: v.id("labels"),
 	handler: async (ctx, args) => {
-		const member = await requireMembership(
-			ctx,
-			args.workspaceId,
-			args.userId,
-		);
+		const member = await requireMembership(ctx, args.workspaceId, args.userId);
 		if (member.role !== "admin") {
 			throw new ConvexError("Admin access required");
 		}
@@ -638,9 +607,7 @@ export const createLabel = internalMutation({
 		// Check name uniqueness within workspace
 		const existing = await ctx.db
 			.query("labels")
-			.withIndex("by_workspace", (q) =>
-				q.eq("workspaceId", args.workspaceId),
-			)
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 		const activeLabels = existing.filter((l) => !l.deletedAt);
 		if (activeLabels.some((l) => l.name === args.name)) {

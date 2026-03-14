@@ -44,26 +44,24 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 		const base = { ...msg, providerMetadata: undefined };
 
 		if (msg.role === "assistant" && Array.isArray(msg.content)) {
-			const hasReasoning = msg.content.some(
-				(p) => p.type === "reasoning",
-			);
-			const hasToolCalls = msg.content.some(
-				(p) => p.type === "tool-call",
-			);
+			const hasReasoning = msg.content.some((p) => p.type === "reasoning");
+			const hasToolCalls = msg.content.some((p) => p.type === "tool-call");
 
 			if (hasReasoning || hasToolCalls) {
 				// Extract text parts and summarize tool calls as plain text
 				const textParts: string[] = [];
 
 				for (const part of msg.content) {
-					if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
+					if (
+						part.type === "text" &&
+						typeof part.text === "string" &&
+						part.text.trim()
+					) {
 						textParts.push(part.text.trim());
 					} else if (part.type === "tool-call") {
 						// eslint-disable-next-line @typescript-eslint/no-explicit-any
 						const tc = part as any;
-						textParts.push(
-							`[Used tool: ${tc.toolName ?? "unknown"}]`,
-						);
+						textParts.push(`[Used tool: ${tc.toolName ?? "unknown"}]`);
 					}
 					// Skip reasoning parts entirely
 				}
@@ -80,10 +78,7 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 
 				// Skip any immediately following tool-result messages
 				// since the tool calls are now summarized as text
-				while (
-					i + 1 < messages.length &&
-					messages[i + 1].role === "tool"
-				) {
+				while (i + 1 < messages.length && messages[i + 1].role === "tool") {
 					i++;
 				}
 				continue;
@@ -94,7 +89,11 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 				.filter((p) => p.type === "text")
 				.map((p) => {
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
-					const { providerMetadata: _pm, experimental_providerMetadata: _epm, ...rest } = p as any;
+					const {
+						providerMetadata: _pm,
+						experimental_providerMetadata: _epm,
+						...rest
+					} = p as any;
 					return rest;
 				});
 

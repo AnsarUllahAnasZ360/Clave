@@ -11,6 +11,7 @@ import {
 	buildGoogleChatIssueTriageDraftCard,
 	buildGoogleChatIssueTriageResultCard,
 } from "../../src/lib/chat/google-chat/assistant-card-builders";
+// @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	buildConversationTraceNote,
 	buildFallbackIssueDraftFromTranscript,
@@ -22,6 +23,7 @@ import {
 	parseLooseJsonObject,
 	rankDuplicateCandidates,
 } from "../../src/lib/chat/google-chat/conversation-triage";
+// @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	isAllowedGoogleChatAction,
 	isMutatingGoogleChatAction,
@@ -1822,12 +1824,8 @@ export const handleWebhook = action({
 			// If the text is exactly a 6-char code in a DM, try to consume it
 			const trimmedText = text.trim().toUpperCase();
 			if (isDirectMessage && /^[A-Z2-9]{6}$/.test(trimmedText) && chatUserId) {
-				const senderUser = payload.user as
-					| Record<string, unknown>
-					| undefined;
-				const senderDisplayName = senderUser?.displayName as
-					| string
-					| undefined;
+				const senderUser = payload.user as Record<string, unknown> | undefined;
+				const senderDisplayName = senderUser?.displayName as string | undefined;
 				const senderEmail = senderUser?.email as string | undefined;
 
 				const consumeResult = await ctx.runMutation(

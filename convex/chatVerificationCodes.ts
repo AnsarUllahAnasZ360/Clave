@@ -146,7 +146,10 @@ export const consumeCode = internalMutation({
 			)
 			.unique();
 
-		if (existingByChatUserId && existingByChatUserId.userId !== codeDoc.userId) {
+		if (
+			existingByChatUserId &&
+			existingByChatUserId.userId !== codeDoc.userId
+		) {
 			return {
 				success: false,
 				message:
@@ -246,7 +249,10 @@ export const consumeCodePublic = mutation({
 			)
 			.unique();
 
-		if (existingByChatUserId && existingByChatUserId.userId !== codeDoc.userId) {
+		if (
+			existingByChatUserId &&
+			existingByChatUserId.userId !== codeDoc.userId
+		) {
 			return {
 				success: false,
 				message:

@@ -15,8 +15,8 @@ describe("modelIds", () => {
 	});
 
 	describe("DEFAULT_CHAT_MODEL_ID", () => {
-		it("is gpt-5.2", () => {
-			expect(DEFAULT_CHAT_MODEL_ID).toBe("gpt-5.2");
+		it("is kimi-k2.5", () => {
+			expect(DEFAULT_CHAT_MODEL_ID).toBe("kimi-k2.5");
 		});
 	});
 
@@ -35,12 +35,12 @@ describe("modelIds", () => {
 
 	describe("normalizeChatModelId", () => {
 		it("returns default for undefined or empty input", () => {
-			expect(normalizeChatModelId()).toBe("gpt-5.2");
-			expect(normalizeChatModelId("")).toBe("gpt-5.2");
+			expect(normalizeChatModelId()).toBe("kimi-k2.5");
+			expect(normalizeChatModelId("")).toBe("kimi-k2.5");
 		});
 
 		it('returns default for "default" string', () => {
-			expect(normalizeChatModelId("default")).toBe("gpt-5.2");
+			expect(normalizeChatModelId("default")).toBe("kimi-k2.5");
 		});
 
 		it("preserves supported model IDs", () => {
@@ -59,8 +59,8 @@ describe("modelIds", () => {
 		});
 
 		it("returns default for unknown model IDs", () => {
-			expect(normalizeChatModelId("claude-3")).toBe("gpt-5.2");
-			expect(normalizeChatModelId("totally-fake-model")).toBe("gpt-5.2");
+			expect(normalizeChatModelId("claude-3")).toBe("kimi-k2.5");
+			expect(normalizeChatModelId("totally-fake-model")).toBe("kimi-k2.5");
 		});
 	});
 });

@@ -6,14 +6,12 @@
  * `userId` parameters and perform the same data fetching + RBAC filtering
  * as the public queries, enabling tools to work from any context.
  */
+
+import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { internalQuery } from "../_generated/server";
-import { v } from "convex/values";
-import {
-	canAccessProject,
-	getAccessibleProjectIds,
-} from "../lib/auth";
+import { canAccessProject, getAccessibleProjectIds } from "../lib/auth";
 
 // ── Shared helpers ──────────────────────────────────────────────────────
 
@@ -49,9 +47,7 @@ export const listMembers = internalQuery({
 	handler: async (ctx, args) => {
 		const members = await ctx.db
 			.query("workspaceMembers")
-			.withIndex("by_workspace", (q) =>
-				q.eq("workspaceId", args.workspaceId),
-			)
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 
 		const result = [];
@@ -212,9 +208,7 @@ export const searchIssues = internalQuery({
 		const issues = await ctx.db
 			.query("issues")
 			.withSearchIndex("search_title", (q) =>
-				q
-					.search("title", args.searchTerm)
-					.eq("workspaceId", args.workspaceId),
+				q.search("title", args.searchTerm).eq("workspaceId", args.workspaceId),
 			)
 			.take(20);
 
@@ -252,14 +246,12 @@ export const listIssues = internalQuery({
 		);
 
 		// Sanitize optional ID fields — AI models may pass empty strings
-		const assigneeId =
-			args.assigneeId && args.assigneeId.trim()
-				? (args.assigneeId as Id<"users">)
-				: undefined;
-		const projectId =
-			args.projectId && args.projectId.trim()
-				? (args.projectId as Id<"projects">)
-				: undefined;
+		const assigneeId = args.assigneeId?.trim()
+			? (args.assigneeId as Id<"users">)
+			: undefined;
+		const projectId = args.projectId?.trim()
+			? (args.projectId as Id<"projects">)
+			: undefined;
 
 		const pageSize = args.limit ?? 50;
 		const fetchLimit = pageSize * 4;
@@ -277,27 +269,21 @@ export const listIssues = internalQuery({
 			if (projectId) {
 				return ctx.db
 					.query("issues")
-					.withIndex("by_project", (q) =>
-						q.eq("projectId", projectId),
-					)
+					.withIndex("by_project", (q) => q.eq("projectId", projectId))
 					.order("desc");
 			}
 			if (assigneeId) {
 				return ctx.db
 					.query("issues")
 					.withIndex("by_workspace_assignee", (q) =>
-						q
-							.eq("workspaceId", args.workspaceId)
-							.eq("assigneeId", assigneeId),
+						q.eq("workspaceId", args.workspaceId).eq("assigneeId", assigneeId),
 					)
 					.order("desc");
 			}
 			// Don't use status index — post-filter instead to handle status grouping
 			return ctx.db
 				.query("issues")
-				.withIndex("by_workspace", (q) =>
-					q.eq("workspaceId", args.workspaceId),
-				)
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 				.order("desc");
 		};
 
@@ -312,7 +298,8 @@ export const listIssues = internalQuery({
 				const isCreator = issue.createdBy === args.userId;
 				if (!inAccessibleProject && !isAssigned && !isCreator) return false;
 			}
-			if (args.status && !statusMatches(issue.status, args.status)) return false;
+			if (args.status && !statusMatches(issue.status, args.status))
+				return false;
 			if (args.priority && issue.priority !== args.priority) return false;
 			if (assigneeId && issue.assigneeId !== assigneeId) return false;
 			if (projectId && issue.projectId !== projectId) return false;
@@ -482,9 +469,7 @@ export const listLabels = internalQuery({
 	handler: async (ctx, args) => {
 		const labels = await ctx.db
 			.query("labels")
-			.withIndex("by_workspace", (q) =>
-				q.eq("workspaceId", args.workspaceId),
-			)
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 		return labels.filter((l) => !l.deletedAt);
 	},
@@ -538,9 +523,7 @@ export const listDocuments = internalQuery({
 
 		const documents = await ctx.db
 			.query("documents")
-			.withIndex("by_workspace", (q) =>
-				q.eq("workspaceId", args.workspaceId),
-			)
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.order("desc")
 			.take(200);
 
@@ -621,8 +604,7 @@ export const globalSearch = internalQuery({
 							if (i.deletedAt) return false;
 							if (accessibleProjectIds !== null) {
 								const inAccessibleProject =
-									i.projectId &&
-									accessibleProjectIds.has(i.projectId);
+									i.projectId && accessibleProjectIds.has(i.projectId);
 								return (
 									inAccessibleProject ||
 									i.assigneeId === args.userId ||
@@ -651,8 +633,7 @@ export const globalSearch = internalQuery({
 						.filter((d) => {
 							if (d.deletedAt) return false;
 							if (accessibleProjectIds !== null) {
-								if (d.projectId)
-									return accessibleProjectIds.has(d.projectId);
+								if (d.projectId) return accessibleProjectIds.has(d.projectId);
 								return d.createdBy === args.userId;
 							}
 							return true;
@@ -805,15 +786,11 @@ export const listSprints = internalQuery({
 		const [projects, allWorkspaceIssues] = await Promise.all([
 			ctx.db
 				.query("projects")
-				.withIndex("by_workspace", (q) =>
-					q.eq("workspaceId", args.workspaceId),
-				)
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 				.collect(),
 			ctx.db
 				.query("issues")
-				.withIndex("by_workspace", (q) =>
-					q.eq("workspaceId", args.workspaceId),
-				)
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 				.collect(),
 		]);
 
@@ -843,26 +820,22 @@ export const listSprints = internalQuery({
 			visibleProjects.map(async (project) => {
 				const sprints = await ctx.db
 					.query("sprints")
-					.withIndex("by_project_sort", (q) =>
-						q.eq("projectId", project._id),
-					)
+					.withIndex("by_project_sort", (q) => q.eq("projectId", project._id))
 					.collect();
 				return sprints
 					.filter((s) => !s.deletedAt)
 					.map((sprint) => {
-						const stats = issuesBySprintId.get(
-							sprint._id as string,
-						) ?? { total: 0, completed: 0 };
+						const stats = issuesBySprintId.get(sprint._id as string) ?? {
+							total: 0,
+							completed: 0,
+						};
 						return {
 							...sprint,
 							issueCount: stats.total,
 							completedCount: stats.completed,
 							progressPercentage:
 								stats.total > 0
-									? Math.round(
-											(stats.completed / stats.total) *
-												100,
-										)
+									? Math.round((stats.completed / stats.total) * 100)
 									: 0,
 							projectName: project.name,
 						};
@@ -923,9 +896,7 @@ export const listNotifications = internalQuery({
 			return ctx.db
 				.query("notifications")
 				.withIndex("by_user_workspace", (idx) =>
-					idx
-						.eq("userId", args.userId)
-						.eq("workspaceId", args.workspaceId),
+					idx.eq("userId", args.userId).eq("workspaceId", args.workspaceId),
 				)
 				.order("desc");
 		};
@@ -952,30 +923,25 @@ export const listNotifications = internalQuery({
 			if (n.whiteboardId) whiteboardIds.add(n.whiteboardId);
 		}
 
-		const [actorResults, projectResults, issueResults, documentResults, whiteboardResults] =
-			await Promise.all([
-				Promise.all(
-					[...actorIds].map((id) => ctx.db.get(id as Id<"users">)),
-				),
-				Promise.all(
-					[...projectIds].map((id) =>
-						ctx.db.get(id as Id<"projects">),
-					),
-				),
-				Promise.all(
-					[...issueIds].map((id) => ctx.db.get(id as Id<"issues">)),
-				),
-				Promise.all(
-					[...documentIds].map((id) =>
-						ctx.db.get(id as Id<"documents">),
-					),
-				),
-				Promise.all(
-					[...whiteboardIds].map((id) =>
-						ctx.db.get(id as Id<"whiteboards">),
-					),
-				),
-			]);
+		const [
+			actorResults,
+			projectResults,
+			issueResults,
+			documentResults,
+			whiteboardResults,
+		] = await Promise.all([
+			Promise.all([...actorIds].map((id) => ctx.db.get(id as Id<"users">))),
+			Promise.all(
+				[...projectIds].map((id) => ctx.db.get(id as Id<"projects">)),
+			),
+			Promise.all([...issueIds].map((id) => ctx.db.get(id as Id<"issues">))),
+			Promise.all(
+				[...documentIds].map((id) => ctx.db.get(id as Id<"documents">)),
+			),
+			Promise.all(
+				[...whiteboardIds].map((id) => ctx.db.get(id as Id<"whiteboards">)),
+			),
+		]);
 
 		const actorMap = new Map<string, { name?: string }>();
 		for (const actor of actorResults) {
@@ -1020,9 +986,7 @@ export const listNotifications = internalQuery({
 			const actor = n.actorId ? actorMap.get(n.actorId) : null;
 			const project = n.projectId ? projectMap.get(n.projectId) : null;
 			const issue = n.issueId ? issueMap.get(n.issueId) : null;
-			const document = n.documentId
-				? documentMap.get(n.documentId)
-				: null;
+			const document = n.documentId ? documentMap.get(n.documentId) : null;
 			const whiteboard = n.whiteboardId
 				? whiteboardMap.get(n.whiteboardId)
 				: null;
@@ -1069,9 +1033,8 @@ export const unreadNotificationCount = internalQuery({
 			)
 			.take(500);
 
-		return unread.filter(
-			(n) => !n.isArchived && !n.deletedAt && !isSnoozed(n),
-		).length;
+		return unread.filter((n) => !n.isArchived && !n.deletedAt && !isSnoozed(n))
+			.length;
 	},
 });
 
@@ -1116,15 +1079,12 @@ export const listActivityByProject = internalQuery({
 	},
 	handler: async (ctx, args) => {
 		const project = await ctx.db.get(args.projectId);
-		if (!project || project.deletedAt)
-			return { entries: [], hasMore: false };
+		if (!project || project.deletedAt) return { entries: [], hasMore: false };
 
 		const limit = args.limit ?? 50;
 		const logs = await ctx.db
 			.query("activityLogs")
-			.withIndex("by_project", (q) =>
-				q.eq("projectId", args.projectId),
-			)
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
 			.order("desc")
 			.collect();
 
@@ -1161,9 +1121,7 @@ export const listMilestones = internalQuery({
 
 		const milestones = await ctx.db
 			.query("milestones")
-			.withIndex("by_project_sort", (q) =>
-				q.eq("projectId", args.projectId),
-			)
+			.withIndex("by_project_sort", (q) => q.eq("projectId", args.projectId))
 			.collect();
 
 		const activeMilestones = milestones.filter((m) => !m.deletedAt);
@@ -1172,21 +1130,16 @@ export const listMilestones = internalQuery({
 			activeMilestones.map(async (milestone) => {
 				const issues = await ctx.db
 					.query("issues")
-					.withIndex("by_milestone", (q) =>
-						q.eq("milestoneId", milestone._id),
-					)
+					.withIndex("by_milestone", (q) => q.eq("milestoneId", milestone._id))
 					.collect();
 
 				const activeIssues = issues.filter((i) => !i.deletedAt);
 				const issueCount = activeIssues.length;
 				const completedCount = activeIssues.filter(
-					(i) =>
-						i.status === "done" || i.status === "cancelled",
+					(i) => i.status === "done" || i.status === "cancelled",
 				).length;
 				const progressPercentage =
-					issueCount > 0
-						? Math.round((completedCount / issueCount) * 100)
-						: 0;
+					issueCount > 0 ? Math.round((completedCount / issueCount) * 100) : 0;
 
 				return {
 					...milestone,

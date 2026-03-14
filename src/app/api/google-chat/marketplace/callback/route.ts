@@ -36,5 +36,7 @@ export async function GET(request: NextRequest) {
 		process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
 		request.nextUrl.origin;
 
-	return NextResponse.redirect(`${baseUrl}/google-chat/setup?state=${encodeURIComponent(state)}`);
+	return NextResponse.redirect(
+		`${baseUrl}/google-chat/setup?state=${encodeURIComponent(state)}`,
+	);
 }

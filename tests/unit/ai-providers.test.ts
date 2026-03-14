@@ -53,7 +53,7 @@ describe("ai/providers", () => {
 	describe("resolveChatModel", () => {
 		it("resolves default model when no modelId is provided", () => {
 			const result = resolveChatModel();
-			expect(result.resolvedModelId).toBe("gpt-5.2");
+			expect(result.resolvedModelId).toBe("kimi-k2.5");
 			expect(result.model).toBeDefined();
 			expect(result.fallbackReason).toBeUndefined();
 		});

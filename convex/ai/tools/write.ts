@@ -554,10 +554,10 @@ export const updateIssue = createTool({
 		// Resolve issueId from identifier if needed
 		let resolvedIssueId: Id<"issues">;
 		if (args.issueId) {
-			const issue = await ctx.runQuery(
-				internal.ai.toolQueries.getIssueById,
-				{ issueId: args.issueId as Id<"issues">, userId },
-			);
+			const issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
+				issueId: args.issueId as Id<"issues">,
+				userId,
+			});
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: "Issue not found." };
 			}
@@ -710,10 +710,10 @@ export const addComment = createTool({
 			// Resolve issue
 			let resolvedIssueId: Id<"issues">;
 			if (args.issueId) {
-				const issue = await ctx.runQuery(
-					internal.ai.toolQueries.getIssueById,
-					{ issueId: args.issueId as Id<"issues">, userId },
-				);
+				const issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
+					issueId: args.issueId as Id<"issues">,
+					userId,
+				});
 				if (!issue || issue.workspaceId !== workspaceId) {
 					return { error: "Issue not found." };
 				}
@@ -804,10 +804,10 @@ export const assignIssue = createTool({
 		let resolvedIssueId: Id<"issues">;
 		let issueIdentifier: string;
 		if (args.issueId) {
-			const issue = await ctx.runQuery(
-				internal.ai.toolQueries.getIssueById,
-				{ issueId: args.issueId as Id<"issues">, userId },
-			);
+			const issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
+				issueId: args.issueId as Id<"issues">,
+				userId,
+			});
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: "Issue not found." };
 			}
@@ -922,10 +922,10 @@ export const batchUpdateIssues = createTool({
 		const issueIds = args.issueIds as Id<"issues">[];
 		const identifiers: string[] = [];
 		for (const issueId of issueIds) {
-			const issue = await ctx.runQuery(
-				internal.ai.toolQueries.getIssueById,
-				{ issueId, userId },
-			);
+			const issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
+				issueId,
+				userId,
+			});
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: `Issue not found or not in workspace: ${issueId}` };
 			}
@@ -1323,9 +1323,7 @@ export const approvePendingAction = createTool({
 
 		// Filter to specific approval if provided
 		const toApprove = args.approvalId
-			? pending.filter(
-					(a: { _id: string }) => a._id === args.approvalId,
-				)
+			? pending.filter((a: { _id: string }) => a._id === args.approvalId)
 			: pending;
 
 		if (toApprove.length === 0) {
