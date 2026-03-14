@@ -9,6 +9,7 @@ import {
 } from "../whiteboardMcp";
 import {
 	buildUserNameMap,
+	resolveToolUserId,
 	resolveWorkspaceId,
 	TOOL_TIMEOUT_MS,
 	withTimeout,
@@ -548,23 +549,24 @@ export const updateIssue = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Resolve issueId from identifier if needed
 		let resolvedIssueId: Id<"issues">;
 		if (args.issueId) {
-			// Validate the issueId by looking up the issue
-			const issue = await ctx.runQuery(api.issues.getById, {
-				issueId: args.issueId as Id<"issues">,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueById,
+				{ issueId: args.issueId as Id<"issues">, userId },
+			);
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: "Issue not found." };
 			}
 			resolvedIssueId = issue._id;
 		} else if (args.identifier) {
-			const issue = await ctx.runQuery(api.issues.getByIdentifier, {
-				workspaceId,
-				identifier: args.identifier,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueByIdentifier,
+				{ workspaceId, identifier: args.identifier, userId },
+			);
 			if (!issue) {
 				return { error: `Issue "${args.identifier}" not found.` };
 			}
@@ -614,22 +616,10 @@ export const updateIssue = createTool({
 		}
 
 		// Non-destructive updates execute immediately
-		const updatePayload: {
-			issueId: Id<"issues">;
-			title?: string;
-			description?: string;
-			status?:
-				| "triage"
-				| "backlog"
-				| "todo"
-				| "in_progress"
-				| "in_review"
-				| "done"
-				| "cancelled";
-			priority?: "urgent" | "high" | "medium" | "low" | "no_priority";
-			type?: "issue" | "bug" | "improvement" | "feature";
-			assigneeId?: Id<"users">;
-		} = { issueId: resolvedIssueId };
+		const updatePayload: Record<string, unknown> = {
+			userId,
+			issueId: resolvedIssueId,
+		};
 
 		if (args.title !== undefined) updatePayload.title = args.title;
 		if (args.description !== undefined)
@@ -641,7 +631,10 @@ export const updateIssue = createTool({
 			updatePayload.assigneeId = args.assigneeId as Id<"users">;
 
 		await withTimeout(
-			ctx.runMutation(api.issues.update, updatePayload),
+			ctx.runMutation(
+				internal.ai.toolMutations.updateIssue,
+				updatePayload as Parameters<typeof ctx.runMutation>[1],
+			),
 			TOOL_TIMEOUT_MS,
 			"updateIssue",
 		);
@@ -711,22 +704,29 @@ export const addComment = createTool({
 		let entityType: string;
 		let entityId: string;
 
+		const userId = resolveToolUserId(ctx);
+
 		if (args.issueId || args.identifier) {
 			// Resolve issue
 			let resolvedIssueId: Id<"issues">;
 			if (args.issueId) {
-				const issue = await ctx.runQuery(api.issues.getById, {
-					issueId: args.issueId as Id<"issues">,
-				});
+				const issue = await ctx.runQuery(
+					internal.ai.toolQueries.getIssueById,
+					{ issueId: args.issueId as Id<"issues">, userId },
+				);
 				if (!issue || issue.workspaceId !== workspaceId) {
 					return { error: "Issue not found." };
 				}
 				resolvedIssueId = issue._id;
 			} else {
-				const issue = await ctx.runQuery(api.issues.getByIdentifier, {
-					workspaceId,
-					identifier: args.identifier as string,
-				});
+				const issue = await ctx.runQuery(
+					internal.ai.toolQueries.getIssueByIdentifier,
+					{
+						workspaceId,
+						identifier: args.identifier as string,
+						userId,
+					},
+				);
 				if (!issue) {
 					return { error: `Issue "${args.identifier}" not found.` };
 				}
@@ -745,9 +745,12 @@ export const addComment = createTool({
 			entityId = args.storyId as string;
 		}
 
-		// The comments.create mutation handles auth, notifications, and activity logging
+		// Use internal mutation to bypass auth for Google Chat context
 		const commentId = await withTimeout(
-			ctx.runMutation(api.comments.create, createArgs),
+			ctx.runMutation(internal.ai.toolMutations.createComment, {
+				userId,
+				...createArgs,
+			}),
 			TOOL_TIMEOUT_MS,
 			"addComment",
 		);
@@ -795,24 +798,26 @@ export const assignIssue = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Resolve issueId from identifier if needed
 		let resolvedIssueId: Id<"issues">;
 		let issueIdentifier: string;
 		if (args.issueId) {
-			const issue = await ctx.runQuery(api.issues.getById, {
-				issueId: args.issueId as Id<"issues">,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueById,
+				{ issueId: args.issueId as Id<"issues">, userId },
+			);
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: "Issue not found." };
 			}
 			resolvedIssueId = issue._id;
 			issueIdentifier = issue.identifier;
 		} else if (args.identifier) {
-			const issue = await ctx.runQuery(api.issues.getByIdentifier, {
-				workspaceId,
-				identifier: args.identifier,
-			});
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueByIdentifier,
+				{ workspaceId, identifier: args.identifier, userId },
+			);
 			if (!issue) {
 				return { error: `Issue "${args.identifier}" not found.` };
 			}
@@ -827,10 +832,9 @@ export const assignIssue = createTool({
 			? (args.assigneeId as Id<"users">)
 			: undefined;
 
-		// The mutation handles auth, RBAC, workspace member validation,
-		// activity logging, and notifications internally
 		await withTimeout(
-			ctx.runMutation(api.issues.assign, {
+			ctx.runMutation(internal.ai.toolMutations.assignIssue, {
+				userId,
 				issueId: resolvedIssueId,
 				assigneeId,
 			}),
@@ -912,12 +916,16 @@ export const batchUpdateIssues = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Validate all issueIds belong to this workspace
 		const issueIds = args.issueIds as Id<"issues">[];
 		const identifiers: string[] = [];
 		for (const issueId of issueIds) {
-			const issue = await ctx.runQuery(api.issues.getById, { issueId });
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueById,
+				{ issueId, userId },
+			);
 			if (!issue || issue.workspaceId !== workspaceId) {
 				return { error: `Issue not found or not in workspace: ${issueId}` };
 			}
@@ -994,10 +1002,11 @@ export const createDocument = createTool({
 		args,
 	): Promise<CreateDocumentResult | ErrorResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
-		// Create the document — the mutation handles auth, RBAC, activity logging, and notifications
 		const documentId = await withTimeout(
-			ctx.runMutation(api.documents.create, {
+			ctx.runMutation(internal.ai.toolMutations.createDocument, {
+				userId,
 				workspaceId,
 				projectId: args.projectId
 					? (args.projectId as Id<"projects">)
@@ -1011,7 +1020,8 @@ export const createDocument = createTool({
 		// If content was provided, set it on the newly created document
 		if (args.content) {
 			await withTimeout(
-				ctx.runMutation(api.documents.updateContent, {
+				ctx.runMutation(internal.ai.toolMutations.updateDocumentContent, {
+					userId,
 					documentId,
 					content: args.content,
 				}),
@@ -1116,11 +1126,11 @@ export const createLabel = createTool({
 		args,
 	): Promise<CreateLabelResult | ErrorResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
-		// The labels.create mutation handles admin check, uniqueness validation,
-		// and sort order internally
 		const labelId = await withTimeout(
-			ctx.runMutation(api.labels.create, {
+			ctx.runMutation(internal.ai.toolMutations.createLabel, {
+				userId,
 				workspaceId,
 				name: args.name,
 				color: args.color,
@@ -1174,7 +1184,9 @@ export const generateWhiteboardDiagram = createTool({
 
 		const whiteboardId = args.whiteboardId as Id<"whiteboards">;
 		const board = await withTimeout(
-			ctx.runQuery(api.whiteboards.getById, { whiteboardId }),
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardById, {
+				whiteboardId,
+			}),
 			TOOL_TIMEOUT_MS,
 			"generateWhiteboardDiagram:getById",
 		);
@@ -1251,8 +1263,10 @@ export const generateWhiteboardDiagram = createTool({
 		const normalized = ensureUniqueElementIds(positioned, currentScene);
 		const nextScene = [...currentScene, ...normalized];
 
+		const userId = resolveToolUserId(ctx);
 		await withTimeout(
-			ctx.runMutation(api.whiteboards.updateScene, {
+			ctx.runMutation(internal.ai.toolMutations.updateWhiteboardScene, {
+				userId,
 				whiteboardId,
 				sceneData: JSON.stringify(nextScene),
 				appState: board.appState ?? "{}",
@@ -1269,6 +1283,88 @@ export const generateWhiteboardDiagram = createTool({
 	},
 });
 
+// ── 10. approvePendingAction ──────────────────────────────────────────────
+
+interface ApproveResult {
+	approved: number;
+	results: string[];
+	message: string;
+}
+
+export const approvePendingAction = createTool({
+	description:
+		'Approve and execute pending actions that require user confirmation. Use this when the user says "approve", "confirm", "yes", "go ahead", or similar confirmations. This resolves any pending issue creations, project creations, or destructive updates that were waiting for approval.',
+	inputSchema: z.object({
+		approvalId: z
+			.string()
+			.optional()
+			.describe(
+				"Specific approval ID to approve. If omitted, approves all pending approvals for the current thread.",
+			),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<ApproveResult | ErrorResult> => {
+		if (!ctx.threadId) {
+			return { error: "No thread context available." };
+		}
+		const userId = resolveToolUserId(ctx);
+
+		// Get pending approvals for this thread
+		const pending = await ctx.runQuery(
+			internal.ai.approval.listPendingApprovalsForThread,
+			{ threadId: ctx.threadId },
+		);
+
+		if (pending.length === 0) {
+			return { error: "No pending approvals found for this conversation." };
+		}
+
+		// Filter to specific approval if provided
+		const toApprove = args.approvalId
+			? pending.filter(
+					(a: { _id: string }) => a._id === args.approvalId,
+				)
+			: pending;
+
+		if (toApprove.length === 0) {
+			return { error: "Specified approval not found or already resolved." };
+		}
+
+		const results: string[] = [];
+		let approved = 0;
+
+		for (const approval of toApprove) {
+			try {
+				const result = await ctx.runMutation(
+					internal.ai.approval.approveActionForGoogleChat,
+					{
+						approvalId: approval._id,
+						actorUserId: userId,
+						expectedToolCallId: approval.toolCallId,
+					},
+				);
+				results.push(result.message);
+				if (result.status === "approved") approved++;
+			} catch (error) {
+				results.push(
+					`Failed to approve ${approval.toolName}: ${error instanceof Error ? error.message : "unknown error"}`,
+				);
+			}
+		}
+
+		return {
+			approved,
+			results,
+			message:
+				approved > 0
+					? `Approved and executed ${approved} action(s): ${results.join("; ")}`
+					: `No actions were executed: ${results.join("; ")}`,
+		};
+	},
+});
+
 // ── Export all write tools as a named toolset ─────────────────────────────
 
 export const writeTools = {
@@ -1281,4 +1377,5 @@ export const writeTools = {
 	createProject,
 	createLabel,
 	generateWhiteboardDiagram,
+	approvePendingAction,
 };

@@ -58,6 +58,46 @@ export const list = query({
 	},
 });
 
+/** List all workspaces the authenticated user is a member of, with their role */
+export const listWithRole = query({
+	args: {},
+	returns: v.array(
+		v.object({
+			_id: v.id("workspaces"),
+			name: v.string(),
+			slug: v.string(),
+			role: v.string(),
+			logoStorageId: v.optional(v.id("_storage")),
+		}),
+	),
+	handler: async (ctx) => {
+		const userId = await requireAuth(ctx);
+
+		const memberships = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_user", (q) => q.eq("userId", userId))
+			.collect();
+
+		const results = await Promise.all(
+			memberships.map(async (m) => {
+				const w = await ctx.db.get(m.workspaceId);
+				if (!w || w.deletedAt) return null;
+				return {
+					_id: w._id,
+					name: w.name,
+					slug: w.slug,
+					role: m.role,
+					logoStorageId: w.logoStorageId,
+				};
+			}),
+		);
+
+		return results.filter(
+			(r): r is NonNullable<typeof r> => r !== null,
+		);
+	},
+});
+
 /** Create a new workspace, add creator as admin, create default settings */
 export const create = mutation({
 	args: {

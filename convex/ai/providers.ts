@@ -456,6 +456,25 @@ const normalizeUnsupportedWarningsMiddleware: LanguageModelMiddleware = {
 // reasoning if it supports it; old reasoning just wastes tokens and breaks
 // cross-model requests.
 
+/**
+ * Strip provider-specific item IDs from content parts.
+ * The Azure Responses API embeds item IDs on individual content parts
+ * via providerMetadata.openai. If reasoning parts are removed but the
+ * message/user content parts still carry their original IDs, the API
+ * will reject the request because paired reasoning IDs are missing.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stripContentPartIds(parts: any[]): any[] {
+	return parts.map((part) => {
+		if (part.providerMetadata || part.experimental_providerMetadata) {
+			const { providerMetadata, experimental_providerMetadata, ...rest } =
+				part;
+			return rest;
+		}
+		return part;
+	});
+}
+
 const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 	specificationVersion: "v3",
 	transformParams: async ({ params }) => {
@@ -473,24 +492,44 @@ const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 		}
 
 		const sanitized = prompt.map((msg, idx) => {
-			// Only sanitize assistant messages in history (before the last user message)
-			if (msg.role !== "assistant" || idx >= lastUserIdx) return msg;
-			if (!Array.isArray(msg.content)) return msg;
+			if (idx >= lastUserIdx) return msg;
 
-			const filtered = msg.content.filter((part) => part.type !== "reasoning");
+			// Strip providerMetadata from all historical messages (user + assistant)
+			// so the Responses API doesn't try to resolve item IDs from prior turns.
+			if (msg.role === "user") {
+				if (!Array.isArray(msg.content)) {
+					return { ...msg, providerMetadata: undefined };
+				}
+				return {
+					...msg,
+					providerMetadata: undefined,
+					content: stripContentPartIds(msg.content),
+				};
+			}
 
-			// If all content was reasoning, replace with a placeholder text part
-			// to avoid sending an empty assistant message
+			if (msg.role !== "assistant") return msg;
+			if (!Array.isArray(msg.content)) {
+				return { ...msg, providerMetadata: undefined };
+			}
+
+			const filtered = msg.content.filter(
+				(part) => part.type !== "reasoning",
+			);
+
+			// If all content was reasoning, replace with placeholder
 			if (filtered.length === 0) {
 				return {
 					...msg,
 					content: [{ type: "text" as const, text: "[reasoning omitted]" }],
+					providerMetadata: undefined,
 				};
 			}
 
-			// Only create a new object if we actually filtered something
-			if (filtered.length === msg.content.length) return msg;
-			return { ...msg, content: filtered };
+			return {
+				...msg,
+				content: stripContentPartIds(filtered),
+				providerMetadata: undefined,
+			};
 		});
 
 		return { ...params, prompt: sanitized };

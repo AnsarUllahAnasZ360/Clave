@@ -198,6 +198,34 @@ export const unlink = mutation({
 	},
 });
 
+export const unlinkSelf = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		provider: v.optional(providerValidator),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
+		const provider = resolveProvider(args.provider);
+
+		const link = await ctx.db
+			.query("chatUserLinks")
+			.withIndex("by_workspace_provider_user_id", (q) =>
+				q
+					.eq("workspaceId", args.workspaceId)
+					.eq("provider", provider)
+					.eq("userId", userId),
+			)
+			.unique();
+
+		if (link) {
+			await ctx.db.delete(link._id);
+		}
+
+		return null;
+	},
+});
+
 export const resolveLinkedUserForWebhook = internalQuery({
 	args: {
 		workspaceId: v.id("workspaces"),

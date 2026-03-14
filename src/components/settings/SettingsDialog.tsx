@@ -11,6 +11,7 @@ import {
 	ChatCircleText,
 	FileText,
 	Globe,
+	LinkSimple,
 	Microphone,
 	Robot,
 	ShieldCheck,
@@ -24,6 +25,7 @@ import {
 export { AccountSettingsPane } from "./AccountPane";
 export { ClaveAISettingsPane, SlashCommandsSettingsPane } from "./ClaveAIPane";
 export { DictationClipboardPane } from "./DictationPane";
+export { GoogleChatIdentityPane } from "./GoogleChatIdentityPane";
 export { GoogleChatIntegrationsPane } from "./GoogleChatIntegrationsPane";
 export { IdentitySettingsPane } from "./IdentityPane";
 export { McpServersSettingsPane } from "./McpServersPane";
@@ -51,6 +53,7 @@ export const settingsSections = [
 			{ id: "account", label: "Account" },
 			{ id: "notifications", label: "Notifications" },
 			{ id: "dictation", label: "Dictation" },
+			{ id: "google-chat-identity", label: "Google Chat" },
 		],
 	},
 	{
@@ -85,6 +88,7 @@ export const settingsItemIcons: Record<
 	skills: Sparkle,
 	"mcp-servers": Globe,
 	"google-chat": ChatCircleText,
+	"google-chat-identity": LinkSimple,
 	dictation: Microphone,
 };
 

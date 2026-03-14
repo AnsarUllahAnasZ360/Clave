@@ -170,7 +170,9 @@ export function GoogleChatSubscriptionsPane() {
 		<SettingSection title="Space subscriptions">
 			<div className="space-y-2">
 				<p className="text-xs text-muted-foreground">
-					Configure which events relay to each Google Chat space target.
+					Choose which workspace events are forwarded to each Google Chat space.
+					Find the space name in Google Chat under space details (e.g.
+					spaces/AAAA1234).
 				</p>
 				<div className="flex gap-2">
 					<Input

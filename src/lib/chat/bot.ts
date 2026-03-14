@@ -8,6 +8,7 @@ import { Chat } from "chat";
 // Upstash Redis (already in deps as @upstash/redis) works with the REST-compatible URL.
 
 let _bot: Chat | null = null;
+let _handlersRegistered = false;
 
 /**
  * Returns the Chat SDK bot singleton, lazily initialized.
@@ -27,9 +28,20 @@ export function getBot(): Chat {
 	return _bot;
 }
 
-// Register all SDK event handlers (onNewMention, onSubscribedMessage, onAction).
-// This import has side effects — handler registrations happen at module load.
-import("./handlers").catch(() => {
-	// Silently ignore handler import failures during build/test environments
-	// where Chat SDK credentials may not be available.
-});
+/**
+ * Ensure handlers are registered on the bot singleton.
+ * Must be called (and awaited) before processing webhook events.
+ * We initialize the bot first, then import handlers which call getBot()
+ * to get the same instance.
+ */
+export async function ensureHandlers(): Promise<void> {
+	if (_handlersRegistered) return;
+	// Ensure bot is created before handlers try to access it
+	getBot();
+	try {
+		await import("./handlers");
+		_handlersRegistered = true;
+	} catch (e) {
+		console.error("[chat-sdk] Failed to register handlers:", e);
+	}
+}

@@ -23,6 +23,104 @@ const TRIM_THRESHOLD_CHARS = 1500;
 const PROTECTED_RECENT_COUNT = 4;
 
 /**
+ * Sanitize historical messages for the Azure Responses API.
+ *
+ * The Responses API pairs reasoning items with message/function_call items
+ * by ID. When the agent library stores messages with these IDs, follow-up
+ * requests that include history will fail if reasoning items are missing.
+ *
+ * Fix: convert assistant messages that contained reasoning or tool calls
+ * into plain text summaries. This avoids sending any item IDs that the
+ * API would try to pair with missing reasoning items. Tool call/result
+ * pairs in history are collapsed into text descriptions.
+ */
+function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
+	const result: ModelMessage[] = [];
+
+	for (let i = 0; i < messages.length; i++) {
+		const msg = messages[i];
+
+		// Strip providerMetadata from all messages
+		const base = { ...msg, providerMetadata: undefined };
+
+		if (msg.role === "assistant" && Array.isArray(msg.content)) {
+			const hasReasoning = msg.content.some(
+				(p) => p.type === "reasoning",
+			);
+			const hasToolCalls = msg.content.some(
+				(p) => p.type === "tool-call",
+			);
+
+			if (hasReasoning || hasToolCalls) {
+				// Extract text parts and summarize tool calls as plain text
+				const textParts: string[] = [];
+
+				for (const part of msg.content) {
+					if (part.type === "text" && typeof part.text === "string" && part.text.trim()) {
+						textParts.push(part.text.trim());
+					} else if (part.type === "tool-call") {
+						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						const tc = part as any;
+						textParts.push(
+							`[Used tool: ${tc.toolName ?? "unknown"}]`,
+						);
+					}
+					// Skip reasoning parts entirely
+				}
+
+				const summaryText =
+					textParts.length > 0
+						? textParts.join("\n")
+						: "[assistant processed request]";
+
+				result.push({
+					role: "assistant",
+					content: summaryText,
+				} as ModelMessage);
+
+				// Skip any immediately following tool-result messages
+				// since the tool calls are now summarized as text
+				while (
+					i + 1 < messages.length &&
+					messages[i + 1].role === "tool"
+				) {
+					i++;
+				}
+				continue;
+			}
+
+			// No reasoning or tool calls — keep text parts only, strip metadata
+			const textOnly = msg.content
+				.filter((p) => p.type === "text")
+				.map((p) => {
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					const { providerMetadata: _pm, experimental_providerMetadata: _epm, ...rest } = p as any;
+					return rest;
+				});
+
+			result.push({
+				...base,
+				content:
+					textOnly.length > 0
+						? textOnly
+						: [{ type: "text" as const, text: "[response]" }],
+			} as ModelMessage);
+			continue;
+		}
+
+		// Skip standalone tool-result messages (already handled above)
+		if (msg.role === "tool") {
+			result.push(base as ModelMessage);
+			continue;
+		}
+
+		result.push(base as ModelMessage);
+	}
+
+	return result;
+}
+
+/**
  * Truncate long assistant messages in older conversation history.
  * Keeps the last `PROTECTED_RECENT_COUNT` messages intact and trims
  * older assistant messages that exceed `TRIM_THRESHOLD_CHARS`.
@@ -96,9 +194,13 @@ export function getClaveAgent() {
 
 				const trimmedRecent = trimOlderMessages(recent);
 
+				// Sanitize historical messages to strip reasoning parts and
+				// provider-specific item IDs that break the Responses API.
+				const sanitizedRecent = sanitizeForResponsesApi(trimmedRecent);
+
 				const context = [
 					...search,
-					...trimmedRecent,
+					...sanitizedRecent,
 					...inputMessages,
 					...inputPrompt,
 					...existingResponses,

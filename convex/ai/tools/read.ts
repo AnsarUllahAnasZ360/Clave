@@ -1,13 +1,14 @@
 import { createTool } from "@convex-dev/agent";
 import { makeFunctionReference } from "convex/server";
 import { z } from "zod";
-import { api } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import {
 	buildProjectNameMap,
 	buildUserNameMap,
 	MAX_CONTENT_LENGTH,
 	plateJsonToPlainText,
+	resolveToolUserId,
 	resolveWorkspaceId,
 	TOOL_TIMEOUT_MS,
 	truncateAtBoundary,
@@ -321,11 +322,12 @@ export const searchIssues = createTool({
 	}),
 	execute: async (ctx: ToolContext, args): Promise<IssueResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 		const hasFilters = !!(
 			args.status ||
 			args.priority ||
-			args.assigneeId ||
-			args.projectId
+			(args.assigneeId && args.assigneeId.trim()) ||
+			(args.projectId && args.projectId.trim())
 		);
 
 		// Build name lookup maps for human-readable output
@@ -363,9 +365,10 @@ export const searchIssues = createTool({
 		// Use full-text search when a query is provided
 		if (args.query?.trim()) {
 			const results = await withTimeout(
-				ctx.runQuery(api.issues.search, {
+				ctx.runQuery(internal.ai.toolQueries.searchIssues, {
 					workspaceId,
 					searchTerm: args.query,
+					userId,
 				}),
 				TOOL_TIMEOUT_MS,
 				"searchIssues",
@@ -383,9 +386,9 @@ export const searchIssues = createTool({
 							if (args.status && issue.status !== args.status) return false;
 							if (args.priority && issue.priority !== args.priority)
 								return false;
-							if (args.assigneeId && issue.assigneeId !== args.assigneeId)
+							if (args.assigneeId?.trim() && issue.assigneeId !== args.assigneeId)
 								return false;
-							if (args.projectId && issue.projectId !== args.projectId)
+							if (args.projectId?.trim() && issue.projectId !== args.projectId)
 								return false;
 							return true;
 						},
@@ -397,12 +400,13 @@ export const searchIssues = createTool({
 
 		// Use filtered list query when no text search is needed
 		const result = await withTimeout(
-			ctx.runQuery(api.issues.listByWorkspace, {
+			ctx.runQuery(internal.ai.toolQueries.listIssues, {
 				workspaceId,
+				userId,
 				status: args.status,
 				priority: args.priority,
-				assigneeId: args.assigneeId as Id<"users"> | undefined,
-				projectId: args.projectId as Id<"projects"> | undefined,
+				assigneeId: args.assigneeId || undefined,
+				projectId: args.projectId || undefined,
 				limit: args.limit,
 			}),
 			TOOL_TIMEOUT_MS,
@@ -426,10 +430,13 @@ export const listProjects = createTool({
 	}),
 	execute: async (ctx: ToolContext, args): Promise<ProjectListResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
-		// projects.list already handles RBAC via getAccessibleProjectIds
 		const projects = await withTimeout(
-			ctx.runQuery(api.projects.list, { workspaceId }),
+			ctx.runQuery(internal.ai.toolQueries.listProjects, {
+				workspaceId,
+				userId,
+			}),
 			TOOL_TIMEOUT_MS,
 			"listProjects",
 		);
@@ -444,7 +451,7 @@ export const listProjects = createTool({
 		// Fetch stats for each project in parallel
 		const statsResults = await Promise.all(
 			filtered.map((p: { _id: Id<"projects"> }) =>
-				ctx.runQuery(api.projects.getStats, {
+				ctx.runQuery(internal.ai.toolQueries.getProjectStats, {
 					projectId: p._id,
 				}),
 			),
@@ -501,20 +508,25 @@ export const getIssueDetails = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Fetch issue by identifier or ID
-		let issue: Awaited<
-			ReturnType<typeof ctx.runQuery<typeof api.issues.getById>>
-		>;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let issue: any;
 
 		if (args.identifier) {
-			issue = await ctx.runQuery(api.issues.getByIdentifier, {
-				workspaceId,
-				identifier: args.identifier,
-			});
+			issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueByIdentifier,
+				{
+					workspaceId,
+					identifier: args.identifier,
+					userId,
+				},
+			);
 		} else {
-			issue = await ctx.runQuery(api.issues.getById, {
+			issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
 				issueId: args.issueId as Id<"issues">,
+				userId,
 			});
 			// Verify issue belongs to the resolved workspace
 			if (issue && issue.workspaceId !== workspaceId) {
@@ -531,11 +543,14 @@ export const getIssueDetails = createTool({
 			await Promise.all([
 				buildUserNameMap(ctx, workspaceId),
 				buildProjectNameMap(ctx, workspaceId),
-				ctx.runQuery(api.labels.list, { workspaceId }),
-				ctx.runQuery(api.issues.getSubIssues, {
-					parentId: issue._id as Id<"issues">,
+				ctx.runQuery(internal.ai.toolQueries.listLabels, {
+					workspaceId,
 				}),
-				ctx.runQuery(api.comments.listByIssue, {
+				ctx.runQuery(internal.ai.toolQueries.getSubIssues, {
+					parentId: issue._id as Id<"issues">,
+					userId,
+				}),
+				ctx.runQuery(internal.ai.toolQueries.listCommentsByIssue, {
 					issueId: issue._id as Id<"issues">,
 				}),
 			]);
@@ -602,9 +617,12 @@ export const getDocument = createTool({
 		args,
 	): Promise<DocumentResult | ErrorResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
-		const document = await ctx.runQuery(api.documents.getById, {
-			documentId: args.documentId as Id<"documents">,
-		});
+		const document = await ctx.runQuery(
+			internal.ai.toolQueries.getDocumentById,
+			{
+				documentId: args.documentId as Id<"documents">,
+			},
+		);
 
 		if (!document) {
 			return { error: "Document not found." };
@@ -653,10 +671,14 @@ export const searchDocuments = createTool({
 	}),
 	execute: async (ctx: ToolContext, args): Promise<DocumentSearchItem[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		const [documents, projectNames] = await Promise.all([
 			withTimeout(
-				ctx.runQuery(api.documents.listByWorkspace, { workspaceId }),
+				ctx.runQuery(internal.ai.toolQueries.listDocuments, {
+					workspaceId,
+					userId,
+				}),
 				TOOL_TIMEOUT_MS,
 				"searchDocuments",
 			),
@@ -713,9 +735,14 @@ export const globalSearch = createTool({
 	}),
 	execute: async (ctx: ToolContext, args): Promise<GlobalSearchResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		const results = await withTimeout(
-			ctx.runQuery(api.search.global, { workspaceId, searchTerm: args.query }),
+			ctx.runQuery(internal.ai.toolQueries.globalSearch, {
+				workspaceId,
+				searchTerm: args.query,
+				userId,
+			}),
 			TOOL_TIMEOUT_MS,
 			"globalSearch",
 		);
@@ -794,9 +821,10 @@ export const listWorkspaceMembers = createTool({
 	execute: async (ctx: ToolContext): Promise<MemberResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
 
-		const members = await ctx.runQuery(api.workspaceMembers.list, {
-			workspaceId,
-		});
+		const members = await ctx.runQuery(
+			internal.ai.toolQueries.listMembers,
+			{ workspaceId },
+		);
 
 		return members.map(
 			(member: {
@@ -836,21 +864,29 @@ export const getProjectDetails = createTool({
 		}
 
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		// Lookup by ID or slug
-		let project: Awaited<
-			ReturnType<typeof ctx.runQuery<typeof api.projects.getById>>
-		>;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let project: any;
 
 		if (args.slug) {
-			project = await ctx.runQuery(api.projects.getBySlug, {
-				workspaceId,
-				slug: args.slug,
-			});
+			project = await ctx.runQuery(
+				internal.ai.toolQueries.getProjectBySlug,
+				{
+					workspaceId,
+					slug: args.slug,
+					userId,
+				},
+			);
 		} else {
-			project = await ctx.runQuery(api.projects.getById, {
-				projectId: args.projectId as Id<"projects">,
-			});
+			project = await ctx.runQuery(
+				internal.ai.toolQueries.getProjectById,
+				{
+					projectId: args.projectId as Id<"projects">,
+					userId,
+				},
+			);
 			// Verify project belongs to the resolved workspace
 			if (project && project.workspaceId !== workspaceId) {
 				project = null;
@@ -863,8 +899,10 @@ export const getProjectDetails = createTool({
 
 		// Fetch stats, milestones, and user names in parallel
 		const [stats, milestones, userNames] = await Promise.all([
-			ctx.runQuery(api.projects.getStats, { projectId: project._id }),
-			ctx.runQuery(api.milestones.listByProject, {
+			ctx.runQuery(internal.ai.toolQueries.getProjectStats, {
+				projectId: project._id,
+			}),
+			ctx.runQuery(internal.ai.toolQueries.listMilestones, {
 				projectId: project._id,
 			}),
 			buildUserNameMap(ctx, workspaceId),
@@ -913,7 +951,7 @@ export const listLabels = createTool({
 	execute: async (ctx: ToolContext): Promise<LabelResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
 
-		const labels = await ctx.runQuery(api.labels.list, {
+		const labels = await ctx.runQuery(internal.ai.toolQueries.listLabels, {
 			workspaceId,
 		});
 
@@ -946,10 +984,12 @@ export const listSprints = createTool({
 	}),
 	execute: async (ctx: ToolContext, args): Promise<SprintResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
-		const sprints = await ctx.runQuery(api.sprints.listByWorkspace, {
-			workspaceId,
-		});
+		const sprints = await ctx.runQuery(
+			internal.ai.toolQueries.listSprints,
+			{ workspaceId, userId },
+		);
 
 		const filtered = args.status
 			? sprints.filter((s: { status?: string }) => s.status === args.status)
@@ -1007,7 +1047,7 @@ export const getActivity = createTool({
 
 		if (args.entityType === "issue") {
 			const result = await withTimeout(
-				ctx.runQuery(api.activityLogs.listByIssue, {
+				ctx.runQuery(internal.ai.toolQueries.listActivityByIssue, {
 					issueId: args.entityId as Id<"issues">,
 					limit: args.limit,
 				}),
@@ -1041,7 +1081,7 @@ export const getActivity = createTool({
 
 		// Project activity
 		const result = await withTimeout(
-			ctx.runQuery(api.activityLogs.listByProject, {
+			ctx.runQuery(internal.ai.toolQueries.listActivityByProject, {
 				projectId: args.entityId as Id<"projects">,
 				limit: args.limit,
 			}),
@@ -1093,11 +1133,13 @@ export const getNotifications = createTool({
 	}),
 	execute: async (ctx: ToolContext, args): Promise<NotificationResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
 
 		const [result, unreadCount] = await Promise.all([
 			withTimeout(
-				ctx.runQuery(api.notifications.list, {
+				ctx.runQuery(internal.ai.toolQueries.listNotifications, {
 					workspaceId,
+					userId,
 					filter: args.filter,
 					limit: args.limit,
 				}),
@@ -1105,7 +1147,10 @@ export const getNotifications = createTool({
 				"getNotifications",
 			),
 			withTimeout(
-				ctx.runQuery(api.notifications.unreadCount, { workspaceId }),
+				ctx.runQuery(internal.ai.toolQueries.unreadNotificationCount, {
+					workspaceId,
+					userId,
+				}),
 				TOOL_TIMEOUT_MS,
 				"getNotifications:unreadCount",
 			),

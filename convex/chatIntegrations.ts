@@ -42,6 +42,9 @@ const connectionDocValidator = v.object({
 	lastHealthcheckMessage: v.optional(v.string()),
 	lastWebhookEventAt: v.optional(v.number()),
 	lastWebhookEventId: v.optional(v.string()),
+	marketplaceInstallId: v.optional(v.string()),
+	marketplaceInstalledAt: v.optional(v.number()),
+	marketplaceProjectNumber: v.optional(v.string()),
 	createdAt: v.number(),
 	updatedAt: v.number(),
 });
@@ -170,6 +173,8 @@ export const connect = mutation({
 		authAudience: v.optional(v.string()),
 		externalAppId: v.optional(v.string()),
 		externalAppName: v.optional(v.string()),
+		marketplaceInstallId: v.optional(v.string()),
+		marketplaceProjectNumber: v.optional(v.string()),
 	},
 	returns: v.id("chatConnections"),
 	handler: async (ctx, args) => {
@@ -184,6 +189,16 @@ export const connect = mutation({
 			)
 			.first();
 
+		const marketplaceFields = {
+			...(args.marketplaceInstallId !== undefined && {
+				marketplaceInstallId: args.marketplaceInstallId,
+				marketplaceInstalledAt: now,
+			}),
+			...(args.marketplaceProjectNumber !== undefined && {
+				marketplaceProjectNumber: args.marketplaceProjectNumber,
+			}),
+		};
+
 		const connectionId = existingConnection
 			? existingConnection._id
 			: await ctx.db.insert("chatConnections", {
@@ -194,6 +209,7 @@ export const connect = mutation({
 					authAudience: args.authAudience,
 					externalAppId: args.externalAppId,
 					externalAppName: args.externalAppName,
+					...marketplaceFields,
 					installedBy: userId,
 					installedAt: now,
 					createdAt: now,
@@ -207,6 +223,7 @@ export const connect = mutation({
 				authAudience: args.authAudience,
 				externalAppId: args.externalAppId,
 				externalAppName: args.externalAppName,
+				...marketplaceFields,
 				installedBy: userId,
 				installedAt: now,
 				disconnectedAt: undefined,

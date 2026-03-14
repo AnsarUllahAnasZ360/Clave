@@ -126,6 +126,22 @@ const resolveLinkedUserForWebhookRef = makeFunctionReference<
 	Id<"users"> | null
 >("chatIdentityLinks:resolveLinkedUserForWebhook");
 
+const consumeVerificationCodeRef = makeFunctionReference<
+	"mutation",
+	{
+		code: string;
+		chatUserId: string;
+		chatDisplayName?: string;
+		chatEmail?: string;
+	},
+	{
+		success: boolean;
+		message: string;
+		workspaceId?: Id<"workspaces">;
+		userId?: Id<"users">;
+	}
+>("chatVerificationCodes:consumeCode");
+
 const resolveIssueIdByIdentifierInternalRef = makeFunctionReference<
 	"query",
 	{ workspaceId: Id<"workspaces">; identifier: string },
@@ -1801,6 +1817,72 @@ export const handleWebhook = action({
 				spaceName && threadName
 					? `${spaceName}::${threadName}`
 					: (spaceName ?? `dm::${chatUserId}`);
+
+			// ── Verification code intercept ──────────────────────────────
+			// If the text is exactly a 6-char code in a DM, try to consume it
+			const trimmedText = text.trim().toUpperCase();
+			if (isDirectMessage && /^[A-Z2-9]{6}$/.test(trimmedText) && chatUserId) {
+				const senderUser = payload.user as
+					| Record<string, unknown>
+					| undefined;
+				const senderDisplayName = senderUser?.displayName as
+					| string
+					| undefined;
+				const senderEmail = senderUser?.email as string | undefined;
+
+				const consumeResult = await ctx.runMutation(
+					consumeVerificationCodeRef,
+					{
+						code: trimmedText,
+						chatUserId,
+						chatDisplayName: senderDisplayName,
+						chatEmail: senderEmail,
+					},
+				);
+
+				if (consumeResult.success) {
+					return {
+						status: "accepted" as const,
+						message: "Verification code consumed",
+						eventId,
+						eventType,
+						chatResponse: {
+							cardsV2: [
+								{
+									cardId: "identity_linked",
+									card: {
+										header: {
+											title: "Identity linked",
+											subtitle:
+												"Your Google Chat identity is now linked to your Clave account.",
+											imageUrl:
+												"https://fonts.gstatic.com/s/i/short-term/release/googlesymbols/check_circle/default/24px.svg",
+											imageType: "CIRCLE",
+										},
+										sections: [
+											{
+												widgets: [
+													{
+														decoratedText: {
+															topLabel: "Status",
+															text: "Successfully linked",
+															startIcon: {
+																knownIcon: "INVITE",
+															},
+														},
+													},
+												],
+											},
+										],
+									},
+								},
+							],
+						},
+					};
+				}
+				// If the code didn't match or was expired, fall through to normal assistant
+			}
+			// ── End verification code intercept ──────────────────────────
 
 			const result = await dispatchMentionInner({
 				ctx,

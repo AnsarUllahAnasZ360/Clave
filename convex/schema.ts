@@ -1123,12 +1123,32 @@ export default defineSchema({
 		lastHealthcheckMessage: v.optional(v.string()),
 		lastWebhookEventAt: v.optional(v.number()),
 		lastWebhookEventId: v.optional(v.string()),
+		marketplaceInstallId: v.optional(v.string()),
+		marketplaceInstalledAt: v.optional(v.number()),
+		marketplaceProjectNumber: v.optional(v.string()),
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_workspace_provider", ["workspaceId", "provider"])
 		.index("by_provider_status", ["provider", "status"]),
+
+	chatVerificationCodes: defineTable({
+		workspaceId: v.id("workspaces"),
+		userId: v.id("users"),
+		code: v.string(),
+		expiresAt: v.number(),
+		status: v.union(
+			v.literal("pending"),
+			v.literal("consumed"),
+			v.literal("expired"),
+		),
+		consumedByChatUserId: v.optional(v.string()),
+		consumedAt: v.optional(v.number()),
+		createdAt: v.number(),
+	})
+		.index("by_code", ["code"])
+		.index("by_workspace_user", ["workspaceId", "userId"]),
 
 	chatUserLinks: defineTable({
 		workspaceId: v.id("workspaces"),
