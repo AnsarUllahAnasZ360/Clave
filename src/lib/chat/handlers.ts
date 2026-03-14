@@ -212,19 +212,7 @@ async function handleMessage(
 ) {
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(thread.channelId);
-
-	console.log("[chat-sdk] resolveWorkspace", {
-		channelId: thread.channelId,
-		extractedSpaceName: spaceName,
-		convexUrl: process.env.NEXT_PUBLIC_CONVEX_URL?.slice(0, 40),
-	});
-
 	const workspaceId = await resolveWorkspace(convex, thread.channelId);
-
-	console.log("[chat-sdk] resolveWorkspace result", {
-		workspaceId,
-		found: !!workspaceId,
-	});
 
 	if (!workspaceId) {
 		await sent.edit(
@@ -322,7 +310,7 @@ async function handleMessage(
 const bot = getBot();
 
 bot.onNewMention(async (thread, message) => {
-	await thread.subscribe();
+	thread.subscribe().catch(() => {});
 	const sent = await thread.post("_Thinking..._");
 	await handleMessage(thread, message, sent);
 });
