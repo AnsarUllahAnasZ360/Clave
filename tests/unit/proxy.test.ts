@@ -24,4 +24,11 @@ describe("getLegacyWorkspaceRedirectPath", () => {
 			getLegacyWorkspaceRedirectPath("/roadmap/issues/CLV-123"),
 		).toBeNull();
 	});
+
+	it("does not rewrite new format workspace/route URLs", () => {
+		expect(getLegacyWorkspaceRedirectPath("/dev/chat")).toBeNull();
+		expect(getLegacyWorkspaceRedirectPath("/dev/issues")).toBeNull();
+		expect(getLegacyWorkspaceRedirectPath("/dev/projects")).toBeNull();
+		expect(getLegacyWorkspaceRedirectPath("/dev/settings")).toBeNull();
+	});
 });

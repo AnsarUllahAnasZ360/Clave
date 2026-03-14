@@ -42,10 +42,17 @@ export function getLegacyWorkspaceRedirectPath(pathname: string) {
 		return null;
 	}
 
+	// 2 segments: could be old /{orgSlug}/{workspaceSlug} or new /{workspaceSlug}/{route}
+	// If the second segment is a known workspace route, it's already the new format — skip
 	if (segments.length === 2) {
+		if (WORKSPACE_ROUTES.has(segments[1])) {
+			return null;
+		}
 		return `/${segments[1]}/chat`;
 	}
 
+	// 3+ segments: old /{orgSlug}/{workspaceSlug}/{route}
+	// Only redirect if the third segment is a workspace route (confirms old format)
 	if (WORKSPACE_ROUTES.has(segments[2])) {
 		return `/${segments.slice(1).join("/")}`;
 	}

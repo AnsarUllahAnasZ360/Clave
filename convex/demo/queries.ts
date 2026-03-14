@@ -5,6 +5,7 @@
  */
 
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import { mutation, query } from "../_generated/server";
 import { requireAuth } from "../lib/auth";
 
@@ -125,9 +126,9 @@ export const createDemoWorkspaceForUser = mutation({
 			nextTaskNumber: 1,
 		});
 
-		// Provision built-in Excalidraw MCP connector
-		const { internal } = await import("../_generated/api");
-		await ctx.runMutation(
+		// Provision built-in Excalidraw MCP connector and schedule demo seeding
+		await ctx.scheduler.runAfter(
+			0,
 			internal.mcpServers.ensureSystemExcalidrawServerInternal,
 			{ workspaceId, createdBy: userId },
 		);
@@ -159,7 +160,6 @@ export const seedForWorkspace = mutation({
 		}
 
 		// Schedule the seed
-		const { internal } = await import("../_generated/api");
 		await ctx.scheduler.runAfter(0, internal.demo.seed.seedDemoData, {
 			workspaceId,
 			creatorUserId: userId,

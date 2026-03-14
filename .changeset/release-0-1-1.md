@@ -1,5 +1,5 @@
 ---
-"millhouse-web": patch
+"clave": patch
 ---
 
 ## v0.1.1
