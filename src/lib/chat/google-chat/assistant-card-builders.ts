@@ -123,16 +123,16 @@ function markdownToGoogleChatHtml(md: string): string {
 	result = result.replace(/`([^`]+)`/g, "$1");
 
 	// Links: [text](url)
-	result = result.replace(
-		/\[([^\]]+)\]\(([^)]+)\)/g,
-		'<a href="$2">$1</a>',
-	);
+	result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
 	// Unordered list markers: - item or * item → • item
 	result = result.replace(/^[\s]*[-*]\s+/gm, "• ");
 
 	// Remove emoji-style bullet prefixes (e.g., "🔍 " at start of line)
-	result = result.replace(/^•\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/gmu, "• ");
+	result = result.replace(
+		/^•\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/gmu,
+		"• ",
+	);
 
 	// Newlines to <br> for card rendering
 	result = result.replace(/\n/g, "<br>");

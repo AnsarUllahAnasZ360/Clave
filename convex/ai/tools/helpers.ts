@@ -218,10 +218,9 @@ export async function buildUserNameMap(
 	ctx: ToolContext,
 	workspaceId: Id<"workspaces">,
 ): Promise<Map<string, string>> {
-	const members = await ctx.runQuery(
-		internal.ai.toolQueries.listMembers,
-		{ workspaceId },
-	);
+	const members = await ctx.runQuery(internal.ai.toolQueries.listMembers, {
+		workspaceId,
+	});
 	const map = new Map<string, string>();
 	for (const m of members) {
 		if (m.user?.name) map.set(m.userId, m.user.name);
@@ -238,10 +237,10 @@ export async function buildProjectNameMap(
 	workspaceId: Id<"workspaces">,
 ): Promise<Map<string, string>> {
 	const userId = resolveToolUserId(ctx);
-	const projects = await ctx.runQuery(
-		internal.ai.toolQueries.listProjects,
-		{ workspaceId, userId },
-	);
+	const projects = await ctx.runQuery(internal.ai.toolQueries.listProjects, {
+		workspaceId,
+		userId,
+	});
 	const map = new Map<string, string>();
 	for (const p of projects) {
 		map.set(p._id, p.name);

@@ -92,9 +92,7 @@ export const listWithRole = query({
 			}),
 		);
 
-		return results.filter(
-			(r): r is NonNullable<typeof r> => r !== null,
-		);
+		return results.filter((r): r is NonNullable<typeof r> => r !== null);
 	},
 });
 

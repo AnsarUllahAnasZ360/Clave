@@ -10,9 +10,9 @@ import {
 	Trash,
 	UserCircle,
 } from "@phosphor-icons/react/dist/ssr";
-import { Store } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
+import { Store } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
@@ -41,7 +41,8 @@ const ISSUE_ACTION_ALLOWLIST_OPTIONS = [
 	{
 		id: "assign_to_me",
 		label: "Self-assign issues",
-		description: "Users can assign issues to themselves from Google Chat cards.",
+		description:
+			"Users can assign issues to themselves from Google Chat cards.",
 	},
 	{
 		id: "set_status_non_destructive",
@@ -358,7 +359,8 @@ export function GoogleChatIntegrationsPane() {
 								Install from Google Workspace Marketplace
 							</p>
 							<p className="text-xs text-muted-foreground">
-								The fastest way to set up — install the Clave app from the Marketplace and it auto-configures everything.
+								The fastest way to set up — install the Clave app from the
+								Marketplace and it auto-configures everything.
 							</p>
 							<a
 								href="https://workspace.google.com/marketplace"
@@ -382,15 +384,11 @@ export function GoogleChatIntegrationsPane() {
 								Manual setup
 							</p>
 							<ol className="list-decimal list-inside space-y-1.5 text-xs text-muted-foreground leading-relaxed">
+								<li>Create a Google Chat app in the Google Cloud Console</li>
+								<li>Set the webhook URL to the endpoint shown below</li>
 								<li>
-									Create a Google Chat app in the Google Cloud Console
-								</li>
-								<li>
-									Set the webhook URL to the endpoint shown below
-								</li>
-								<li>
-									Optionally set the app name and auth audience in
-									Advanced settings
+									Optionally set the app name and auth audience in Advanced
+									settings
 								</li>
 								<li>Click Connect to activate the integration</li>
 							</ol>
@@ -415,10 +413,7 @@ export function GoogleChatIntegrationsPane() {
 							</div>
 						</SettingRow>
 
-						<Collapsible
-							open={advancedOpen}
-							onOpenChange={setAdvancedOpen}
-						>
+						<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
 							<CollapsibleTrigger asChild>
 								<button
 									type="button"
@@ -438,9 +433,7 @@ export function GoogleChatIntegrationsPane() {
 									<Input
 										placeholder="Clave"
 										value={appName}
-										onChange={(event) =>
-											setAppName(event.target.value)
-										}
+										onChange={(event) => setAppName(event.target.value)}
 									/>
 								</SettingRow>
 								<SettingRow
@@ -450,9 +443,7 @@ export function GoogleChatIntegrationsPane() {
 									<Input
 										placeholder={webhookEndpoint}
 										value={audience}
-										onChange={(event) =>
-											setAudience(event.target.value)
-										}
+										onChange={(event) => setAudience(event.target.value)}
 									/>
 								</SettingRow>
 							</CollapsibleContent>
@@ -506,10 +497,7 @@ export function GoogleChatIntegrationsPane() {
 							</div>
 						</SettingRow>
 
-						<Collapsible
-							open={advancedOpen}
-							onOpenChange={setAdvancedOpen}
-						>
+						<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
 							<CollapsibleTrigger asChild>
 								<button
 									type="button"
@@ -529,9 +517,7 @@ export function GoogleChatIntegrationsPane() {
 									<Input
 										placeholder="Clave"
 										value={appName}
-										onChange={(event) =>
-											setAppName(event.target.value)
-										}
+										onChange={(event) => setAppName(event.target.value)}
 									/>
 								</SettingRow>
 								<SettingRow
@@ -541,9 +527,7 @@ export function GoogleChatIntegrationsPane() {
 									<Input
 										placeholder={webhookEndpoint}
 										value={audience}
-										onChange={(event) =>
-											setAudience(event.target.value)
-										}
+										onChange={(event) => setAudience(event.target.value)}
 									/>
 								</SettingRow>
 								<Button
@@ -651,10 +635,7 @@ export function GoogleChatIntegrationsPane() {
 										option.id,
 									)}
 									onCheckedChange={(checked) =>
-										toggleIssueActionAllowlist(
-											option.id,
-											checked,
-										)
+										toggleIssueActionAllowlist(option.id, checked)
 									}
 								/>
 							</SettingRow>
@@ -665,9 +646,9 @@ export function GoogleChatIntegrationsPane() {
 
 					<SettingSection title="Identity links">
 						<p className="text-xs text-muted-foreground">
-							Users who have linked their Google Chat identity to
-							their Clave account. Links can be created by users in
-							their personal settings or by admins here.
+							Users who have linked their Google Chat identity to their Clave
+							account. Links can be created by users in their personal settings
+							or by admins here.
 						</p>
 						{identityLinks && identityLinks.length > 0 ? (
 							<div className="space-y-2">
@@ -680,16 +661,11 @@ export function GoogleChatIntegrationsPane() {
 											<UserCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
 											<div className="min-w-0">
 												<p className="text-sm text-foreground truncate">
-													{memberNameMap.get(
-														link.userId,
-													) ?? "Unknown user"}
+													{memberNameMap.get(link.userId) ?? "Unknown user"}
 												</p>
 												<p className="text-xs text-muted-foreground truncate">
-													{link.chatDisplayName ??
-														link.chatUserId}
-													{link.chatEmail
-														? ` (${link.chatEmail})`
-														: ""}
+													{link.chatDisplayName ?? link.chatUserId}
+													{link.chatEmail ? ` (${link.chatEmail})` : ""}
 												</p>
 											</div>
 										</div>
@@ -697,11 +673,7 @@ export function GoogleChatIntegrationsPane() {
 											variant="ghost"
 											size="icon"
 											className="shrink-0 h-8 w-8 text-muted-foreground hover:text-destructive"
-											onClick={() =>
-												void handleUnlinkUser(
-													link.userId,
-												)
-											}
+											onClick={() => void handleUnlinkUser(link.userId)}
 										>
 											<Trash className="h-3.5 w-3.5" />
 										</Button>
@@ -710,8 +682,8 @@ export function GoogleChatIntegrationsPane() {
 							</div>
 						) : (
 							<p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-								No identity links yet. Users can link their
-								accounts from personal settings.
+								No identity links yet. Users can link their accounts from
+								personal settings.
 							</p>
 						)}
 					</SettingSection>

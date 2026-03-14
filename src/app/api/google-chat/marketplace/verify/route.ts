@@ -13,10 +13,7 @@ export async function POST(request: NextRequest) {
 	const body = (await request.json()) as { state?: string };
 	const state = body.state;
 	if (!state || typeof state !== "string") {
-		return NextResponse.json(
-			{ error: "state is required" },
-			{ status: 400 },
-		);
+		return NextResponse.json({ error: "state is required" }, { status: 400 });
 	}
 
 	try {

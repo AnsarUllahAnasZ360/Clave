@@ -14,15 +14,15 @@ export type AIModel = {
 
 export const AI_MODELS: AIModel[] = [
 	{
-		id: "gpt-5.2",
-		label: "GPT 5.2",
-		description: "Fast default model for chat and embedded AI actions",
-	},
-	{
 		id: "kimi-k2.5",
 		label: "Kimi K2.5",
 		description: "High-capacity model for complex reasoning tasks",
 	},
+	{
+		id: "gpt-5.2",
+		label: "GPT 5.2",
+		description: "Fast model for chat and embedded AI actions",
+	},
 ];
 
-export const DEFAULT_MODEL_ID = "gpt-5.2";
+export const DEFAULT_MODEL_ID = "kimi-k2.5";

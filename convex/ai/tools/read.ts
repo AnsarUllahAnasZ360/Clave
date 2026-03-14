@@ -326,8 +326,8 @@ export const searchIssues = createTool({
 		const hasFilters = !!(
 			args.status ||
 			args.priority ||
-			(args.assigneeId && args.assigneeId.trim()) ||
-			(args.projectId && args.projectId.trim())
+			args.assigneeId?.trim() ||
+			args.projectId?.trim()
 		);
 
 		// Build name lookup maps for human-readable output
@@ -386,7 +386,10 @@ export const searchIssues = createTool({
 							if (args.status && issue.status !== args.status) return false;
 							if (args.priority && issue.priority !== args.priority)
 								return false;
-							if (args.assigneeId?.trim() && issue.assigneeId !== args.assigneeId)
+							if (
+								args.assigneeId?.trim() &&
+								issue.assigneeId !== args.assigneeId
+							)
 								return false;
 							if (args.projectId?.trim() && issue.projectId !== args.projectId)
 								return false;
@@ -515,14 +518,11 @@ export const getIssueDetails = createTool({
 		let issue: any;
 
 		if (args.identifier) {
-			issue = await ctx.runQuery(
-				internal.ai.toolQueries.getIssueByIdentifier,
-				{
-					workspaceId,
-					identifier: args.identifier,
-					userId,
-				},
-			);
+			issue = await ctx.runQuery(internal.ai.toolQueries.getIssueByIdentifier, {
+				workspaceId,
+				identifier: args.identifier,
+				userId,
+			});
 		} else {
 			issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
 				issueId: args.issueId as Id<"issues">,
@@ -821,10 +821,9 @@ export const listWorkspaceMembers = createTool({
 	execute: async (ctx: ToolContext): Promise<MemberResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
 
-		const members = await ctx.runQuery(
-			internal.ai.toolQueries.listMembers,
-			{ workspaceId },
-		);
+		const members = await ctx.runQuery(internal.ai.toolQueries.listMembers, {
+			workspaceId,
+		});
 
 		return members.map(
 			(member: {
@@ -871,22 +870,16 @@ export const getProjectDetails = createTool({
 		let project: any;
 
 		if (args.slug) {
-			project = await ctx.runQuery(
-				internal.ai.toolQueries.getProjectBySlug,
-				{
-					workspaceId,
-					slug: args.slug,
-					userId,
-				},
-			);
+			project = await ctx.runQuery(internal.ai.toolQueries.getProjectBySlug, {
+				workspaceId,
+				slug: args.slug,
+				userId,
+			});
 		} else {
-			project = await ctx.runQuery(
-				internal.ai.toolQueries.getProjectById,
-				{
-					projectId: args.projectId as Id<"projects">,
-					userId,
-				},
-			);
+			project = await ctx.runQuery(internal.ai.toolQueries.getProjectById, {
+				projectId: args.projectId as Id<"projects">,
+				userId,
+			});
 			// Verify project belongs to the resolved workspace
 			if (project && project.workspaceId !== workspaceId) {
 				project = null;
@@ -986,10 +979,10 @@ export const listSprints = createTool({
 		const workspaceId = await resolveWorkspaceId(ctx);
 		const userId = resolveToolUserId(ctx);
 
-		const sprints = await ctx.runQuery(
-			internal.ai.toolQueries.listSprints,
-			{ workspaceId, userId },
-		);
+		const sprints = await ctx.runQuery(internal.ai.toolQueries.listSprints, {
+			workspaceId,
+			userId,
+		});
 
 		const filtered = args.status
 			? sprints.filter((s: { status?: string }) => s.status === args.status)

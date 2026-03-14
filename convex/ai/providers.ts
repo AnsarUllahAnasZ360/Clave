@@ -467,8 +467,7 @@ const normalizeUnsupportedWarningsMiddleware: LanguageModelMiddleware = {
 function stripContentPartIds(parts: any[]): any[] {
 	return parts.map((part) => {
 		if (part.providerMetadata || part.experimental_providerMetadata) {
-			const { providerMetadata, experimental_providerMetadata, ...rest } =
-				part;
+			const { providerMetadata, experimental_providerMetadata, ...rest } = part;
 			return rest;
 		}
 		return part;
@@ -512,9 +511,7 @@ const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 				return { ...msg, providerMetadata: undefined };
 			}
 
-			const filtered = msg.content.filter(
-				(part) => part.type !== "reasoning",
-			);
+			const filtered = msg.content.filter((part) => part.type !== "reasoning");
 
 			// If all content was reasoning, replace with placeholder
 			if (filtered.length === 0) {

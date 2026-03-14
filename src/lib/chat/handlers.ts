@@ -182,8 +182,7 @@ function getReplyText(result: ActionResult): string | null {
 			if (typeof card.text === "string" && card.text.trim()) {
 				return card.text.trim();
 			}
-			const firstWidget =
-				card.cardsV2?.[0]?.card?.sections?.[0]?.widgets?.[0];
+			const firstWidget = card.cardsV2?.[0]?.card?.sections?.[0]?.widgets?.[0];
 			if (firstWidget?.textParagraph?.text) {
 				return firstWidget.textParagraph.text.trim();
 			}

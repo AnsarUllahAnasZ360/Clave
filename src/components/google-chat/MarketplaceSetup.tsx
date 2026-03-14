@@ -63,10 +63,7 @@ export function MarketplaceSetup() {
 	const [selectedWorkspace, setSelectedWorkspace] =
 		useState<Id<"workspaces"> | null>(null);
 
-	const workspaces = useQuery(
-		listWithRoleRef,
-		isAuthenticated ? {} : "skip",
-	);
+	const workspaces = useQuery(listWithRoleRef, isAuthenticated ? {} : "skip");
 	const connectMutation = useMutation(connectRef);
 
 	const adminWorkspaces = workspaces?.filter((w) => w.role === "admin");
@@ -75,7 +72,9 @@ export function MarketplaceSetup() {
 	useEffect(() => {
 		const state = searchParams.get("state");
 		if (!state) {
-			setError("Missing state parameter. Please start the install from Google Workspace Marketplace.");
+			setError(
+				"Missing state parameter. Please start the install from Google Workspace Marketplace.",
+			);
 			setStep("error");
 			return;
 		}
@@ -92,7 +91,9 @@ export function MarketplaceSetup() {
 				if (cancelled) return;
 
 				if (!res.ok) {
-					setError("Invalid or expired setup link. Please try installing again from the Marketplace.");
+					setError(
+						"Invalid or expired setup link. Please try installing again from the Marketplace.",
+					);
 					setStep("error");
 					return;
 				}
@@ -160,32 +161,31 @@ export function MarketplaceSetup() {
 				webhookUrl,
 				externalAppName: "Clave",
 				marketplaceProjectNumber: marketplaceData.projectNumber,
-				marketplaceInstallId:
-					marketplaceData.installId ?? undefined,
+				marketplaceInstallId: marketplaceData.installId ?? undefined,
 			});
 
 			setStep("done");
 
 			// Find the workspace slug for redirect
-			const ws = adminWorkspaces?.find(
-				(w) => w._id === selectedWorkspace,
-			);
+			const ws = adminWorkspaces?.find((w) => w._id === selectedWorkspace);
 			if (ws) {
 				setTimeout(() => {
-					router.push(
-						`/${ws.slug}/settings?section=google-chat`,
-					);
+					router.push(`/${ws.slug}/settings?section=google-chat`);
 				}, 1500);
 			}
 		} catch (err) {
 			setError(
-				err instanceof Error
-					? err.message
-					: "Failed to connect workspace",
+				err instanceof Error ? err.message : "Failed to connect workspace",
 			);
 			setStep("error");
 		}
-	}, [selectedWorkspace, marketplaceData, connectMutation, adminWorkspaces, router]);
+	}, [
+		selectedWorkspace,
+		marketplaceData,
+		connectMutation,
+		adminWorkspaces,
+		router,
+	]);
 
 	if (step === "verifying" || (step === "auth" && authLoading)) {
 		return (
@@ -225,9 +225,7 @@ export function MarketplaceSetup() {
 				<CardHeader className="items-center text-center">
 					<Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-2" />
 					<CardTitle className="text-lg">Sign in required</CardTitle>
-					<CardDescription>
-						Redirecting to sign in...
-					</CardDescription>
+					<CardDescription>Redirecting to sign in...</CardDescription>
 				</CardHeader>
 			</Card>
 		);
@@ -240,7 +238,8 @@ export function MarketplaceSetup() {
 					<CheckCircle className="h-8 w-8 text-emerald-500 mb-2" />
 					<CardTitle className="text-lg">Connected</CardTitle>
 					<CardDescription>
-						Google Chat is now connected to your workspace. Redirecting to settings...
+						Google Chat is now connected to your workspace. Redirecting to
+						settings...
 					</CardDescription>
 				</CardHeader>
 			</Card>
@@ -277,7 +276,8 @@ export function MarketplaceSetup() {
 					</div>
 				) : adminWorkspaces.length === 0 ? (
 					<p className="text-sm text-muted-foreground py-4 text-center">
-						You are not an admin of any workspaces. Ask a workspace admin to set up the integration.
+						You are not an admin of any workspaces. Ask a workspace admin to set
+						up the integration.
 					</p>
 				) : (
 					<>
@@ -286,9 +286,7 @@ export function MarketplaceSetup() {
 								<button
 									key={ws._id}
 									type="button"
-									onClick={() =>
-										setSelectedWorkspace(ws._id)
-									}
+									onClick={() => setSelectedWorkspace(ws._id)}
 									className={`w-full rounded-lg border px-4 py-3 text-left transition-colors ${
 										selectedWorkspace === ws._id
 											? "border-sienna-500 bg-sienna-500/10"
@@ -298,9 +296,7 @@ export function MarketplaceSetup() {
 									<p className="text-sm font-medium text-foreground">
 										{ws.name}
 									</p>
-									<p className="text-xs text-muted-foreground">
-										{ws.slug}
-									</p>
+									<p className="text-xs text-muted-foreground">{ws.slug}</p>
 								</button>
 							))}
 						</div>
