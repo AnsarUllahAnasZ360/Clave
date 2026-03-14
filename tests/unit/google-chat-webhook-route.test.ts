@@ -23,6 +23,10 @@ vi.mock("@chat-adapter/state-memory", () => ({
 	createMemoryState: vi.fn(),
 }));
 
+vi.mock("next/server", () => ({
+	after: vi.fn((fn: () => void) => fn()),
+}));
+
 describe("google chat webhook route (SDK delegation)", () => {
 	it("delegates POST to bot.webhooks.gchat", async () => {
 		const sdkResponse = new Response(JSON.stringify({ ok: true }), {
@@ -43,7 +47,10 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const response = await POST(request);
 
 		expect(mockWebhookHandler).toHaveBeenCalledTimes(1);
-		expect(mockWebhookHandler).toHaveBeenCalledWith(request);
+		const [passedReq, passedOpts] = mockWebhookHandler.mock.calls[0];
+		expect(passedReq).toBe(request);
+		expect(passedOpts).toHaveProperty("waitUntil");
+		expect(typeof passedOpts.waitUntil).toBe("function");
 		expect(response).toBe(sdkResponse);
 	});
 

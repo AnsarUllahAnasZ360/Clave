@@ -6,6 +6,6 @@ export const maxDuration = 60;
 export const POST = async (req: Request) => {
 	await ensureHandlers();
 	return getBot().webhooks.gchat(req, {
-		backgroundTask: (promise: Promise<unknown>) => after(() => promise),
+		waitUntil: (task: Promise<unknown>) => after(() => task),
 	});
 };
