@@ -363,6 +363,10 @@ export const resolveWorkspaceForWebhook = query({
 	},
 	returns: v.union(v.id("workspaces"), v.null()),
 	handler: async (ctx, args) => {
+		// Diagnostic: also query ALL chatConnections regardless of index
+		const allConnections = await ctx.db.query("chatConnections").collect();
+		console.log("[resolveWorkspace] all chatConnections:", allConnections.length, allConnections.map((c) => ({ id: c._id, workspaceId: c.workspaceId, provider: c.provider, status: c.status })));
+
 		const [connectedConnections, errorConnections] = await Promise.all([
 			ctx.db
 				.query("chatConnections")
@@ -378,6 +382,8 @@ export const resolveWorkspaceForWebhook = query({
 				.collect(),
 		]);
 		const candidateConnections = [...connectedConnections, ...errorConnections];
+
+		console.log("[resolveWorkspace] indexed results:", { connected: connectedConnections.length, error: errorConnections.length, total: candidateConnections.length, provider: args.provider, spaceName: args.spaceName });
 
 		if (candidateConnections.length === 0) {
 			return null;
