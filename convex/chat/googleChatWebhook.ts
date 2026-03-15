@@ -11,7 +11,7 @@ import {
 	buildGoogleChatIssueTriageDraftCard,
 	buildGoogleChatIssueTriageResultCard,
 } from "../../src/lib/chat/google-chat/assistant-card-builders";
-// @ts-expect-error — resolved by Convex bundler at deploy time
+// @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	buildConversationTraceNote,
 	buildFallbackIssueDraftFromTranscript,
@@ -23,7 +23,7 @@ import {
 	parseLooseJsonObject,
 	rankDuplicateCandidates,
 } from "../../src/lib/chat/google-chat/conversation-triage";
-// @ts-expect-error — resolved by Convex bundler at deploy time
+// @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	isAllowedGoogleChatAction,
 	isMutatingGoogleChatAction,
