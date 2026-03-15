@@ -142,10 +142,23 @@ async function resolveWorkspace(
 	const spaceName = channelId.startsWith("gchat:")
 		? channelId.split(":")[1]
 		: channelId;
-	return convex.query(resolveWorkspaceForWebhookRef, {
-		provider: "google-chat",
-		spaceName: spaceName || undefined,
+	const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+	console.log("[chat-sdk] resolveWorkspace", {
+		channelId,
+		spaceName,
+		convexUrl: url,
 	});
+	try {
+		const result = await convex.query(resolveWorkspaceForWebhookRef, {
+			provider: "google-chat",
+			spaceName: spaceName || undefined,
+		});
+		console.log("[chat-sdk] resolveWorkspace result", { result });
+		return result;
+	} catch (err) {
+		console.error("[chat-sdk] resolveWorkspace error", err);
+		return null;
+	}
 }
 
 /** Build a conversation key from space + thread identifiers. */

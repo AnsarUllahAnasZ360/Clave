@@ -123,23 +123,36 @@ is_next_server_under_project_stack() {
 if $USE_POWERSHELL; then
   KILLED=0
 
+  win_kill_pid() {
+    local pid="$1"
+    local label="$2"
+    echo "Killing $label (PID $pid)"
+    taskkill.exe //PID "$pid" //F 2>&1 | tr -d '\r' || true
+    sleep 0.3
+    # Verify the process is dead; retry via PowerShell if not
+    if netstat.exe -ano 2>/dev/null | tr -d '\r' | grep -q ":${PORT} .*LISTENING.*${pid}"; then
+      echo "  PID $pid survived taskkill, retrying via PowerShell..."
+      powershell.exe -NoProfile -Command "Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue" 2>/dev/null || true
+      sleep 0.5
+    fi
+  }
+
   # Kill processes listening on the dev port
   while IFS= read -r line; do
     pid=$(echo "$line" | tr -s ' ' | tr -d '\r' | rev | cut -d' ' -f1 | rev)
     if [[ -n "$pid" && "$pid" != "0" ]]; then
-      echo "Killing port $PORT listener (PID $pid)"
-      taskkill.exe //PID "$pid" //F >>/dev/null 2>&1 || true
+      win_kill_pid "$pid" "port $PORT listener"
       KILLED=$((KILLED + 1))
     fi
   done < <(netstat.exe -ano 2>/dev/null | grep ":${PORT} " | grep "LISTENING" | tr -d '\r')
 
-  # Kill stale convex/esbuild processes
+  # Kill stale convex/esbuild processes (extract PID from column 2 of tasklist)
   for name in convex esbuild; do
     while IFS= read -r line; do
-      pid=$(echo "$line" | tr -s ' ' | tr -d '\r' | rev | cut -d' ' -f1 | rev)
-      if [[ -n "$pid" && "$pid" != "0" ]]; then
+      pid=$(echo "$line" | tr -s ' ' | tr -d '\r' | awk '{print $2}')
+      if [[ -n "$pid" && "$pid" =~ ^[0-9]+$ && "$pid" != "0" ]]; then
         echo "Killed stale $name (PID $pid)"
-        taskkill.exe //PID "$pid" //F >>/dev/null 2>&1 || true
+        taskkill.exe //PID "$pid" //F 2>&1 | tr -d '\r' || true
         KILLED=$((KILLED + 1))
       fi
     done < <(tasklist.exe 2>/dev/null | grep -i "^${name}" | tr -d '\r')
@@ -149,6 +162,12 @@ if $USE_POWERSHELL; then
     echo "Port $PORT is free"
   else
     sleep 1
+    # Final verification
+    if netstat.exe -ano 2>/dev/null | tr -d '\r' | grep -q ":${PORT} .*LISTENING"; then
+      echo "WARNING: port $PORT is still in use after cleanup"
+    else
+      echo "Port $PORT is now free"
+    fi
   fi
 else
   # ── Unix port cleanup ─────────────────────────────────────────────────
