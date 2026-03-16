@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-// @ts-ignore — resolved by Convex bundler at deploy time
+// @ts-expect-error — resolved by Convex bundler at deploy time
 import { GOOGLE_CHAT_DEFAULT_ALLOWED_ACTION_IDS } from "../src/lib/chat/google-chat/interaction-contract";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -48,11 +48,7 @@ const connectionDocValidator = v.object({
 	marketplaceProjectNumber: v.optional(v.string()),
 	encryptedCredentials: v.optional(v.string()),
 	credentialSource: v.optional(
-		v.union(
-			v.literal("marketplace"),
-			v.literal("byosa"),
-			v.literal("global"),
-		),
+		v.union(v.literal("marketplace"), v.literal("byosa"), v.literal("global")),
 	),
 	createdAt: v.number(),
 	updatedAt: v.number(),

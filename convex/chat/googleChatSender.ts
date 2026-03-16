@@ -21,9 +21,7 @@ function getChatClient(credentialsJson?: string) {
 		private_key?: string;
 	};
 	if (!credentials.client_email || !credentials.private_key) {
-		throw new Error(
-			"Credentials must include client_email and private_key",
-		);
+		throw new Error("Credentials must include client_email and private_key");
 	}
 
 	const auth = new google.auth.JWT(

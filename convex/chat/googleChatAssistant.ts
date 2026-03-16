@@ -95,7 +95,11 @@ function extractMessageText(message: {
 
 function getLatestAssistantMessage(
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	messages: Array<{ text?: string; tool?: boolean; message?: Record<string, any> }>,
+	messages: Array<{
+		text?: string;
+		tool?: boolean;
+		message?: Record<string, any>;
+	}>,
 ) {
 	// listMessages returns newest-first, so iterate from the start.
 	// Skip tool-call messages (tool: true) — we want the text response.
