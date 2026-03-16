@@ -2,7 +2,12 @@
 
 import { makeFunctionReference } from "convex/server";
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+
+// Tests run without credentials — allow global connections
+beforeAll(() => {
+	process.env.DEV_MODE = "true";
+});
 import type { Id } from "../../../convex/_generated/dataModel";
 import schema from "../../../convex/schema";
 

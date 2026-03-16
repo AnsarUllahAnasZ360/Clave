@@ -70,10 +70,8 @@ const listPendingApprovalsForThreadRef = makeFunctionReference<
 function extractMessageText(message: {
 	text?: string;
 	tool?: boolean;
-	message?: {
-		role?: string;
-		content?: unknown;
-	};
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	message?: Record<string, any>;
 }): string | null {
 	// Prefer the convenience `text` field from @convex-dev/agent
 	if (message.text?.trim()) return message.text.trim();
@@ -96,7 +94,8 @@ function extractMessageText(message: {
 }
 
 function getLatestAssistantMessage(
-	messages: Array<{ text?: string; tool?: boolean; message?: { role?: string } }>,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	messages: Array<{ text?: string; tool?: boolean; message?: Record<string, any> }>,
 ) {
 	// listMessages returns newest-first, so iterate from the start.
 	// Skip tool-call messages (tool: true) — we want the text response.
@@ -261,18 +260,6 @@ export const dispatchMention = internalAction({
 			paginationOpts: { numItems: 30, cursor: null },
 		});
 		const latestAssistant = getLatestAssistantMessage(listed.page);
-		if (latestAssistant) {
-			console.log("[gchat-debug] latestAssistant", {
-				hasText: !!latestAssistant.text,
-				tool: latestAssistant.tool,
-				role: latestAssistant.message?.role,
-				contentType: typeof latestAssistant.message?.content,
-				isArray: Array.isArray(latestAssistant.message?.content),
-				textPreview: latestAssistant.text?.slice(0, 100),
-			});
-		} else {
-			console.log("[gchat-debug] no assistant message found in", listed.page.length, "messages");
-		}
 		const assistantText = latestAssistant
 			? (extractMessageText(latestAssistant) ?? "Processed your request.")
 			: "Processed your request.";
