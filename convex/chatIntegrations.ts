@@ -46,6 +46,14 @@ const connectionDocValidator = v.object({
 	marketplaceInstallId: v.optional(v.string()),
 	marketplaceInstalledAt: v.optional(v.number()),
 	marketplaceProjectNumber: v.optional(v.string()),
+	encryptedCredentials: v.optional(v.string()),
+	credentialSource: v.optional(
+		v.union(
+			v.literal("marketplace"),
+			v.literal("byosa"),
+			v.literal("global"),
+		),
+	),
 	createdAt: v.number(),
 	updatedAt: v.number(),
 });
@@ -158,9 +166,17 @@ export const getConnectionStatus = query({
 				.first(),
 		]);
 
+		// Strip encrypted credentials from client-facing response
+		const safeConnection = connection
+			? {
+					...connection,
+					encryptedCredentials: undefined,
+				}
+			: null;
+
 		return {
 			provider,
-			connection: connection ?? null,
+			connection: safeConnection,
 			policy: policy ?? null,
 		};
 	},
@@ -176,12 +192,42 @@ export const connect = mutation({
 		externalAppName: v.optional(v.string()),
 		marketplaceInstallId: v.optional(v.string()),
 		marketplaceProjectNumber: v.optional(v.string()),
+		encryptedCredentials: v.optional(v.string()),
+		credentialSource: v.optional(
+			v.union(
+				v.literal("marketplace"),
+				v.literal("byosa"),
+				v.literal("global"),
+			),
+		),
 	},
 	returns: v.id("chatConnections"),
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceAdmin(ctx, args.workspaceId);
 		const provider = resolveProvider(args.provider);
 		const now = Date.now();
+
+		// Infer credential source if not provided
+		const credentialSource =
+			args.credentialSource ??
+			(args.encryptedCredentials
+				? "byosa"
+				: args.marketplaceProjectNumber
+					? "marketplace"
+					: "global");
+
+		// In production, require either marketplace or BYOSA credentials
+		const devMode = process.env.DEV_MODE === "true";
+		if (
+			!devMode &&
+			credentialSource === "global" &&
+			!args.marketplaceProjectNumber &&
+			!args.encryptedCredentials
+		) {
+			throw new ConvexError(
+				"Production requires either a Marketplace installation or a custom service account. Use dev mode for global credential connections.",
+			);
+		}
 
 		const existingConnection = await ctx.db
 			.query("chatConnections")
@@ -200,6 +246,13 @@ export const connect = mutation({
 			}),
 		};
 
+		const credentialFields = {
+			credentialSource,
+			...(args.encryptedCredentials !== undefined && {
+				encryptedCredentials: args.encryptedCredentials,
+			}),
+		};
+
 		const connectionId = existingConnection
 			? existingConnection._id
 			: await ctx.db.insert("chatConnections", {
@@ -211,6 +264,7 @@ export const connect = mutation({
 					externalAppId: args.externalAppId,
 					externalAppName: args.externalAppName,
 					...marketplaceFields,
+					...credentialFields,
 					installedBy: userId,
 					installedAt: now,
 					createdAt: now,
@@ -225,6 +279,7 @@ export const connect = mutation({
 				externalAppId: args.externalAppId,
 				externalAppName: args.externalAppName,
 				...marketplaceFields,
+				...credentialFields,
 				installedBy: userId,
 				installedAt: now,
 				disconnectedAt: undefined,
@@ -281,6 +336,8 @@ export const disconnect = mutation({
 			status: "disconnected",
 			disconnectedAt: now,
 			updatedAt: now,
+			encryptedCredentials: undefined,
+			credentialSource: undefined,
 		});
 
 		return null;
@@ -558,5 +615,40 @@ export const recordWebhookHealthInternal = internalMutation({
 		});
 
 		return null;
+	},
+});
+
+export const getConnectionCredentials = internalQuery({
+	args: {
+		workspaceId: v.id("workspaces"),
+		provider: providerValidator,
+	},
+	returns: v.union(
+		v.object({
+			credentialSource: v.union(
+				v.literal("marketplace"),
+				v.literal("byosa"),
+				v.literal("global"),
+			),
+			encryptedCredentials: v.optional(v.string()),
+		}),
+		v.null(),
+	),
+	handler: async (ctx, args) => {
+		const connection = await ctx.db
+			.query("chatConnections")
+			.withIndex("by_workspace_provider", (q) =>
+				q.eq("workspaceId", args.workspaceId).eq("provider", args.provider),
+			)
+			.first();
+
+		if (!connection || connection.status !== "connected") {
+			return null;
+		}
+
+		return {
+			credentialSource: connection.credentialSource ?? "global",
+			encryptedCredentials: connection.encryptedCredentials,
+		};
 	},
 });

@@ -69,22 +69,43 @@ const listPendingApprovalsForThreadRef = makeFunctionReference<
 
 function extractMessageText(message: {
 	text?: string;
+	tool?: boolean;
 	message?: {
 		role?: string;
 		content?: unknown;
 	};
 }): string | null {
+	// Prefer the convenience `text` field from @convex-dev/agent
 	if (message.text?.trim()) return message.text.trim();
 	const content = message.message?.content;
-	return typeof content === "string" && content.trim().length > 0
-		? content.trim()
-		: null;
+	if (typeof content === "string" && content.trim().length > 0) {
+		return content.trim();
+	}
+	// Handle AI SDK array content format: [{type: "text", text: "..."}, ...]
+	if (Array.isArray(content)) {
+		const textParts = content
+			.filter(
+				(part: { type?: string; text?: string }) =>
+					part.type === "text" && typeof part.text === "string",
+			)
+			.map((part: { text: string }) => part.text)
+			.join("");
+		if (textParts.trim().length > 0) return textParts.trim();
+	}
+	return null;
 }
 
 function getLatestAssistantMessage(
-	messages: Array<{ message?: { role?: string } }>,
+	messages: Array<{ text?: string; tool?: boolean; message?: { role?: string } }>,
 ) {
-	// listMessages returns newest-first, so iterate from the start
+	// listMessages returns newest-first, so iterate from the start.
+	// Skip tool-call messages (tool: true) — we want the text response.
+	for (const entry of messages) {
+		if (entry.message?.role === "assistant" && !entry.tool) {
+			return entry;
+		}
+	}
+	// Fallback: return any assistant message
 	for (const entry of messages) {
 		if (entry.message?.role === "assistant") {
 			return entry;
@@ -240,6 +261,18 @@ export const dispatchMention = internalAction({
 			paginationOpts: { numItems: 30, cursor: null },
 		});
 		const latestAssistant = getLatestAssistantMessage(listed.page);
+		if (latestAssistant) {
+			console.log("[gchat-debug] latestAssistant", {
+				hasText: !!latestAssistant.text,
+				tool: latestAssistant.tool,
+				role: latestAssistant.message?.role,
+				contentType: typeof latestAssistant.message?.content,
+				isArray: Array.isArray(latestAssistant.message?.content),
+				textPreview: latestAssistant.text?.slice(0, 100),
+			});
+		} else {
+			console.log("[gchat-debug] no assistant message found in", listed.page.length, "messages");
+		}
 		const assistantText = latestAssistant
 			? (extractMessageText(latestAssistant) ?? "Processed your request.")
 			: "Processed your request.";
