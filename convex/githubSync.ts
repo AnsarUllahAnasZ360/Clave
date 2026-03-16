@@ -74,11 +74,12 @@ export const listPullRequests = query({
 					.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0];
 		if (!activeConnection) return [];
 
-		const prs = args.state
+		const state = args.state;
+		const prs = state
 			? await ctx.db
 					.query("githubPullRequests")
 					.withIndex("by_project_state", (idx) =>
-						idx.eq("projectId", args.projectId).eq("state", args.state!),
+						idx.eq("projectId", args.projectId).eq("state", state),
 					)
 					.order("desc")
 					.take((args.limit ?? 50) * 2)
@@ -161,10 +162,11 @@ export const listLinkedPrs = query({
 			.collect();
 
 		if (!issue.projectId) return linkedPrs;
+		const projectId = issue.projectId;
 
 		const connections = await ctx.db
 			.query("githubConnections")
-			.withIndex("by_project", (q) => q.eq("projectId", issue.projectId!))
+			.withIndex("by_project", (q) => q.eq("projectId", projectId))
 			.collect();
 		const active = [...connections]
 			.filter((c) => c.status === "active")
@@ -183,11 +185,12 @@ export const listLinkedCommits = query({
 		if (!issue) throw new ConvexError("Issue not found");
 		await requireWorkspaceMember(ctx, issue.workspaceId);
 
-		const activeConnectionId = issue.projectId
+		const pid = issue.projectId;
+		const activeConnectionId = pid
 			? [
 					...(await ctx.db
 						.query("githubConnections")
-						.withIndex("by_project", (q) => q.eq("projectId", issue.projectId!))
+						.withIndex("by_project", (q) => q.eq("projectId", pid))
 						.collect()),
 				]
 					.filter((c) => c.status === "active")

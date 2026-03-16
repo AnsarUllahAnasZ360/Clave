@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-// @ts-expect-error — resolved by Convex bundler at deploy time
+// biome-ignore lint/suspicious/noTsIgnore: resolved by Convex bundler at deploy time
+// @ts-ignore — resolved by Convex bundler at deploy time
 import { GOOGLE_CHAT_DEFAULT_ALLOWED_ACTION_IDS } from "../src/lib/chat/google-chat/interaction-contract";
 import type { Id } from "./_generated/dataModel";
 import {

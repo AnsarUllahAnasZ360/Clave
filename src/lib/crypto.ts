@@ -7,9 +7,7 @@ const ALGORITHM = "AES-GCM";
 const IV_LENGTH = 12; // 96-bit IV for AES-GCM
 const KEY_LENGTH = 32; // 256-bit key
 
-function getEncryptionKey(
-	envVarName = "GITHUB_TOKEN_ENCRYPTION_KEY",
-): string {
+function getEncryptionKey(envVarName = "GITHUB_TOKEN_ENCRYPTION_KEY"): string {
 	const key = process.env[envVarName];
 	if (!key) {
 		throw new Error(`${envVarName} environment variable is required`);

@@ -299,6 +299,7 @@ export const sendMessage = action({
 			threadId,
 			prompt,
 			modelId,
+			// biome-ignore lint/correctness/noUnusedFunctionParameters: reserved for future routing logic
 			isFirstMessage,
 			attachments,
 			selectedMcpServerIds,

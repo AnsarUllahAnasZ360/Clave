@@ -70,8 +70,7 @@ const listPendingApprovalsForThreadRef = makeFunctionReference<
 function extractMessageText(message: {
 	text?: string;
 	tool?: boolean;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	message?: Record<string, any>;
+	message?: Record<string, unknown>;
 }): string | null {
 	// Prefer the convenience `text` field from @convex-dev/agent
 	if (message.text?.trim()) return message.text.trim();
@@ -94,11 +93,10 @@ function extractMessageText(message: {
 }
 
 function getLatestAssistantMessage(
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	messages: Array<{
 		text?: string;
 		tool?: boolean;
-		message?: Record<string, any>;
+		message?: Record<string, unknown>;
 	}>,
 ) {
 	// listMessages returns newest-first, so iterate from the start.

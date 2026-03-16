@@ -275,7 +275,14 @@ export function GoogleChatIntegrationsPane() {
 		} finally {
 			setIsValidatingCreds(false);
 		}
-	}, [workspace, connect, webhookEndpoint, appName, audience, serviceAccountJson]);
+	}, [
+		workspace,
+		connect,
+		webhookEndpoint,
+		appName,
+		audience,
+		serviceAccountJson,
+	]);
 
 	const handleDisconnect = useCallback(async () => {
 		if (!workspace) return;
@@ -466,9 +473,7 @@ export function GoogleChatIntegrationsPane() {
 							<Textarea
 								placeholder='{"type": "service_account", "client_email": "...", ...}'
 								value={serviceAccountJson}
-								onChange={(event) =>
-									setServiceAccountJson(event.target.value)
-								}
+								onChange={(event) => setServiceAccountJson(event.target.value)}
 								rows={4}
 								className="font-mono text-xs"
 							/>

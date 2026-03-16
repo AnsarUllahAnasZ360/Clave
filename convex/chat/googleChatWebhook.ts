@@ -3,7 +3,11 @@
 import { createHash } from "node:crypto";
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
+// biome-ignore lint/suspicious/noTsIgnore: resolved by Convex bundler at deploy time
+// @ts-ignore — resolved by Convex bundler at deploy time
 import { buildGoogleChatIssueActionCard } from "../../src/lib/chat/google-chat/action-card-builders";
+// biome-ignore lint/suspicious/noTsIgnore: resolved by Convex bundler at deploy time
+// @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	buildGoogleChatApprovalActionCard,
 	buildGoogleChatApprovalRequestCard,
@@ -11,6 +15,7 @@ import {
 	buildGoogleChatIssueTriageDraftCard,
 	buildGoogleChatIssueTriageResultCard,
 } from "../../src/lib/chat/google-chat/assistant-card-builders";
+// biome-ignore lint/suspicious/noTsIgnore: resolved by Convex bundler at deploy time
 // @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	buildConversationTraceNote,
@@ -23,6 +28,7 @@ import {
 	parseLooseJsonObject,
 	rankDuplicateCandidates,
 } from "../../src/lib/chat/google-chat/conversation-triage";
+// biome-ignore lint/suspicious/noTsIgnore: resolved by Convex bundler at deploy time
 // @ts-ignore — resolved by Convex bundler at deploy time
 import {
 	isAllowedGoogleChatAction,

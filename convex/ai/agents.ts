@@ -88,12 +88,16 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 			const textOnly = msg.content
 				.filter((p) => p.type === "text")
 				.map((p) => {
-					// biome-ignore lint/suspicious/noExplicitAny: content parts include provider-specific metadata fields
 					const {
+						// provider-specific metadata fields are dropped to avoid Responses API item-ID coupling
 						providerMetadata: _pm,
 						experimental_providerMetadata: _epm,
 						...rest
-					} = p as any;
+					} = p as unknown as {
+						providerMetadata?: unknown;
+						experimental_providerMetadata?: unknown;
+						[key: string]: unknown;
+					};
 					return rest;
 				});
 
@@ -103,7 +107,7 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 					textOnly.length > 0
 						? textOnly
 						: [{ type: "text" as const, text: "[response]" }],
-			} as ModelMessage);
+			} as unknown as ModelMessage);
 			continue;
 		}
 

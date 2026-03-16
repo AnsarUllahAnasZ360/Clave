@@ -4401,7 +4401,14 @@ export const seedDocumentsAndBoards = internalMutation({
 	},
 	handler: async (
 		ctx,
-		{ workspaceId, creatorUserId, userIds, labelIds, projectIds, allIssueIds },
+		{
+			workspaceId,
+			creatorUserId,
+			userIds,
+			labelIds: _labelIds,
+			projectIds,
+			allIssueIds,
+		},
 	) => {
 		const documentIds: Id<"documents">[] = [];
 
@@ -4531,7 +4538,7 @@ export const seedSocialData = internalMutation({
 			projectIds,
 			allIssueIds,
 			documentIds,
-			whiteboardIds,
+			whiteboardIds: _whiteboardIds,
 		},
 	) => {
 		// ── 200 Comments on Issues ──────────────────────────────────────────
@@ -4695,7 +4702,14 @@ export const seedAIAndFinalize = internalMutation({
 	},
 	handler: async (
 		ctx,
-		{ workspaceId, creatorUserId, userIds, projectIds, labelIds, totalIssues },
+		{
+			workspaceId,
+			creatorUserId,
+			userIds,
+			projectIds,
+			labelIds: _labelIds,
+			totalIssues,
+		},
 	) => {
 		// ── 2 AI Teammates ──────────────────────────────────────────────────
 
