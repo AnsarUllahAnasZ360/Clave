@@ -2,7 +2,7 @@ import { createTool } from "@convex-dev/agent";
 import { makeFunctionReference } from "convex/server";
 import { z } from "zod";
 import { internal } from "../../_generated/api";
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import {
 	buildProjectNameMap,
 	buildUserNameMap,
@@ -513,9 +513,17 @@ export const getIssueDetails = createTool({
 		const workspaceId = await resolveWorkspaceId(ctx);
 		const userId = resolveToolUserId(ctx);
 
-		// Fetch issue by identifier or ID
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let issue: any;
+		// Fetch issue by identifier or ID — queries return enriched issue docs with parent
+		let issue:
+			| (Doc<"issues"> & {
+					parent: {
+						_id: Id<"issues">;
+						identifier: string;
+						title: string;
+						status: string;
+					} | null;
+			  })
+			| null;
 
 		if (args.identifier) {
 			issue = await ctx.runQuery(internal.ai.toolQueries.getIssueByIdentifier, {
@@ -547,11 +555,11 @@ export const getIssueDetails = createTool({
 					workspaceId,
 				}),
 				ctx.runQuery(internal.ai.toolQueries.getSubIssues, {
-					parentId: issue._id as Id<"issues">,
+					parentId: issue._id,
 					userId,
 				}),
 				ctx.runQuery(internal.ai.toolQueries.listCommentsByIssue, {
-					issueId: issue._id as Id<"issues">,
+					issueId: issue._id,
 				}),
 			]);
 
@@ -865,9 +873,8 @@ export const getProjectDetails = createTool({
 		const workspaceId = await resolveWorkspaceId(ctx);
 		const userId = resolveToolUserId(ctx);
 
-		// Lookup by ID or slug
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let project: any;
+		// Lookup by ID or slug — queries return full project documents
+		let project: Doc<"projects"> | null;
 
 		if (args.slug) {
 			project = await ctx.runQuery(internal.ai.toolQueries.getProjectBySlug, {

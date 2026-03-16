@@ -12,7 +12,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
-import { Store } from "lucide-react";
+import { KeyRound, Store } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { GoogleChatSubscriptionsPane } from "./GoogleChatSubscriptionsPane";
 import {
@@ -69,6 +70,7 @@ const getConnectionStatusRef = makeFunctionReference<
 			webhookUrl?: string;
 			marketplaceProjectNumber?: string;
 			marketplaceInstallId?: string;
+			credentialSource?: "marketplace" | "byosa" | "global";
 		} | null;
 		policy: {
 			enabled: boolean;
@@ -89,6 +91,8 @@ const connectRef = makeFunctionReference<
 		webhookUrl?: string;
 		authAudience?: string;
 		externalAppName?: string;
+		encryptedCredentials?: string;
+		credentialSource?: "marketplace" | "byosa" | "global";
 	},
 	Id<"chatConnections">
 >("chatIntegrations:connect");
@@ -180,6 +184,10 @@ export function GoogleChatIntegrationsPane() {
 	const [audience, setAudience] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [serviceAccountJson, setServiceAccountJson] = useState("");
+	const [isValidatingCreds, setIsValidatingCreds] = useState(false);
+
+	const isDevMode = process.env.NEXT_PUBLIC_DEV_MODE === "true";
 
 	const webhookEndpoint = useMemo(() => {
 		const configuredUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
@@ -230,6 +238,51 @@ export function GoogleChatIntegrationsPane() {
 			setIsSubmitting(false);
 		}
 	}, [workspace, connect, webhookEndpoint, appName, audience]);
+
+	const handleByosaConnect = useCallback(async () => {
+		if (!workspace || !serviceAccountJson.trim()) return;
+		setIsValidatingCreds(true);
+		try {
+			const res = await fetch("/api/google-chat/encrypt-credentials", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					serviceAccountJson: serviceAccountJson.trim(),
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok) {
+				toast.error(data.error ?? "Failed to validate credentials");
+				return;
+			}
+			await connect({
+				workspaceId: workspace.workspaceId,
+				provider: "google-chat",
+				webhookUrl: webhookEndpoint,
+				externalAppName: appName.trim() || undefined,
+				authAudience: audience.trim() || undefined,
+				encryptedCredentials: data.encryptedCredentials,
+				credentialSource: "byosa",
+			});
+			setServiceAccountJson("");
+			toast.success("Google Chat connected with custom service account");
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: "Failed to connect Google Chat",
+			);
+		} finally {
+			setIsValidatingCreds(false);
+		}
+	}, [
+		workspace,
+		connect,
+		webhookEndpoint,
+		appName,
+		audience,
+		serviceAccountJson,
+	]);
 
 	const handleDisconnect = useCallback(async () => {
 		if (!workspace) return;
@@ -353,6 +406,7 @@ export function GoogleChatIntegrationsPane() {
 			<SettingSection title="Connection">
 				{!isConnected ? (
 					<div className="space-y-4">
+						{/* Option 1: Marketplace */}
 						<div className="rounded-lg border border-sienna-500/30 bg-sienna-500/5 px-4 py-4 space-y-2">
 							<p className="text-sm text-foreground font-medium flex items-center gap-2">
 								<Store className="h-4 w-4 text-sienna-500" />
@@ -375,22 +429,21 @@ export function GoogleChatIntegrationsPane() {
 
 						<div className="flex items-center gap-3 text-xs text-muted-foreground">
 							<div className="h-px flex-1 bg-border" />
-							<span>or set up manually</span>
+							<span>or use your own service account</span>
 							<div className="h-px flex-1 bg-border" />
 						</div>
 
+						{/* Option 2: BYOSA (Bring Your Own Service Account) */}
 						<div className="rounded-lg border border-border bg-muted/30 px-4 py-4 space-y-3">
-							<p className="text-sm text-foreground font-medium">
-								Manual setup
+							<p className="text-sm text-foreground font-medium flex items-center gap-2">
+								<KeyRound className="h-4 w-4 text-muted-foreground" />
+								Custom service account
 							</p>
 							<ol className="list-decimal list-inside space-y-1.5 text-xs text-muted-foreground leading-relaxed">
 								<li>Create a Google Chat app in the Google Cloud Console</li>
+								<li>Create a service account and download the JSON key</li>
 								<li>Set the webhook URL to the endpoint shown below</li>
-								<li>
-									Optionally set the app name and auth audience in Advanced
-									settings
-								</li>
-								<li>Click Connect to activate the integration</li>
+								<li>Paste the service account JSON below and connect</li>
 							</ol>
 						</div>
 
@@ -411,6 +464,19 @@ export function GoogleChatIntegrationsPane() {
 									<Copy className="h-3.5 w-3.5" />
 								</Button>
 							</div>
+						</SettingRow>
+
+						<SettingRow
+							label="Service account JSON"
+							description="Paste your GCP service account key file contents. The credentials are encrypted before storage."
+						>
+							<Textarea
+								placeholder='{"type": "service_account", "client_email": "...", ...}'
+								value={serviceAccountJson}
+								onChange={(event) => setServiceAccountJson(event.target.value)}
+								rows={4}
+								className="font-mono text-xs"
+							/>
 						</SettingRow>
 
 						<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -450,13 +516,40 @@ export function GoogleChatIntegrationsPane() {
 						</Collapsible>
 
 						<Button
-							onClick={handleConnect}
-							disabled={isSubmitting || !workspace}
+							onClick={handleByosaConnect}
+							disabled={
+								isValidatingCreds ||
+								isSubmitting ||
+								!workspace ||
+								!serviceAccountJson.trim()
+							}
 							className="inline-flex items-center gap-2"
 						>
-							<ChatCircleText className="h-4 w-4" />
-							Connect Google Chat
+							<KeyRound className="h-4 w-4" />
+							{isValidatingCreds
+								? "Validating..."
+								: "Connect with service account"}
 						</Button>
+
+						{/* Dev mode: bare connect using global GOOGLE_CHAT_CREDENTIALS env var */}
+						{isDevMode && (
+							<>
+								<div className="flex items-center gap-3 text-xs text-muted-foreground">
+									<div className="h-px flex-1 bg-border" />
+									<span>or connect with global credentials (dev only)</span>
+									<div className="h-px flex-1 bg-border" />
+								</div>
+								<Button
+									variant="outline"
+									onClick={handleConnect}
+									disabled={isSubmitting || !workspace}
+									className="inline-flex items-center gap-2"
+								>
+									<ChatCircleText className="h-4 w-4" />
+									Connect Google Chat
+								</Button>
+							</>
+						)}
 					</div>
 				) : (
 					<div className="space-y-4">
@@ -469,10 +562,22 @@ export function GoogleChatIntegrationsPane() {
 									<Plug className="h-3.5 w-3.5" />
 									Connected
 								</span>
-								{connection?.marketplaceProjectNumber && (
+								{(connection?.credentialSource === "marketplace" ||
+									connection?.marketplaceProjectNumber) && (
 									<span className="inline-flex items-center gap-1 rounded-md border border-sienna-500/40 bg-sienna-500/10 px-2 py-1 text-xs text-sienna-500">
 										<Store className="h-3 w-3" />
 										Marketplace
+									</span>
+								)}
+								{connection?.credentialSource === "byosa" && (
+									<span className="inline-flex items-center gap-1 rounded-md border border-blue-500/40 bg-blue-500/10 px-2 py-1 text-xs text-blue-400">
+										<KeyRound className="h-3 w-3" />
+										Custom SA
+									</span>
+								)}
+								{connection?.credentialSource === "global" && (
+									<span className="inline-flex items-center gap-1 rounded-md border border-neutral-500/40 bg-neutral-500/10 px-2 py-1 text-xs text-neutral-400">
+										Global
 									</span>
 								)}
 							</div>

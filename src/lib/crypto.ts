@@ -1,5 +1,5 @@
 /**
- * AES-256-GCM encryption utilities for GitHub OAuth tokens.
+ * AES-256-GCM encryption utilities.
  * Server-side only — never import this from client components.
  */
 
@@ -7,16 +7,14 @@ const ALGORITHM = "AES-GCM";
 const IV_LENGTH = 12; // 96-bit IV for AES-GCM
 const KEY_LENGTH = 32; // 256-bit key
 
-function getEncryptionKey(): string {
-	const key = process.env.GITHUB_TOKEN_ENCRYPTION_KEY;
+function getEncryptionKey(envVarName = "GITHUB_TOKEN_ENCRYPTION_KEY"): string {
+	const key = process.env[envVarName];
 	if (!key) {
-		throw new Error(
-			"GITHUB_TOKEN_ENCRYPTION_KEY environment variable is required",
-		);
+		throw new Error(`${envVarName} environment variable is required`);
 	}
 	if (key.length !== KEY_LENGTH * 2) {
 		throw new Error(
-			`GITHUB_TOKEN_ENCRYPTION_KEY must be a ${KEY_LENGTH * 2}-character hex string (${KEY_LENGTH} bytes)`,
+			`${envVarName} must be a ${KEY_LENGTH * 2}-character hex string (${KEY_LENGTH} bytes)`,
 		);
 	}
 	return key;
@@ -38,8 +36,11 @@ async function importKey(hexKey: string): Promise<CryptoKey> {
  * Encrypt a plaintext string using AES-256-GCM.
  * Returns a base64-encoded string containing IV + ciphertext + auth tag.
  */
-export async function encryptToken(plaintext: string): Promise<string> {
-	const hexKey = getEncryptionKey();
+export async function encryptToken(
+	plaintext: string,
+	envVarName?: string,
+): Promise<string> {
+	const hexKey = getEncryptionKey(envVarName);
 	const key = await importKey(hexKey);
 
 	const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
@@ -120,8 +121,11 @@ export async function verifyOAuthState(
 /**
  * Decrypt a base64-encoded AES-256-GCM ciphertext back to plaintext.
  */
-export async function decryptToken(encrypted: string): Promise<string> {
-	const hexKey = getEncryptionKey();
+export async function decryptToken(
+	encrypted: string,
+	envVarName?: string,
+): Promise<string> {
+	const hexKey = getEncryptionKey(envVarName);
 	const key = await importKey(hexKey);
 
 	const combined = Uint8Array.from(atob(encrypted), (c) => c.charCodeAt(0));

@@ -323,14 +323,17 @@ export const handleWebhook = action({
 		}
 
 		// Parse the payload
-		let payload: any;
+		let payload: unknown;
 		try {
-			payload = JSON.parse(args.rawBody);
+			payload = JSON.parse(args.rawBody) as unknown;
 		} catch {
 			return { status: "error", message: "Invalid JSON payload" };
 		}
 
-		const fullName = payload.repository?.full_name;
+		const repoPayload = payload as {
+			repository?: { full_name?: string; default_branch?: string };
+		};
+		const fullName = repoPayload.repository?.full_name;
 		if (!fullName || !fullName.includes("/")) {
 			return { status: "error", message: "Missing repository.full_name" };
 		}
@@ -377,7 +380,7 @@ export const handleWebhook = action({
 
 		// ── Dispatch by event type ───────────────────────────────────────
 		if (args.event === "push") {
-			const pushPayload = payload as PushPayload;
+			const pushPayload = repoPayload as PushPayload;
 			const expectedRef = `refs/heads/${connection.defaultBranch}`;
 			if (pushPayload.ref !== expectedRef) {
 				return {
@@ -434,7 +437,7 @@ export const handleWebhook = action({
 			});
 
 			console.log(
-				`[githubWebhook] Queued PR processing for ${fullName} (#${payload.pull_request?.number})`,
+				`[githubWebhook] Queued PR processing for ${fullName} (#${(payload as { pull_request?: { number?: number } }).pull_request?.number})`,
 			);
 			return { status: "queued" };
 		}
@@ -476,7 +479,7 @@ export const handleWebhook = action({
 			});
 
 			console.log(
-				`[githubWebhook] Queued issue processing for ${fullName} (#${payload.issue?.number})`,
+				`[githubWebhook] Queued issue processing for ${fullName} (#${(payload as { issue?: { number?: number } }).issue?.number})`,
 			);
 			return { status: "queued" };
 		}

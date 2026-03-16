@@ -528,10 +528,11 @@ export const createDocument = internalMutation({
 		});
 
 		// Notify project members
-		if (args.projectId) {
+		const projectId = args.projectId;
+		if (projectId) {
 			const members = await ctx.db
 				.query("projectMembers")
-				.withIndex("by_project", (q) => q.eq("projectId", args.projectId!))
+				.withIndex("by_project", (q) => q.eq("projectId", projectId))
 				.collect();
 			const memberUserIds = members.map((m) => m.userId);
 			await notifyUsers(ctx, memberUserIds, {

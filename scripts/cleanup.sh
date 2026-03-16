@@ -127,7 +127,7 @@ if $USE_POWERSHELL; then
     local pid="$1"
     local label="$2"
     echo "Killing $label (PID $pid)"
-    taskkill.exe //PID "$pid" //F 2>&1 | tr -d '\r' || true
+    powershell.exe -NoProfile -Command "Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue"
     sleep 0.3
     # Verify the process is dead; retry via PowerShell if not
     if netstat.exe -ano 2>/dev/null | tr -d '\r' | grep -q ":${PORT} .*LISTENING.*${pid}"; then
@@ -152,7 +152,7 @@ if $USE_POWERSHELL; then
       pid=$(echo "$line" | tr -s ' ' | tr -d '\r' | awk '{print $2}')
       if [[ -n "$pid" && "$pid" =~ ^[0-9]+$ && "$pid" != "0" ]]; then
         echo "Killed stale $name (PID $pid)"
-        taskkill.exe //PID "$pid" //F 2>&1 | tr -d '\r' || true
+        cmd.exe //c "taskkill /PID $pid /F" 2>&1 | tr -d '\r' || true
         KILLED=$((KILLED + 1))
       fi
     done < <(tasklist.exe 2>/dev/null | grep -i "^${name}" | tr -d '\r')

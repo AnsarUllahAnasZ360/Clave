@@ -14,6 +14,7 @@ const MAX_UPDATES_PER_READ = 1000;
 const MAX_UPDATES_PER_COMPACTION = 2000;
 
 async function bootstrapSnapshotFromLegacy(
+	// biome-ignore lint/suspicious/noExplicitAny: mutation context duck-typed
 	ctx: any,
 	documentId: Id<"documents">,
 ): Promise<Id<"yjsSnapshotsV3"> | null> {

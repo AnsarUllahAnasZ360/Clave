@@ -5,13 +5,14 @@ import { v } from "convex/values";
 import { google } from "googleapis";
 import type { Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
+import { decryptChatCredentials } from "./chatCryptoUtils";
 
 // ---------------------------------------------------------------------------
 // Google Chat API client via googleapis
 // ---------------------------------------------------------------------------
 
-function getChatClient() {
-	const raw = process.env.GOOGLE_CHAT_CREDENTIALS;
+function getChatClient(credentialsJson?: string) {
+	const raw = credentialsJson ?? process.env.GOOGLE_CHAT_CREDENTIALS;
 	if (!raw) {
 		throw new Error("GOOGLE_CHAT_CREDENTIALS is required for relay delivery");
 	}
@@ -20,9 +21,7 @@ function getChatClient() {
 		private_key?: string;
 	};
 	if (!credentials.client_email || !credentials.private_key) {
-		throw new Error(
-			"GOOGLE_CHAT_CREDENTIALS must include client_email and private_key",
-		);
+		throw new Error("Credentials must include client_email and private_key");
 	}
 
 	const auth = new google.auth.JWT(
@@ -60,6 +59,18 @@ async function resolveDmSpace(
 // ---------------------------------------------------------------------------
 // Reference to prepareNotificationCard in googleChatCards.ts
 // ---------------------------------------------------------------------------
+
+const getConnectionCredentialsRef = makeFunctionReference<
+	"query",
+	{
+		workspaceId: Id<"workspaces">;
+		provider: "google-chat";
+	},
+	{
+		credentialSource: "marketplace" | "byosa" | "global";
+		encryptedCredentials?: string;
+	} | null
+>("chatIntegrations:getConnectionCredentials");
 
 const prepareNotificationCardRef = makeFunctionReference<
 	"query",
@@ -118,9 +129,25 @@ export const sendRelayMessage = internalAction({
 			unknown
 		>;
 
+		// Resolve per-workspace credentials, falling back to global env var
+		let credentialsJson: string | undefined;
+		try {
+			const creds = await ctx.runQuery(getConnectionCredentialsRef, {
+				workspaceId: args.workspaceId,
+				provider: "google-chat",
+			});
+			if (creds?.credentialSource === "byosa" && creds.encryptedCredentials) {
+				credentialsJson = await decryptChatCredentials(
+					creds.encryptedCredentials,
+				);
+			}
+		} catch {
+			// Fall through to global credentials
+		}
+
 		let chatClient: ReturnType<typeof getChatClient>;
 		try {
-			chatClient = getChatClient();
+			chatClient = getChatClient(credentialsJson);
 		} catch (error) {
 			return {
 				status: "failed" as const,

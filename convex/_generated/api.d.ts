@@ -91,6 +91,7 @@ import type * as chatIdentityLinks from "../chatIdentityLinks.js";
 import type * as chatIntegrations from "../chatIntegrations.js";
 import type * as chatRelay from "../chatRelay.js";
 import type * as chatVerificationCodes from "../chatVerificationCodes.js";
+import type * as chat_chatCryptoUtils from "../chat/chatCryptoUtils.js";
 import type * as chat_googleChatAssistant from "../chat/googleChatAssistant.js";
 import type * as chat_googleChatCards from "../chat/googleChatCards.js";
 import type * as chat_googleChatSender from "../chat/googleChatSender.js";
@@ -249,6 +250,7 @@ declare const fullApi: ApiFromModules<{
   chatIntegrations: typeof chatIntegrations;
   chatRelay: typeof chatRelay;
   chatVerificationCodes: typeof chatVerificationCodes;
+  "chat/chatCryptoUtils": typeof chat_chatCryptoUtils;
   "chat/googleChatAssistant": typeof chat_googleChatAssistant;
   "chat/googleChatCards": typeof chat_googleChatCards;
   "chat/googleChatSender": typeof chat_googleChatSender;

@@ -463,19 +463,35 @@ const normalizeUnsupportedWarningsMiddleware: LanguageModelMiddleware = {
  * message/user content parts still carry their original IDs, the API
  * will reject the request because paired reasoning IDs are missing.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function stripContentPartIds(parts: any[]): any[] {
+function stripContentPartIds(
+	parts: Array<
+		| { providerMetadata?: unknown; experimental_providerMetadata?: unknown }
+		| Record<string, unknown>
+	>,
+): Array<Record<string, unknown>> {
 	return parts.map((part) => {
-		if (part.providerMetadata || part.experimental_providerMetadata) {
-			const { providerMetadata, experimental_providerMetadata, ...rest } = part;
+		if (
+			part &&
+			typeof part === "object" &&
+			("providerMetadata" in part || "experimental_providerMetadata" in part)
+		) {
+			const {
+				providerMetadata: _pm,
+				experimental_providerMetadata: _epm,
+				...rest
+			} = part as {
+				providerMetadata?: unknown;
+				experimental_providerMetadata?: unknown;
+			} & Record<string, unknown>;
 			return rest;
 		}
-		return part;
+		return part as Record<string, unknown>;
 	});
 }
 
 const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 	specificationVersion: "v3",
+	// @ts-expect-error — AI SDK v3/v4 type mismatch on content part types
 	transformParams: async ({ params }) => {
 		const prompt = params.prompt;
 		if (!prompt || prompt.length === 0) return params;
@@ -502,6 +518,7 @@ const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 				return {
 					...msg,
 					providerMetadata: undefined,
+					// @ts-expect-error — AI SDK content part types
 					content: stripContentPartIds(msg.content),
 				};
 			}
@@ -524,6 +541,7 @@ const stripReasoningFromHistoryMiddleware: LanguageModelMiddleware = {
 
 			return {
 				...msg,
+				// @ts-expect-error — AI SDK content part types
 				content: stripContentPartIds(filtered),
 				providerMetadata: undefined,
 			};

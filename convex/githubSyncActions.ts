@@ -69,6 +69,7 @@ function mapClaveStatusToGithubLabels(status: string): string[] {
 }
 
 async function autoDetectLinkedIssue(
+	// biome-ignore lint/suspicious/noExplicitAny: duck-typed action context
 	ctx: { runQuery: (ref: any, args: any) => Promise<any> },
 	workspaceId: Id<"workspaces">,
 	branchName: string,

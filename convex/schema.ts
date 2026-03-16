@@ -1126,6 +1126,14 @@ export default defineSchema({
 		marketplaceInstallId: v.optional(v.string()),
 		marketplaceInstalledAt: v.optional(v.number()),
 		marketplaceProjectNumber: v.optional(v.string()),
+		encryptedCredentials: v.optional(v.string()),
+		credentialSource: v.optional(
+			v.union(
+				v.literal("marketplace"),
+				v.literal("byosa"),
+				v.literal("global"),
+			),
+		),
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	})

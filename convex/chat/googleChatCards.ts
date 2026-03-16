@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+// biome-ignore lint/suspicious/noTsIgnore: resolved by Convex bundler at deploy time
+// @ts-ignore — resolved by Convex bundler at deploy time
 import { buildGoogleChatCardMessage } from "../../src/lib/chat/google-chat/card-builders";
 import { internalQuery } from "../_generated/server";
 
