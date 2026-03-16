@@ -59,7 +59,7 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 					) {
 						textParts.push(part.text.trim());
 					} else if (part.type === "tool-call") {
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any
+						// biome-ignore lint/suspicious/noExplicitAny: tool-call content shape is provider-specific
 						const tc = part as any;
 						textParts.push(`[Used tool: ${tc.toolName ?? "unknown"}]`);
 					}
@@ -88,7 +88,7 @@ function sanitizeForResponsesApi(messages: ModelMessage[]): ModelMessage[] {
 			const textOnly = msg.content
 				.filter((p) => p.type === "text")
 				.map((p) => {
-					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					// biome-ignore lint/suspicious/noExplicitAny: content parts include provider-specific metadata fields
 					const {
 						providerMetadata: _pm,
 						experimental_providerMetadata: _epm,
