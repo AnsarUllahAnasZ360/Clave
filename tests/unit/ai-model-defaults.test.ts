@@ -6,19 +6,20 @@ import {
 import { DEFAULT_MODEL_ID } from "../../src/lib/ai-models";
 
 describe("AI model defaults", () => {
-	it("uses Kimi K2.5 as the default model across frontend and backend", () => {
-		expect(DEFAULT_MODEL_ID).toBe("kimi-k2.5");
-		expect(DEFAULT_CHAT_MODEL_ID).toBe("kimi-k2.5");
+	it("uses GPT 5.4 as the default model across frontend and backend", () => {
+		expect(DEFAULT_MODEL_ID).toBe("gpt-5.4");
+		expect(DEFAULT_CHAT_MODEL_ID).toBe("gpt-5.4");
 	});
 
-	it("normalizes missing and unknown model ids to Kimi K2.5", () => {
-		expect(normalizeChatModelId()).toBe("kimi-k2.5");
-		expect(normalizeChatModelId("unknown-model")).toBe("kimi-k2.5");
+	it("normalizes missing and unknown model ids to GPT 5.4", () => {
+		expect(normalizeChatModelId()).toBe("gpt-5.4");
+		expect(normalizeChatModelId("unknown-model")).toBe("gpt-5.4");
 	});
 
 	it("preserves supported model ids and known aliases", () => {
-		expect(normalizeChatModelId("gpt-5.2")).toBe("gpt-5.2");
+		expect(normalizeChatModelId("gpt-5.4")).toBe("gpt-5.4");
 		expect(normalizeChatModelId("kimi-k2.5")).toBe("kimi-k2.5");
-		expect(normalizeChatModelId("gpt-5")).toBe("gpt-5.2");
+		expect(normalizeChatModelId("gpt-5")).toBe("gpt-5.4");
+		expect(normalizeChatModelId("gpt-5.2")).toBe("gpt-5.4");
 	});
 });

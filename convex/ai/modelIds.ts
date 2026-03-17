@@ -7,10 +7,10 @@
  * For Azure provider initialization, see ./providers.ts ("use node" only).
  */
 
-export const CHAT_MODEL_IDS = ["kimi-k2.5", "gpt-5.2"] as const;
+export const CHAT_MODEL_IDS = ["kimi-k2.5", "gpt-5.4"] as const;
 export type ChatModelId = (typeof CHAT_MODEL_IDS)[number];
 
-export const DEFAULT_CHAT_MODEL_ID: ChatModelId = "kimi-k2.5";
+export const DEFAULT_CHAT_MODEL_ID: ChatModelId = "gpt-5.4";
 
 const CHAT_MODEL_ID_SET = new Set<string>(CHAT_MODEL_IDS);
 
@@ -23,9 +23,10 @@ const MODEL_ALIASES: Record<string, ChatModelId> = {
 	"kimi-2.5": "kimi-k2.5",
 	"kimmy k2.5": "kimi-k2.5",
 	"kimi k2.5": "kimi-k2.5",
-	"codex-5.2": "gpt-5.2",
-	"gpt-5.0": "gpt-5.2",
-	"gpt-5": "gpt-5.2",
+	"codex-5.4": "gpt-5.4",
+	"gpt-5.0": "gpt-5.4",
+	"gpt-5": "gpt-5.4",
+	"gpt-5.2": "gpt-5.4",
 };
 
 /**

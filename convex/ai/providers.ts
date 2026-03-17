@@ -338,23 +338,23 @@ function getAzure() {
 /** Env var names for each model's deployment */
 const DEPLOYMENT_ENV_VARS: Record<ChatModelId, string[]> = {
 	"kimi-k2.5": ["AZURE_CHAT_MODEL_KIMI_25"],
-	"gpt-5.2": ["AZURE_CHAT_MODEL_GPT_5_2", "AZURE_CHAT_MODEL_GPT_5_0"],
+	"gpt-5.4": ["AZURE_CHAT_MODEL_GPT_5_4", "AZURE_CHAT_MODEL_GPT_5_2"],
 };
 
 type ModelApiVariant = "chat" | "responses";
 
 const MODEL_API_ENV_VARS: Record<ChatModelId, string> = {
 	"kimi-k2.5": "AZURE_CHAT_MODEL_KIMI_25_API",
-	"gpt-5.2": "AZURE_CHAT_MODEL_GPT_5_2_API",
+	"gpt-5.4": "AZURE_CHAT_MODEL_GPT_5_4_API",
 };
 
 const DEFAULT_MODEL_API_VARIANTS: Record<ChatModelId, ModelApiVariant> = {
 	"kimi-k2.5": "chat",
-	"gpt-5.2": "responses",
+	"gpt-5.4": "responses",
 };
 const SUPPORTS_TEMPERATURE_BY_MODEL: Record<ChatModelId, boolean> = {
 	"kimi-k2.5": true,
-	"gpt-5.2": false,
+	"gpt-5.4": false,
 };
 
 function getModelApiVariant(modelId: ChatModelId): ModelApiVariant {
@@ -671,8 +671,8 @@ export const resolveChatModel = (
 const REASONING_EFFORT_BY_MODEL: Partial<
 	Record<ChatModelId, "low" | "medium" | "high">
 > = {
-	// Azure GPT-5.2 in our environment only accepts "medium" for responses API.
-	"gpt-5.2": "medium",
+	// Azure GPT-5.4 in our environment only accepts "medium" for responses API.
+	"gpt-5.4": "medium",
 	"kimi-k2.5": "low",
 };
 

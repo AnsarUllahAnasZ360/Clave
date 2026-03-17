@@ -1,10 +1,9 @@
 "use node";
 
-import { listMessages } from "@convex-dev/agent";
 import type { ModelMessage } from "ai";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import { components } from "../_generated/api";
+import { components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { getClaveAgent } from "../ai/agents";
@@ -67,54 +66,6 @@ const listPendingApprovalsForThreadRef = makeFunctionReference<
 	}>
 >("ai/approval:listPendingApprovalsForThread");
 
-function extractMessageText(message: {
-	text?: string;
-	tool?: boolean;
-	message?: Record<string, unknown>;
-}): string | null {
-	// Prefer the convenience `text` field from @convex-dev/agent
-	if (message.text?.trim()) return message.text.trim();
-	const content = message.message?.content;
-	if (typeof content === "string" && content.trim().length > 0) {
-		return content.trim();
-	}
-	// Handle AI SDK array content format: [{type: "text", text: "..."}, ...]
-	if (Array.isArray(content)) {
-		const textParts = content
-			.filter(
-				(part: { type?: string; text?: string }) =>
-					part.type === "text" && typeof part.text === "string",
-			)
-			.map((part: { text: string }) => part.text)
-			.join("");
-		if (textParts.trim().length > 0) return textParts.trim();
-	}
-	return null;
-}
-
-function getLatestAssistantMessage(
-	messages: Array<{
-		text?: string;
-		tool?: boolean;
-		message?: Record<string, unknown>;
-	}>,
-) {
-	// listMessages returns newest-first, so iterate from the start.
-	// Skip tool-call messages (tool: true) — we want the text response.
-	for (const entry of messages) {
-		if (entry.message?.role === "assistant" && !entry.tool) {
-			return entry;
-		}
-	}
-	// Fallback: return any assistant message
-	for (const entry of messages) {
-		if (entry.message?.role === "assistant") {
-			return entry;
-		}
-	}
-	return null;
-}
-
 export const dispatchMention = internalAction({
 	args: {
 		workspaceId: v.id("workspaces"),
@@ -159,7 +110,9 @@ export const dispatchMention = internalAction({
 			);
 		}
 
-		const { resolvedModelId, model } = resolveChatModel(undefined);
+		// Optional override: Kimi K2.5 can return empty in some contexts; use GPT-5.2 instead
+		const googleChatModelId = process.env.GOOGLE_CHAT_MODEL?.trim() || undefined;
+		const { resolvedModelId, model } = resolveChatModel(googleChatModelId);
 
 		let resolvedThreadId = args.threadId ?? "";
 		if (resolvedThreadId) {
@@ -257,14 +210,59 @@ export const dispatchMention = internalAction({
 			threadId: resolvedThreadId,
 		});
 
-		const listed = await listMessages(ctx, components.agent, {
-			threadId: resolvedThreadId,
-			paginationOpts: { numItems: 30, cursor: null },
-		});
-		const latestAssistant = getLatestAssistantMessage(listed.page);
-		const assistantText = latestAssistant
-			? (extractMessageText(latestAssistant) ?? "Processed your request.")
-			: "Processed your request.";
+		// Try result.text, result.reasoningText (Kimi K2.5 etc.), result.response, then DB
+		let assistantText = "Processed your request.";
+		try {
+			const txt = await result.text;
+			if (txt?.trim()) assistantText = txt.trim();
+		} catch {
+			// fall through
+		}
+		if (assistantText === "Processed your request.") {
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const r = result as any;
+				const reasoningText = await r?.reasoningText;
+				if (typeof reasoningText === "string" && reasoningText.trim()) {
+					assistantText = reasoningText.trim();
+				}
+			} catch {
+				// fall through
+			}
+		}
+		if (assistantText === "Processed your request.") {
+			try {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const resp = await (result as any).response;
+				const lastMsg = resp?.messages?.filter(
+					(m: { role: string }) => m.role === "assistant",
+				)?.pop();
+				if (lastMsg) {
+					const content = lastMsg.content;
+					if (typeof content === "string" && content.trim()) {
+						assistantText = content.trim();
+					} else if (Array.isArray(content)) {
+						const text = content
+							.filter(
+								(p: { type?: string }) =>
+									p.type === "text" || p.type === "reasoning",
+							)
+							.map((p: { text?: string }) => p.text ?? "")
+							.join("\n");
+						if (text.trim()) assistantText = text.trim();
+					}
+				}
+			} catch {
+				// fall through
+			}
+		}
+		if (assistantText === "Processed your request.") {
+			const fromDb = await ctx.runQuery(
+				internal.ai.threads.getLastAssistantMessageText,
+				{ threadId: resolvedThreadId },
+			);
+			if (fromDb?.trim()) assistantText = fromDb.trim();
+		}
 
 		const pendingApprovals = await ctx.runQuery(
 			listPendingApprovalsForThreadRef,
