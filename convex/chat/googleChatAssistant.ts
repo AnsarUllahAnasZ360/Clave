@@ -3,7 +3,7 @@
 import type { ModelMessage } from "ai";
 import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
-import { components, internal } from "../_generated/api";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction } from "../_generated/server";
 import { getClaveAgent } from "../ai/agents";
@@ -111,7 +111,8 @@ export const dispatchMention = internalAction({
 		}
 
 		// Optional override: Kimi K2.5 can return empty in some contexts; use GPT-5.2 instead
-		const googleChatModelId = process.env.GOOGLE_CHAT_MODEL?.trim() || undefined;
+		const googleChatModelId =
+			process.env.GOOGLE_CHAT_MODEL?.trim() || undefined;
 		const { resolvedModelId, model } = resolveChatModel(googleChatModelId);
 
 		let resolvedThreadId = args.threadId ?? "";
@@ -234,9 +235,9 @@ export const dispatchMention = internalAction({
 			try {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				const resp = await (result as any).response;
-				const lastMsg = resp?.messages?.filter(
-					(m: { role: string }) => m.role === "assistant",
-				)?.pop();
+				const lastMsg = resp?.messages
+					?.filter((m: { role: string }) => m.role === "assistant")
+					?.pop();
 				if (lastMsg) {
 					const content = lastMsg.content;
 					if (typeof content === "string" && content.trim()) {

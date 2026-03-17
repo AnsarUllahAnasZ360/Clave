@@ -6,7 +6,12 @@ import {
 import { paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { components } from "../_generated/api";
-import { internalMutation, mutation, query } from "../_generated/server";
+import {
+	internalMutation,
+	internalQuery,
+	mutation,
+	query,
+} from "../_generated/server";
 import { requireWorkspaceMember } from "../lib/auth";
 import { normalizeChatModelId } from "./modelIds";
 
@@ -431,8 +436,42 @@ function extractMessageText(msg: {
 	if (msg.message && typeof msg.message.content === "string") {
 		return msg.message.content;
 	}
+	// Array content (e.g. text parts, reasoning, tool calls)
+	if (msg.message && Array.isArray(msg.message.content)) {
+		const arr = msg.message.content as Array<{ type?: string; text?: string }>;
+		// Prefer text parts; reasoning models (e.g. Kimi K2.5) often put reply in reasoning
+		const textParts = arr
+			.filter(
+				(p) =>
+					(p.type === "text" || p.type === "reasoning") &&
+					typeof p.text === "string",
+			)
+			.map((p) => p.text ?? "")
+			.join("\n");
+		if (textParts.trim()) return textParts.trim();
+	}
 	return "";
 }
+
+/** Internal: get last assistant message text for a thread. Used by Google Chat when result.text is empty. */
+export const getLastAssistantMessageText = internalQuery({
+	args: { threadId: v.string() },
+	returns: v.union(v.string(), v.null()),
+	handler: async (ctx, { threadId }) => {
+		const result = await listMessages(ctx, components.agent, {
+			threadId,
+			paginationOpts: { numItems: 20, cursor: null },
+		});
+		const assistantMessages = result.page.filter(
+			(msg) => msg.message?.role === "assistant",
+		);
+		// listMessages uses order: "desc" (newest first), so first assistant is latest
+		const last = assistantMessages[0];
+		if (!last) return null;
+		const text = extractMessageText(last);
+		return text.trim() || null;
+	},
+});
 
 export const searchThreads = query({
 	args: {
