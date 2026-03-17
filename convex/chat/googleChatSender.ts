@@ -4,7 +4,7 @@ import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
 import { google } from "googleapis";
 import type { Id } from "../_generated/dataModel";
-import { internalAction } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
 import { decryptChatCredentials } from "./chatCryptoUtils";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +86,133 @@ const prepareNotificationCardRef = makeFunctionReference<
 >("chat/googleChatCards:prepareNotificationCard");
 
 // ---------------------------------------------------------------------------
+// Shared credential resolution helper
+// ---------------------------------------------------------------------------
+
+async function resolveWorkspaceCredentials(
+	ctx: {
+		runQuery: (
+			ref: typeof getConnectionCredentialsRef,
+			args: { workspaceId: Id<"workspaces">; provider: "google-chat" },
+		) => Promise<{
+			credentialSource: "marketplace" | "byosa" | "global";
+			encryptedCredentials?: string;
+		} | null>;
+	},
+	workspaceId: Id<"workspaces">,
+): Promise<string | undefined> {
+	try {
+		const creds = await ctx.runQuery(getConnectionCredentialsRef, {
+			workspaceId,
+			provider: "google-chat",
+		});
+		if (creds?.credentialSource === "byosa" && creds.encryptedCredentials) {
+			return await decryptChatCredentials(creds.encryptedCredentials);
+		}
+	} catch {
+		// Fall through to global credentials
+	}
+	return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// postMessage — create a new message in a space (public, called from Next.js)
+// ---------------------------------------------------------------------------
+
+export const postMessage = action({
+	args: {
+		workspaceId: v.id("workspaces"),
+		spaceName: v.string(),
+		text: v.string(),
+	},
+	returns: v.object({
+		status: v.union(v.literal("sent"), v.literal("failed")),
+		messageName: v.optional(v.string()),
+		reason: v.optional(v.string()),
+	}),
+	handler: async (ctx, args) => {
+		const credentialsJson = await resolveWorkspaceCredentials(
+			ctx,
+			args.workspaceId,
+		);
+
+		let chatClient: ReturnType<typeof getChatClient>;
+		try {
+			chatClient = getChatClient(credentialsJson);
+		} catch (error) {
+			return {
+				status: "failed" as const,
+				reason: error instanceof Error ? error.message : "Auth failed",
+			};
+		}
+
+		try {
+			const response = await chatClient.spaces.messages.create({
+				parent: args.spaceName,
+				requestBody: { text: args.text },
+			});
+			return {
+				status: "sent" as const,
+				messageName: response.data.name ?? undefined,
+			};
+		} catch (error) {
+			return {
+				status: "failed" as const,
+				reason:
+					error instanceof Error ? error.message : "Failed to post message",
+			};
+		}
+	},
+});
+
+// ---------------------------------------------------------------------------
+// updateMessage — edit an existing message (public, called from Next.js)
+// ---------------------------------------------------------------------------
+
+export const updateMessage = action({
+	args: {
+		workspaceId: v.id("workspaces"),
+		messageName: v.string(),
+		text: v.string(),
+	},
+	returns: v.object({
+		status: v.union(v.literal("sent"), v.literal("failed")),
+		reason: v.optional(v.string()),
+	}),
+	handler: async (ctx, args) => {
+		const credentialsJson = await resolveWorkspaceCredentials(
+			ctx,
+			args.workspaceId,
+		);
+
+		let chatClient: ReturnType<typeof getChatClient>;
+		try {
+			chatClient = getChatClient(credentialsJson);
+		} catch (error) {
+			return {
+				status: "failed" as const,
+				reason: error instanceof Error ? error.message : "Auth failed",
+			};
+		}
+
+		try {
+			await chatClient.spaces.messages.update({
+				name: args.messageName,
+				updateMask: "text",
+				requestBody: { text: args.text },
+			});
+			return { status: "sent" as const };
+		} catch (error) {
+			return {
+				status: "failed" as const,
+				reason:
+					error instanceof Error ? error.message : "Failed to update message",
+			};
+		}
+	},
+});
+
+// ---------------------------------------------------------------------------
 // sendRelayMessage — simplified sender called directly by chatRelay
 // ---------------------------------------------------------------------------
 
@@ -130,20 +257,10 @@ export const sendRelayMessage = internalAction({
 		>;
 
 		// Resolve per-workspace credentials, falling back to global env var
-		let credentialsJson: string | undefined;
-		try {
-			const creds = await ctx.runQuery(getConnectionCredentialsRef, {
-				workspaceId: args.workspaceId,
-				provider: "google-chat",
-			});
-			if (creds?.credentialSource === "byosa" && creds.encryptedCredentials) {
-				credentialsJson = await decryptChatCredentials(
-					creds.encryptedCredentials,
-				);
-			}
-		} catch {
-			// Fall through to global credentials
-		}
+		const credentialsJson = await resolveWorkspaceCredentials(
+			ctx,
+			args.workspaceId,
+		);
 
 		let chatClient: ReturnType<typeof getChatClient>;
 		try {

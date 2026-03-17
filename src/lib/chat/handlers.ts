@@ -102,6 +102,30 @@ const consumeCodeRef = makeFunctionReference<
 	ConsumeCodeResult
 >("chatVerificationCodes:consumeCodePublic");
 
+// ---------------------------------------------------------------------------
+// Convex-routed message actions (use per-workspace BYOSA credentials)
+// ---------------------------------------------------------------------------
+
+const postMessageRef = makeFunctionReference<
+	"action",
+	{
+		workspaceId: Id<"workspaces">;
+		spaceName: string;
+		text: string;
+	},
+	{ status: "sent" | "failed"; messageName?: string; reason?: string }
+>("chat/googleChatSender:postMessage");
+
+const updateMessageRef = makeFunctionReference<
+	"action",
+	{
+		workspaceId: Id<"workspaces">;
+		messageName: string;
+		text: string;
+	},
+	{ status: "sent" | "failed"; reason?: string }
+>("chat/googleChatSender:updateMessage");
+
 /** Check if text is a 6-char verification code (uppercase alphanumeric, no ambiguous chars). */
 const VERIFICATION_CODE_RE = /^[A-Z2-9]{6}$/;
 
@@ -215,6 +239,77 @@ function getReplyText(result: ActionResult): string | null {
  * Process a mention or follow-up message from Google Chat.
  * Used by both onNewMention and onSubscribedMessage handlers.
  */
+/**
+ * Edit a message via Convex (uses per-workspace BYOSA credentials).
+ * Falls back to Chat SDK sent.edit() if Convex call fails or no workspace.
+ */
+async function editViaConvex(
+	convex: ConvexHttpClient,
+	workspaceId: Id<"workspaces"> | null,
+	messageName: string | undefined,
+	text: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	sentFallback: any,
+) {
+	if (workspaceId && messageName) {
+		try {
+			const result = await convex.action(updateMessageRef, {
+				workspaceId,
+				messageName,
+				text,
+			});
+			if (result.status === "sent") return;
+			console.warn(
+				"[chat-sdk] Convex updateMessage failed, falling back to SDK:",
+				result.reason,
+			);
+		} catch (err) {
+			console.warn(
+				"[chat-sdk] Convex updateMessage error, falling back to SDK:",
+				err,
+			);
+		}
+	}
+	// Fallback to Chat SDK (uses GOOGLE_CHAT_CREDENTIALS env var)
+	await sentFallback.edit(text);
+}
+
+/**
+ * Post a message via Convex (uses per-workspace BYOSA credentials).
+ * Falls back to Chat SDK thread.post() if Convex call fails or no workspace.
+ */
+async function postViaConvex(
+	convex: ConvexHttpClient,
+	workspaceId: Id<"workspaces"> | null,
+	spaceName: string,
+	text: string,
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	threadFallback: any,
+): Promise<string | undefined> {
+	if (workspaceId) {
+		try {
+			const result = await convex.action(postMessageRef, {
+				workspaceId,
+				spaceName,
+				text,
+			});
+			if (result.status === "sent") return result.messageName;
+			console.warn(
+				"[chat-sdk] Convex postMessage failed, falling back to SDK:",
+				result.reason,
+			);
+		} catch (err) {
+			console.warn(
+				"[chat-sdk] Convex postMessage error, falling back to SDK:",
+				err,
+			);
+		}
+	}
+	// Fallback to Chat SDK
+	const sent = await threadFallback.post(text);
+	return sent?.name;
+}
+
 async function handleMessage(
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	thread: any,
@@ -227,9 +322,16 @@ async function handleMessage(
 	const spaceName = extractSpaceName(thread.channelId);
 	const workspaceId = await resolveWorkspace(convex, thread.channelId);
 
+	// Extract the message name from the sent "Thinking..." message for editing
+	const sentMessageName: string | undefined = sent?.name ?? sent?.messageName;
+
 	if (!workspaceId) {
-		await sent.edit(
+		await editViaConvex(
+			convex,
+			null,
+			sentMessageName,
 			"I couldn't identify your workspace. Ask a workspace admin to connect this space to Clave.",
+			sent,
 		);
 		return;
 	}
@@ -254,8 +356,12 @@ async function handleMessage(
 				chatUserId,
 			});
 			if (consumeResult.success) {
-				await sent.edit(
+				await editViaConvex(
+					convex,
+					workspaceId,
+					sentMessageName,
 					"Your Google Chat identity has been linked to your Clave account. You can now use @Clave.",
+					sent,
 				);
 				return;
 			}
@@ -298,9 +404,21 @@ async function handleMessage(
 		});
 
 		if (replyText) {
-			await sent.edit(stripMarkdown(replyText));
+			await editViaConvex(
+				convex,
+				workspaceId,
+				sentMessageName,
+				stripMarkdown(replyText),
+				sent,
+			);
 		} else {
-			await sent.edit("Processed your request.");
+			await editViaConvex(
+				convex,
+				workspaceId,
+				sentMessageName,
+				"Processed your request.",
+				sent,
+			);
 		}
 
 		if (result.threadId) {
@@ -312,7 +430,13 @@ async function handleMessage(
 			error instanceof Error
 				? error.message
 				: "An error occurred while processing your request.";
-		await sent.edit(errorMessage);
+		await editViaConvex(
+			convex,
+			workspaceId,
+			sentMessageName,
+			errorMessage,
+			sent,
+		);
 	}
 }
 
@@ -324,7 +448,38 @@ const bot = getBot();
 
 bot.onNewMention(async (thread, message) => {
 	thread.subscribe().catch(() => {});
-	const sent = await thread.post("_Thinking..._");
+	// Post "Thinking..." via Convex (uses BYOSA credentials) with SDK fallback
+	const convex = getConvexClient();
+	const spaceName = extractSpaceName(thread.channelId);
+	const workspaceId = await resolveWorkspace(convex, thread.channelId);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let sent: any;
+	const postResult = workspaceId
+		? await convex
+				.action(postMessageRef, {
+					workspaceId,
+					spaceName,
+					text: "_Thinking..._",
+				})
+				.catch(() => null)
+		: null;
+	if (postResult?.status === "sent" && postResult.messageName && workspaceId) {
+		const msgName = postResult.messageName;
+		const wsId = workspaceId;
+		sent = {
+			name: msgName,
+			messageName: msgName,
+			edit: async (text: string) => {
+				await convex.action(updateMessageRef, {
+					workspaceId: wsId,
+					messageName: msgName,
+					text,
+				});
+			},
+		};
+	} else {
+		sent = await thread.post("_Thinking..._");
+	}
 	await handleMessage(thread, message, sent);
 });
 
@@ -334,7 +489,37 @@ bot.onNewMention(async (thread, message) => {
 
 bot.onSubscribedMessage(async (thread, message) => {
 	if (message.author?.isMe) return;
-	const sent = await thread.post("_Thinking..._");
+	const convex = getConvexClient();
+	const spaceName = extractSpaceName(thread.channelId);
+	const workspaceId = await resolveWorkspace(convex, thread.channelId);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let sent: any;
+	const postResult = workspaceId
+		? await convex
+				.action(postMessageRef, {
+					workspaceId,
+					spaceName,
+					text: "_Thinking..._",
+				})
+				.catch(() => null)
+		: null;
+	if (postResult?.status === "sent" && postResult.messageName && workspaceId) {
+		const msgName = postResult.messageName;
+		const wsId = workspaceId;
+		sent = {
+			name: msgName,
+			messageName: msgName,
+			edit: async (text: string) => {
+				await convex.action(updateMessageRef, {
+					workspaceId: wsId,
+					messageName: msgName,
+					text,
+				});
+			},
+		};
+	} else {
+		sent = await thread.post("_Thinking..._");
+	}
 	await handleMessage(thread, message, sent);
 });
 
@@ -347,11 +532,16 @@ bot.onAction(
 	["assign_to_me", "set_status_non_destructive", "open_issue_link"],
 	async (event) => {
 		const convex = getConvexClient();
+		const spaceName = extractSpaceName(event.thread.channelId);
 		const workspaceId = await resolveWorkspace(convex, event.thread.channelId);
 
 		if (!workspaceId) {
-			await event.thread.post(
+			await postViaConvex(
+				convex,
+				null,
+				spaceName,
 				"This space is not connected to a Clave workspace.",
+				event.thread,
 			);
 			return;
 		}
@@ -365,7 +555,13 @@ bot.onAction(
 
 		const replyText = getReplyText(result);
 		if (replyText) {
-			await event.thread.post(replyText);
+			await postViaConvex(
+				convex,
+				workspaceId,
+				spaceName,
+				replyText,
+				event.thread,
+			);
 		}
 	},
 );
@@ -373,11 +569,16 @@ bot.onAction(
 // Approval actions: ai_approval_approve, ai_approval_reject
 bot.onAction(["ai_approval_approve", "ai_approval_reject"], async (event) => {
 	const convex = getConvexClient();
+	const spaceName = extractSpaceName(event.thread.channelId);
 	const workspaceId = await resolveWorkspace(convex, event.thread.channelId);
 
 	if (!workspaceId) {
-		await event.thread.post(
+		await postViaConvex(
+			convex,
+			null,
+			spaceName,
 			"This space is not connected to a Clave workspace.",
+			event.thread,
 		);
 		return;
 	}
@@ -391,7 +592,13 @@ bot.onAction(["ai_approval_approve", "ai_approval_reject"], async (event) => {
 
 	const replyText = getReplyText(result);
 	if (replyText) {
-		await event.thread.post(replyText);
+		await postViaConvex(
+			convex,
+			workspaceId,
+			spaceName,
+			replyText,
+			event.thread,
+		);
 	}
 });
 
@@ -408,8 +615,12 @@ bot.onAction(
 		const workspaceId = await resolveWorkspace(convex, event.thread.channelId);
 
 		if (!workspaceId) {
-			await event.thread.post(
+			await postViaConvex(
+				convex,
+				null,
+				spaceName,
 				"This space is not connected to a Clave workspace.",
+				event.thread,
 			);
 			return;
 		}
@@ -425,7 +636,13 @@ bot.onAction(
 
 		const replyText = getReplyText(result);
 		if (replyText) {
-			await event.thread.post(replyText);
+			await postViaConvex(
+				convex,
+				workspaceId,
+				spaceName,
+				replyText,
+				event.thread,
+			);
 		}
 	},
 );
