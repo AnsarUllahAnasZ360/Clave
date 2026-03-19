@@ -115,7 +115,9 @@ export function SkillsSettingsPane() {
 
 	const handleToggle = async (skillId: Id<"skills">) => {
 		try {
+			const skill = skills?.find((s) => s._id === skillId);
 			await toggleSkill({ skillId });
+			toast.success(skill?.isEnabled ? "Skill disabled" : "Skill enabled");
 		} catch {
 			toast.error("Failed to toggle skill");
 		}

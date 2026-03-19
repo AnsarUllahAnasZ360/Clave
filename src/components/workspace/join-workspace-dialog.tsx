@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -55,10 +56,9 @@ export function JoinWorkspaceDialog({
 
 		try {
 			await joinWithCode({ code: code.trim() });
-			// Get the workspace slug to navigate
 			onOpenChange(false);
 			setCode("");
-			// We need to reload to get the workspace data
+			toast.success("Joined workspace successfully");
 			window.location.href = "/";
 		} catch (e) {
 			setError(e instanceof Error ? e.message : "Failed to join workspace");

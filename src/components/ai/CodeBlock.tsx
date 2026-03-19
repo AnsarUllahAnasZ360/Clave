@@ -131,12 +131,16 @@ function CodeBlockInner({
 					<Button
 						variant="ghost"
 						size="icon-xs"
-						className="text-zinc-500 hover:bg-zinc-300/60 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
+						className={cn(
+							"text-zinc-500 hover:bg-zinc-300/60 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-300 transition-colors",
+							copied &&
+								"bg-green-500/10 text-green-500 hover:bg-green-500/10 hover:text-green-500",
+						)}
 						onClick={handleCopy}
 						title="Copy code"
 					>
 						{copied ? (
-							<Check className="size-3.5 text-green-400" />
+							<Check className="size-3.5" />
 						) : (
 							<Copy className="size-3.5" />
 						)}

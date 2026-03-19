@@ -40,6 +40,7 @@ const sprintWithProgressValidator = v.object({
 	_id: v.id("sprints"),
 	_creationTime: v.number(),
 	projectId: v.id("projects"),
+	folderId: v.optional(v.id("sprintFolders")),
 	name: v.string(),
 	description: v.optional(v.string()),
 	status: v.string(),
@@ -61,6 +62,7 @@ const sprintWithProgressAndProjectValidator = v.object({
 	_id: v.id("sprints"),
 	_creationTime: v.number(),
 	projectId: v.id("projects"),
+	folderId: v.optional(v.id("sprintFolders")),
 	name: v.string(),
 	description: v.optional(v.string()),
 	status: v.string(),
@@ -243,6 +245,7 @@ export const getById = query({
 export const create = mutation({
 	args: {
 		projectId: v.id("projects"),
+		folderId: v.optional(v.id("sprintFolders")),
 		name: v.string(),
 		description: v.optional(v.string()),
 		status: v.optional(sprintStatusValidator),
@@ -286,6 +289,7 @@ export const create = mutation({
 
 		const sprintId = await ctx.db.insert("sprints", {
 			projectId: args.projectId,
+			folderId: args.folderId,
 			name: args.name,
 			description: args.description,
 			status: args.status ?? "active",

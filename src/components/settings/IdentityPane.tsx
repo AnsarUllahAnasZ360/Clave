@@ -1,11 +1,6 @@
 "use client";
 
-import {
-	CircleNotch,
-	CopySimple,
-	Globe,
-	Lock,
-} from "@phosphor-icons/react/dist/ssr";
+import { CircleNotch, CopySimple } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -18,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { ImageCropDialog } from "@/components/ui/image-crop-dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import {
 	PaneDescription,
@@ -52,9 +46,6 @@ export function IdentitySettingsPane() {
 	const [nameValue, setNameValue] = useState("");
 	const [slugValue, setSlugValue] = useState("");
 	const [descValue, setDescValue] = useState("");
-	const [visibilityValue, setVisibilityValue] = useState<"public" | "private">(
-		"public",
-	);
 	const [copied, setCopied] = useState(false);
 
 	const currentMember = members?.find((m) => m.userId === currentUser?._id);
@@ -66,7 +57,6 @@ export function IdentitySettingsPane() {
 			setNameValue(workspaceData.name);
 			setSlugValue(workspaceData.slug);
 			setDescValue(workspaceData.description ?? "");
-			setVisibilityValue(workspaceData.visibility ?? "public");
 		}
 	}, [workspaceData]);
 
@@ -168,31 +158,6 @@ export function IdentitySettingsPane() {
 			);
 		}
 	}, [workspace, workspaceData, descValue, updateWorkspace]);
-
-	const handleVisibilityChange = useCallback(
-		async (newVisibility: "public" | "private") => {
-			if (!workspace || !workspaceData || newVisibility === visibilityValue)
-				return;
-			setVisibilityValue(newVisibility);
-			try {
-				await updateWorkspace({
-					workspaceId: workspace.workspaceId,
-					visibility: newVisibility,
-				});
-				toast.success(
-					`Workspace is now ${newVisibility === "public" ? "public" : "private"}`,
-				);
-			} catch (error) {
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to update visibility",
-				);
-				setVisibilityValue(workspaceData.visibility ?? "public");
-			}
-		},
-		[workspace, workspaceData, visibilityValue, updateWorkspace],
-	);
 
 	const handleLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const file = event.target.files?.[0];
@@ -398,49 +363,6 @@ export function IdentitySettingsPane() {
 					</div>
 				</SettingRow>
 			</SettingSection>
-
-			{isAdmin && (
-				<SettingSection title="Access">
-					<SettingRow
-						label="Visibility"
-						description="Controls whether org members can discover and join this workspace without an invite."
-					>
-						<div className="flex gap-2 max-w-xs">
-							<button
-								type="button"
-								onClick={() => handleVisibilityChange("public")}
-								className={cn(
-									"flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors cursor-pointer",
-									visibilityValue === "public"
-										? "border-primary bg-primary/5 text-foreground"
-										: "border-border text-muted-foreground hover:bg-accent",
-								)}
-							>
-								<Globe className="h-4 w-4" />
-								Public
-							</button>
-							<button
-								type="button"
-								onClick={() => handleVisibilityChange("private")}
-								className={cn(
-									"flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors cursor-pointer",
-									visibilityValue === "private"
-										? "border-primary bg-primary/5 text-foreground"
-										: "border-border text-muted-foreground hover:bg-accent",
-								)}
-							>
-								<Lock className="h-4 w-4" />
-								Private
-							</button>
-						</div>
-						<p className="text-xs text-muted-foreground">
-							{visibilityValue === "public"
-								? "Anyone with the link can discover and join this workspace."
-								: "Only invited members can access this workspace."}
-						</p>
-					</SettingRow>
-				</SettingSection>
-			)}
 		</div>
 	);
 }

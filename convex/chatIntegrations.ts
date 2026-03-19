@@ -433,6 +433,18 @@ export const resolveWorkspaceForWebhook = query({
 		]);
 		const candidateConnections = [...connectedConnections, ...errorConnections];
 
+		console.info(
+			"[resolveWorkspace]",
+			JSON.stringify({
+				connected: connectedConnections.length,
+				error: errorConnections.length,
+				total: candidateConnections.length,
+				spaceName: args.spaceName,
+				statuses: candidateConnections.map((c) => c.status),
+				workspaces: candidateConnections.map((c) => c.workspaceId),
+			}),
+		);
+
 		if (candidateConnections.length === 0) {
 			return null;
 		}

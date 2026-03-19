@@ -123,6 +123,160 @@ export const listActive = query({
 	},
 });
 
+const sidebarSprintValidator = v.object({
+	_id: v.id("sprints"),
+	name: v.string(),
+	status: v.string(),
+	icon: v.optional(v.string()),
+	folderId: v.optional(v.id("sprintFolders")),
+	issueCount: v.number(),
+	completedCount: v.number(),
+});
+
+const sidebarFolderValidator = v.object({
+	_id: v.id("sprintFolders"),
+	name: v.string(),
+	icon: v.optional(v.string()),
+	sprints: v.array(sidebarSprintValidator),
+});
+
+export const listSidebarTree = query({
+	args: {
+		workspaceId: v.id("workspaces"),
+	},
+	returns: v.array(
+		v.object({
+			_id: v.id("projects"),
+			name: v.string(),
+			slug: v.string(),
+			color: v.string(),
+			icon: v.optional(v.string()),
+			status: v.string(),
+			sprintFolders: v.array(sidebarFolderValidator),
+			looseSprints: v.array(sidebarSprintValidator),
+			backlogCount: v.number(),
+		}),
+	),
+	handler: async (ctx, args) => {
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			args.workspaceId,
+		);
+		const projects = await ctx.db
+			.query("projects")
+			.withIndex("by_workspace_status", (q) =>
+				q.eq("workspaceId", args.workspaceId).eq("status", "active"),
+			)
+			.collect();
+		const active = projects.filter((p) => !p.deletedAt);
+		const accessible = await getAccessibleProjectIds(
+			ctx,
+			args.workspaceId,
+			userId,
+			member.role,
+		);
+		const filtered =
+			accessible === null
+				? active
+				: active.filter((p) => accessible.has(p._id));
+
+		// Single scan of all workspace issues for efficient counting
+		const allIssues = await ctx.db
+			.query("issues")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+			.collect();
+
+		const activeIssues = allIssues.filter((i) => !i.deletedAt);
+
+		const issuesBySprintId = new Map<
+			string,
+			{ total: number; completed: number }
+		>();
+		const backlogByProjectId = new Map<string, number>();
+
+		for (const issue of activeIssues) {
+			if (issue.sprintId) {
+				const key = issue.sprintId as string;
+				const stats = issuesBySprintId.get(key) ?? {
+					total: 0,
+					completed: 0,
+				};
+				stats.total++;
+				if (issue.status === "done" || issue.status === "cancelled") {
+					stats.completed++;
+				}
+				issuesBySprintId.set(key, stats);
+			} else if (issue.projectId) {
+				const key = issue.projectId as string;
+				backlogByProjectId.set(key, (backlogByProjectId.get(key) ?? 0) + 1);
+			}
+		}
+
+		const results = await Promise.all(
+			filtered.map(async (project) => {
+				const [sprints, folders] = await Promise.all([
+					ctx.db
+						.query("sprints")
+						.withIndex("by_project_sort", (q) => q.eq("projectId", project._id))
+						.collect(),
+					ctx.db
+						.query("sprintFolders")
+						.withIndex("by_project_sort", (q) => q.eq("projectId", project._id))
+						.collect(),
+				]);
+
+				const activeSprints = sprints
+					.filter(
+						(s) =>
+							!s.deletedAt && (s.status === "active" || s.status === "planned"),
+					)
+					.map((s) => {
+						const stats = issuesBySprintId.get(s._id as string) ?? {
+							total: 0,
+							completed: 0,
+						};
+						return {
+							_id: s._id,
+							name: s.name,
+							status: s.status,
+							icon: s.icon,
+							folderId: s.folderId,
+							issueCount: stats.total,
+							completedCount: stats.completed,
+						};
+					});
+
+				const activeFolders = folders.filter((f) => !f.deletedAt);
+
+				// Group sprints by folder
+				const sprintFolders = activeFolders.map((folder) => ({
+					_id: folder._id,
+					name: folder.name,
+					icon: folder.icon,
+					sprints: activeSprints.filter((s) => s.folderId === folder._id),
+				}));
+
+				// Sprints not in any folder
+				const looseSprints = activeSprints.filter((s) => !s.folderId);
+
+				return {
+					_id: project._id,
+					name: project.name,
+					slug: project.slug,
+					color: project.color || "var(--chart-3)",
+					icon: project.icon,
+					status: project.status,
+					sprintFolders,
+					looseSprints,
+					backlogCount: backlogByProjectId.get(project._id as string) ?? 0,
+				};
+			}),
+		);
+
+		return results;
+	},
+});
+
 export const getById = query({
 	args: {
 		projectId: v.id("projects"),

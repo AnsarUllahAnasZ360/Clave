@@ -117,17 +117,10 @@ Create a workspace
 From the Organizations page, click an organization to open it. Then:
 
 1. Click New workspace (or the + button).
-2. Enter Name, URL slug, and Visibility (Public or Private).
+2. Enter Name and URL slug.
 3. Click Create workspace.
 
 You are taken directly into the new workspace, starting at the Projects view.
-
-Workspace visibility
-
-Public: Anyone in the organization can discover and join this workspace.
-Private: Only members who are explicitly invited can access it.
-
-You can change visibility later in workspace settings.
 
 Switch between workspaces
 

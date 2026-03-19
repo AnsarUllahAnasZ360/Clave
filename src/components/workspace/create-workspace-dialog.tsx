@@ -1,10 +1,10 @@
 "use client";
 
-import { Globe, Lock } from "@phosphor-icons/react/dist/ssr";
 import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import {
 	PlanLimitDialog,
 	type PlanLimitInfo,
@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 
 function generateSlugFromName(name: string): string {
@@ -45,7 +44,6 @@ export function CreateWorkspaceDialog({
 	const [name, setName] = useState("");
 	const [slug, setSlug] = useState("");
 	const [slugEdited, setSlugEdited] = useState(false);
-	const [visibility, setVisibility] = useState<"public" | "private">("public");
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState("");
 	const [planLimitInfo, setPlanLimitInfo] = useState<PlanLimitInfo | null>(
@@ -86,13 +84,12 @@ export function CreateWorkspaceDialog({
 			await createWorkspace({
 				name: name.trim(),
 				slug: slug.trim(),
-				visibility,
 			});
 			onOpenChange(false);
+			toast.success(`Workspace "${name.trim()}" created`);
 			setName("");
 			setSlug("");
 			setSlugEdited(false);
-			setVisibility("public");
 			router.push(`/${slug.trim()}/chat`);
 		} catch (e) {
 			if (
@@ -147,42 +144,6 @@ export function CreateWorkspaceDialog({
 									if (e.key === "Enter") handleCreate();
 								}}
 							/>
-						</div>
-						<div className="grid gap-2">
-							<Label>Visibility</Label>
-							<div className="grid grid-cols-2 gap-2">
-								<button
-									type="button"
-									onClick={() => setVisibility("public")}
-									className={cn(
-										"flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors cursor-pointer",
-										visibility === "public"
-											? "border-primary bg-primary/5 text-foreground"
-											: "border-border text-muted-foreground hover:bg-accent",
-									)}
-								>
-									<Globe className="h-4 w-4" />
-									Public
-								</button>
-								<button
-									type="button"
-									onClick={() => setVisibility("private")}
-									className={cn(
-										"flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors cursor-pointer",
-										visibility === "private"
-											? "border-primary bg-primary/5 text-foreground"
-											: "border-border text-muted-foreground hover:bg-accent",
-									)}
-								>
-									<Lock className="h-4 w-4" />
-									Private
-								</button>
-							</div>
-							<p className="text-xs text-muted-foreground">
-								{visibility === "public"
-									? "Anyone with the link can discover and join this workspace."
-									: "Only invited members can access this workspace."}
-							</p>
 						</div>
 						{error && <p className="text-sm text-destructive">{error}</p>}
 					</div>

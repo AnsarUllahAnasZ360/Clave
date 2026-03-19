@@ -123,7 +123,7 @@ export default defineSchema({
 		name: v.string(),
 		slug: v.string(),
 		ownerId: v.id("users"),
-		// Kept for backward compat — migration clears this field
+		// Kept for backward compat — migration clears these fields
 		organizationId: v.optional(v.string()),
 		visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
 		description: v.optional(v.string()),
@@ -374,8 +374,21 @@ export default defineSchema({
 		.index("by_project_sort", ["projectId", "sortOrder"])
 		.index("by_project", ["projectId"]),
 
+	sprintFolders: defineTable({
+		projectId: v.id("projects"),
+		name: v.string(),
+		icon: v.optional(v.string()),
+		sortOrder: v.number(),
+		createdBy: v.id("users"),
+		updatedAt: v.optional(v.number()),
+		deletedAt: v.optional(v.number()),
+	})
+		.index("by_project_sort", ["projectId", "sortOrder"])
+		.index("by_project", ["projectId"]),
+
 	sprints: defineTable({
 		projectId: v.id("projects"),
+		folderId: v.optional(v.id("sprintFolders")),
 		name: v.string(),
 		description: v.optional(v.string()),
 		status: v.string(),
@@ -390,7 +403,8 @@ export default defineSchema({
 		deletedAt: v.optional(v.number()),
 	})
 		.index("by_project_sort", ["projectId", "sortOrder"])
-		.index("by_project", ["projectId"]),
+		.index("by_project", ["projectId"])
+		.index("by_folder", ["folderId"]),
 
 	lists: defineTable({
 		projectId: v.id("projects"),
