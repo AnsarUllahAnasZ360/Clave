@@ -3,8 +3,6 @@
 import {
 	Buildings,
 	ChartLine,
-	Globe,
-	Lock,
 	ShieldCheck,
 	SquaresFour,
 	UsersThree,
@@ -356,59 +354,25 @@ export default function AdminAnalyticsPage() {
 							<SquaresFour className="h-5 w-5" />
 							Workspace Stats
 						</CardTitle>
-						<CardDescription>Workspace visibility breakdown</CardDescription>
+						<CardDescription>Active workspace count</CardDescription>
 					</CardHeader>
 					<CardContent>
 						{wsStats === undefined ? (
-							<div className="space-y-6">
-								<Skeleton className="h-20 w-full" />
-								<Skeleton className="h-20 w-full" />
-								<Skeleton className="h-20 w-full" />
-							</div>
+							<Skeleton className="h-20 w-full" />
 						) : (
-							<div className="space-y-6">
-								<div className="flex items-center justify-between rounded-lg border p-4">
-									<div className="flex items-center gap-3">
-										<SquaresFour className="h-5 w-5 text-muted-foreground" />
-										<div>
-											<p className="text-sm font-medium">Total Workspaces</p>
-											<p className="text-xs text-muted-foreground">
-												All active workspaces
-											</p>
-										</div>
+							<div className="flex items-center justify-between rounded-lg border p-4">
+								<div className="flex items-center gap-3">
+									<SquaresFour className="h-5 w-5 text-muted-foreground" />
+									<div>
+										<p className="text-sm font-medium">Total Workspaces</p>
+										<p className="text-xs text-muted-foreground">
+											All active workspaces
+										</p>
 									</div>
-									<span className="text-2xl font-bold tabular-nums">
-										{wsStats.total}
-									</span>
 								</div>
-								<div className="flex items-center justify-between rounded-lg border p-4">
-									<div className="flex items-center gap-3">
-										<Globe className="h-5 w-5 text-muted-foreground" />
-										<div>
-											<p className="text-sm font-medium">Public</p>
-											<p className="text-xs text-muted-foreground">
-												Discoverable by org members
-											</p>
-										</div>
-									</div>
-									<span className="text-2xl font-bold tabular-nums">
-										{wsStats.public}
-									</span>
-								</div>
-								<div className="flex items-center justify-between rounded-lg border p-4">
-									<div className="flex items-center gap-3">
-										<Lock className="h-5 w-5 text-muted-foreground" />
-										<div>
-											<p className="text-sm font-medium">Private</p>
-											<p className="text-xs text-muted-foreground">
-												Invite-only access
-											</p>
-										</div>
-									</div>
-									<span className="text-2xl font-bold tabular-nums">
-										{wsStats.private}
-									</span>
-								</div>
+								<span className="text-2xl font-bold tabular-nums">
+									{wsStats.total}
+								</span>
 							</div>
 						)}
 					</CardContent>

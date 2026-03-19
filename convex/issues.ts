@@ -313,6 +313,42 @@ export const listByProject = query({
 	},
 });
 
+/** Backlog issues: project issues that are not assigned to any sprint */
+export const listBacklog = query({
+	args: {
+		projectId: v.id("projects"),
+		showSubIssues: v.optional(v.boolean()),
+	},
+	returns: v.array(issueDocValidator),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) return [];
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			project.workspaceId,
+		);
+		if (member.role !== "admin") {
+			const hasAccess = await canAccessProject(
+				ctx,
+				args.projectId,
+				userId,
+				member.role as "admin" | "member",
+			);
+			if (!hasAccess) return [];
+		}
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_project_sort", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		return issues.filter((issue) => {
+			if (issue.deletedAt) return false;
+			if (issue.sprintId) return false;
+			if (!args.showSubIssues && issue.parentId) return false;
+			return true;
+		});
+	},
+});
+
 /** Issues for a specific sprint, ordered by sortOrder */
 export const listBySprint = query({
 	args: {

@@ -9,6 +9,7 @@ import {
 import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -94,9 +95,10 @@ export function WorkspaceSelector() {
 		setIsOpen(true);
 	};
 
-	const handleSwitchWorkspace = (slug: string) => {
+	const handleSwitchWorkspace = (slug: string, name: string) => {
 		if (slug === currentWorkspace?.workspaceSlug) return;
 		router.push(`/${slug}/chat`);
+		toast.success(`Switched to ${name}`);
 	};
 
 	useEffect(() => {
@@ -149,7 +151,12 @@ export function WorkspaceSelector() {
 						<DropdownMenuItem
 							key={workspaceOption._id}
 							className="cursor-pointer"
-							onSelect={() => handleSwitchWorkspace(workspaceOption.slug)}
+							onSelect={() =>
+								handleSwitchWorkspace(
+									workspaceOption.slug,
+									workspaceOption.name,
+								)
+							}
 						>
 							{workspaceOption.isDemo ? (
 								<div className="h-6 w-6 shrink-0 rounded-full bg-gradient-to-br from-sienna-500 to-sienna-700 flex items-center justify-center text-xs">

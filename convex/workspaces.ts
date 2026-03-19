@@ -14,9 +14,6 @@ export const list = query({
 			name: v.string(),
 			slug: v.string(),
 			ownerId: v.id("users"),
-			visibility: v.optional(
-				v.union(v.literal("public"), v.literal("private")),
-			),
 			description: v.optional(v.string()),
 			logoStorageId: v.optional(v.id("_storage")),
 			plan: v.optional(
@@ -48,7 +45,6 @@ export const list = query({
 				name: w.name,
 				slug: w.slug,
 				ownerId: w.ownerId,
-				visibility: w.visibility,
 				description: w.description,
 				logoStorageId: w.logoStorageId,
 				plan: w.plan,
@@ -101,7 +97,6 @@ export const create = mutation({
 	args: {
 		name: v.string(),
 		slug: v.optional(v.string()),
-		visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
 	},
 	returns: v.id("workspaces"),
 	handler: async (ctx, args) => {
@@ -127,7 +122,6 @@ export const create = mutation({
 			name: args.name,
 			slug,
 			ownerId: userId,
-			visibility: args.visibility ?? "public",
 			plan: "free",
 			createdAt: now,
 			updatedAt: now,
@@ -163,7 +157,7 @@ export const create = mutation({
 	},
 });
 
-/** Update workspace name, slug, description, logo, or visibility (admin only) */
+/** Update workspace name, slug, description, or logo (admin only) */
 export const update = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
@@ -171,7 +165,6 @@ export const update = mutation({
 		slug: v.optional(v.string()),
 		description: v.optional(v.string()),
 		logoStorageId: v.optional(v.id("_storage")),
-		visibility: v.optional(v.union(v.literal("public"), v.literal("private"))),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -182,7 +175,6 @@ export const update = mutation({
 		if (args.description !== undefined) patch.description = args.description;
 		if (args.logoStorageId !== undefined)
 			patch.logoStorageId = args.logoStorageId;
-		if (args.visibility !== undefined) patch.visibility = args.visibility;
 
 		// Validate and update slug
 		if (args.slug !== undefined) {
@@ -242,9 +234,6 @@ export const getBySlug = query({
 			name: v.string(),
 			slug: v.string(),
 			ownerId: v.id("users"),
-			visibility: v.optional(
-				v.union(v.literal("public"), v.literal("private")),
-			),
 			description: v.optional(v.string()),
 			logoStorageId: v.optional(v.id("_storage")),
 			plan: v.optional(
@@ -270,7 +259,6 @@ export const getBySlug = query({
 			name: workspace.name,
 			slug: workspace.slug,
 			ownerId: workspace.ownerId,
-			visibility: workspace.visibility,
 			description: workspace.description,
 			logoStorageId: workspace.logoStorageId,
 			plan: workspace.plan,

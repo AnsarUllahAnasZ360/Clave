@@ -142,6 +142,7 @@ import type * as projects from "../projects.js";
 import type * as prosemirrorSync from "../prosemirrorSync.js";
 import type * as recents from "../recents.js";
 import type * as search from "../search.js";
+import type * as sprintFolders from "../sprintFolders.js";
 import type * as sprints from "../sprints.js";
 import type * as stories from "../stories.js";
 import type * as tasks from "../tasks.js";
@@ -301,6 +302,7 @@ declare const fullApi: ApiFromModules<{
   prosemirrorSync: typeof prosemirrorSync;
   recents: typeof recents;
   search: typeof search;
+  sprintFolders: typeof sprintFolders;
   sprints: typeof sprints;
   stories: typeof stories;
   tasks: typeof tasks;

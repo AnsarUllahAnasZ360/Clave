@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { CodeBlock } from "@/components/ai/CodeBlock";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { ArtifactData } from "@/types/artifacts";
 import { api } from "../../../../convex/_generated/api";
 
@@ -93,11 +94,15 @@ export function CodeArtifact({ artifact }: { artifact: ArtifactData }) {
 				<Button
 					variant="ghost"
 					size="sm"
-					className="h-7 gap-1.5 text-xs"
+					className={cn(
+						"h-7 gap-1.5 text-xs transition-colors",
+						copied &&
+							"bg-green-500/10 text-green-500 hover:bg-green-500/10 hover:text-green-500",
+					)}
 					onClick={handleCopy}
 				>
 					{copied ? (
-						<Check className="size-3.5 text-green-500" />
+						<Check className="size-3.5" />
 					) : (
 						<Copy className="size-3.5" />
 					)}

@@ -103,7 +103,6 @@ export const createDemoWorkspaceForUser = mutation({
 			name: `${baseName}'s Demo`,
 			slug,
 			ownerId: userId,
-			visibility: "public",
 			plan: "free",
 			createdAt: now,
 			updatedAt: now,

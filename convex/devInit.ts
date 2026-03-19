@@ -127,7 +127,6 @@ export const ensureDevWorkspaceMember = mutation({
 				name: "My Workspace",
 				slug: `dev-${userId.slice(-8)}`,
 				ownerId: userId,
-				visibility: "private" as const,
 				createdAt: now,
 				updatedAt: now,
 			});

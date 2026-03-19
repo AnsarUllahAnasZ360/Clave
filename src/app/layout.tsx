@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ConvexProvider } from "@/components/providers/convex-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const inter = Inter({
@@ -36,6 +37,7 @@ export default function RootLayout({
 							disableTransitionOnChange
 						>
 							{children}
+							<Toaster position="bottom-right" richColors />
 						</ThemeProvider>
 					</ConvexProvider>
 				</ConvexAuthNextjsServerProvider>

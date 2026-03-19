@@ -578,20 +578,8 @@ export const getWorkspaceStats = query({
 			(workspace) => !workspace.deletedAt,
 		);
 
-		let publicCount = 0;
-		let privateCount = 0;
-		for (const workspace of activeWorkspaces) {
-			if ((workspace.visibility ?? "public") === "public") {
-				publicCount++;
-			} else {
-				privateCount++;
-			}
-		}
-
 		return {
 			total: activeWorkspaces.length,
-			public: publicCount,
-			private: privateCount,
 		};
 	},
 });
@@ -602,24 +590,13 @@ export const getAnalyticsHealth = query({
 	handler: async (ctx) => {
 		await requireSuperAdmin(ctx);
 
-		const [users, workspaces, presenceRecords] = await Promise.all([
+		const [users, presenceRecords] = await Promise.all([
 			ctx.db.query("users").collect(),
-			ctx.db.query("workspaces").collect(),
 			ctx.db.query("workspacePresence").collect(),
 		]);
 
 		const activeUsers = users.filter((user) => !user.suspended);
 		const activeUserIds = new Set(activeUsers.map((user) => user._id));
-		const activeWorkspaces = workspaces.filter(
-			(workspace) => !workspace.deletedAt,
-		);
-
-		let publicWorkspaces = 0;
-		let privateWorkspaces = 0;
-		for (const workspace of activeWorkspaces) {
-			if ((workspace.visibility ?? "public") === "public") publicWorkspaces++;
-			else privateWorkspaces++;
-		}
 
 		const cutoff = Date.now() - 14 * MS_PER_DAY;
 		const activeUsersPerDay = new Map<string, Set<string>>();
@@ -640,13 +617,6 @@ export const getAnalyticsHealth = query({
 		}
 
 		const checks = [
-			{
-				id: "workspace_visibility_total",
-				label: "Workspace visibility totals match active workspaces",
-				ok: publicWorkspaces + privateWorkspaces === activeWorkspaces.length,
-				expected: activeWorkspaces.length,
-				actual: publicWorkspaces + privateWorkspaces,
-			},
 			{
 				id: "active_users_bounds",
 				label: "Daily active users remain within registered user bounds",
