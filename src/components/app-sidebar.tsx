@@ -6,6 +6,7 @@ import {
 	ChartBar,
 	ChatCircleText,
 	CheckSquare,
+	DotsThree,
 	FileText,
 	Folder,
 	FolderOpen,
@@ -17,12 +18,13 @@ import {
 	Users,
 } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
-import { Plus } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import Link, { type LinkProps } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
+	useEffect,
 	useRef,
 	useState,
 } from "react";
@@ -715,10 +717,51 @@ function ProjectTreeItem({
 	const isProjectActive = pathname.startsWith(
 		`/${workspaceSlug}/projects/${project.slug}`,
 	);
-	const _hasContent =
-		project.sprintFolders.length > 0 ||
-		project.looseSprints.length > 0 ||
-		project.backlogCount > 0;
+
+	// Rename / delete state
+	const [isRenaming, setIsRenaming] = useState(false);
+	const [renameValue, setRenameValue] = useState(project.name);
+	const renameInputRef = useRef<HTMLInputElement>(null);
+	const updateProject = useMutation(api.projects.update);
+	const removeProject = useMutation(api.projects.remove);
+
+	useEffect(() => {
+		if (isRenaming) {
+			renameInputRef.current?.focus();
+			renameInputRef.current?.select();
+		}
+	}, [isRenaming]);
+
+	const handleRenameSubmit = useCallback(async () => {
+		const trimmed = renameValue.trim();
+		if (!trimmed || trimmed === project.name) {
+			setIsRenaming(false);
+			setRenameValue(project.name);
+			return;
+		}
+		try {
+			await updateProject({
+				projectId: project._id as Id<"projects">,
+				name: trimmed,
+			});
+			toast.success("Project renamed");
+		} catch {
+			toast.error("Failed to rename project");
+			setRenameValue(project.name);
+		}
+		setIsRenaming(false);
+	}, [renameValue, project._id, project.name, updateProject]);
+
+	const handleDelete = useCallback(async () => {
+		if (!window.confirm(`Delete "${project.name}"? This cannot be undone.`))
+			return;
+		try {
+			await removeProject({ projectId: project._id as Id<"projects"> });
+			toast.success("Project deleted");
+		} catch {
+			toast.error("Failed to delete project");
+		}
+	}, [project._id, project.name, removeProject]);
 
 	return (
 		<SidebarMenuItem>
@@ -736,17 +779,8 @@ function ProjectTreeItem({
 						)}
 					/>
 				</button>
-				<SidebarMenuButton
-					asChild
-					isActive={
-						isProjectActive &&
-						!pathname.includes("/sprints/") &&
-						!pathname.includes("/backlog")
-					}
-					tooltip={project.name}
-					className="h-8 rounded-lg px-2 flex-1 min-w-0"
-				>
-					<Link href={projectHref} prefetch={false}>
+				{isRenaming ? (
+					<div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 h-8">
 						{project.icon ? (
 							<span className="text-[14px] leading-none flex items-center justify-center w-[16px] h-[16px] shrink-0">
 								{project.icon}
@@ -754,55 +788,131 @@ function ProjectTreeItem({
 						) : (
 							<ProgressCircle progress={0} color={project.color} size={16} />
 						)}
-						<span className="flex-1 truncate text-sm">{project.name}</span>
-					</Link>
-				</SidebarMenuButton>
+						<input
+							ref={renameInputRef}
+							type="text"
+							value={renameValue}
+							onChange={(e) => setRenameValue(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleRenameSubmit();
+								if (e.key === "Escape") {
+									setIsRenaming(false);
+									setRenameValue(project.name);
+								}
+							}}
+							onBlur={handleRenameSubmit}
+							className="flex-1 min-w-0 h-6 text-sm bg-transparent border-b border-border focus:border-foreground outline-none"
+						/>
+					</div>
+				) : (
+					<SidebarMenuButton
+						asChild
+						isActive={
+							isProjectActive &&
+							!pathname.includes("/sprints/") &&
+							!pathname.includes("/backlog")
+						}
+						tooltip={project.name}
+						className="h-8 rounded-lg px-2 flex-1 min-w-0"
+					>
+						<Link href={projectHref} prefetch={false}>
+							{project.icon ? (
+								<span className="text-[14px] leading-none flex items-center justify-center w-[16px] h-[16px] shrink-0">
+									{project.icon}
+								</span>
+							) : (
+								<ProgressCircle progress={0} color={project.color} size={16} />
+							)}
+							<span className="flex-1 truncate text-sm">{project.name}</span>
+						</Link>
+					</SidebarMenuButton>
+				)}
 
-				{/* Per-project + menu */}
-				<DropdownMenu>
-					<DropdownMenuTrigger asChild>
-						<button
-							type="button"
-							className="flex items-center justify-center w-5 h-5 mr-1 rounded text-muted-foreground opacity-0 group-hover/project:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
-						>
-							<Plus className="h-3 w-3" />
-						</button>
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="start" sideOffset={4} className="w-48">
-						<div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-							Add to {project.name}
-						</div>
-						<DropdownMenuItem onClick={() => onCreateIssue(project._id)}>
-							<CheckSquare className="h-4 w-4 text-blue-500" />
-							Issue
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							onClick={() => onStartInlineCreate("sprint", project._id)}
-						>
-							<Timer className="h-4 w-4 text-green-500" />
-							Sprint
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							onClick={() => onStartInlineCreate("folder", project._id)}
-						>
-							<FolderOpen className="h-4 w-4 text-orange-500" />
-							Sprint folder
-						</DropdownMenuItem>
-						<DropdownMenuSeparator />
-						<DropdownMenuItem
-							onClick={() => onCreateDoc(project._id as Id<"projects">)}
-						>
-							<FileText className="h-4 w-4 text-yellow-500" />
-							Document
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							onClick={() => onCreateBoard(project._id as Id<"projects">)}
-						>
-							<PenNib className="h-4 w-4 text-purple-500" />
-							Whiteboard
-						</DropdownMenuItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+				{/* Per-project actions */}
+				{!isRenaming && (
+					<>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground opacity-0 group-hover/project:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
+								>
+									<Plus className="h-3 w-3" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="start"
+								sideOffset={4}
+								className="w-48"
+							>
+								<div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+									Add to {project.name}
+								</div>
+								<DropdownMenuItem onClick={() => onCreateIssue(project._id)}>
+									<CheckSquare className="h-4 w-4 text-blue-500" />
+									Issue
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={() => onStartInlineCreate("sprint", project._id)}
+								>
+									<Timer className="h-4 w-4 text-green-500" />
+									Sprint
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={() => onStartInlineCreate("folder", project._id)}
+								>
+									<FolderOpen className="h-4 w-4 text-orange-500" />
+									Sprint folder
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									onClick={() => onCreateDoc(project._id as Id<"projects">)}
+								>
+									<FileText className="h-4 w-4 text-yellow-500" />
+									Document
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={() => onCreateBoard(project._id as Id<"projects">)}
+								>
+									<PenNib className="h-4 w-4 text-purple-500" />
+									Whiteboard
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									className="flex items-center justify-center w-5 h-5 mr-1 rounded text-muted-foreground opacity-0 group-hover/project:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
+								>
+									<DotsThree className="h-3.5 w-3.5" weight="bold" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="start"
+								sideOffset={4}
+								className="w-44"
+							>
+								<DropdownMenuItem
+									onClick={() => {
+										setRenameValue(project.name);
+										setIsRenaming(true);
+									}}
+								>
+									<Pencil className="h-4 w-4" />
+									Rename
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={handleDelete}
+									className="text-destructive focus:text-destructive"
+								>
+									<Trash2 className="h-4 w-4" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</>
+				)}
 			</div>
 
 			{/* Expanded children */}
@@ -939,35 +1049,140 @@ function SprintFolderItem({
 }) {
 	const totalIssues = folder.sprints.reduce((sum, s) => sum + s.issueCount, 0);
 
+	const [isFolderRenaming, setIsFolderRenaming] = useState(false);
+	const [folderRenameValue, setFolderRenameValue] = useState(folder.name);
+	const folderRenameRef = useRef<HTMLInputElement>(null);
+	const updateFolder = useMutation(api.sprintFolders.update);
+	const removeFolder = useMutation(api.sprintFolders.remove);
+
+	useEffect(() => {
+		if (isFolderRenaming) {
+			folderRenameRef.current?.focus();
+			folderRenameRef.current?.select();
+		}
+	}, [isFolderRenaming]);
+
+	const handleFolderRenameSubmit = useCallback(async () => {
+		const trimmed = folderRenameValue.trim();
+		if (!trimmed || trimmed === folder.name) {
+			setIsFolderRenaming(false);
+			setFolderRenameValue(folder.name);
+			return;
+		}
+		try {
+			await updateFolder({
+				folderId: folder._id as Id<"sprintFolders">,
+				name: trimmed,
+			});
+			toast.success("Folder renamed");
+		} catch {
+			toast.error("Failed to rename folder");
+			setFolderRenameValue(folder.name);
+		}
+		setIsFolderRenaming(false);
+	}, [folderRenameValue, folder._id, folder.name, updateFolder]);
+
+	const handleFolderDelete = useCallback(async () => {
+		if (
+			!window.confirm(
+				`Delete folder "${folder.name}"? Sprints inside will become ungrouped.`,
+			)
+		)
+			return;
+		try {
+			await removeFolder({ folderId: folder._id as Id<"sprintFolders"> });
+			toast.success("Folder deleted");
+		} catch {
+			toast.error("Failed to delete folder");
+		}
+	}, [folder._id, folder.name, removeFolder]);
+
 	return (
 		<div>
 			<div className="flex items-center group/folder min-w-0">
-				<button
-					type="button"
-					onClick={onToggle}
-					className="flex w-full items-center gap-1.5 h-7 px-2 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md cursor-pointer min-w-0"
-				>
-					<CaretRight
-						className={cn(
-							"h-2.5 w-2.5 shrink-0 transition-transform duration-200",
-							isExpanded && "rotate-90",
-						)}
-					/>
-					<Timer className="h-3.5 w-3.5 text-green-500 shrink-0" />
-					<span className="flex-1 truncate">{folder.name}</span>
-					{totalIssues > 0 && (
-						<span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
-							{totalIssues}
-						</span>
-					)}
-				</button>
-				<button
-					type="button"
-					onClick={() => onStartInlineCreate("sprint", projectId, folder._id)}
-					className="flex items-center justify-center w-5 h-5 mr-1 rounded text-muted-foreground opacity-0 group-hover/folder:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
-				>
-					<Plus className="h-2.5 w-2.5" />
-				</button>
+				{isFolderRenaming ? (
+					<div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 h-7">
+						<Timer className="h-3.5 w-3.5 text-green-500 shrink-0" />
+						<input
+							ref={folderRenameRef}
+							type="text"
+							value={folderRenameValue}
+							onChange={(e) => setFolderRenameValue(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleFolderRenameSubmit();
+								if (e.key === "Escape") {
+									setIsFolderRenaming(false);
+									setFolderRenameValue(folder.name);
+								}
+							}}
+							onBlur={handleFolderRenameSubmit}
+							className="flex-1 min-w-0 h-5 text-xs bg-transparent border-b border-border focus:border-foreground outline-none"
+						/>
+					</div>
+				) : (
+					<>
+						<button
+							type="button"
+							onClick={onToggle}
+							className="flex w-full items-center gap-1.5 h-7 px-2 text-xs font-medium text-muted-foreground hover:text-foreground rounded-md cursor-pointer min-w-0"
+						>
+							<CaretRight
+								className={cn(
+									"h-2.5 w-2.5 shrink-0 transition-transform duration-200",
+									isExpanded && "rotate-90",
+								)}
+							/>
+							<Timer className="h-3.5 w-3.5 text-green-500 shrink-0" />
+							<span className="flex-1 truncate">{folder.name}</span>
+							{totalIssues > 0 && (
+								<span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
+									{totalIssues}
+								</span>
+							)}
+						</button>
+						<button
+							type="button"
+							onClick={() =>
+								onStartInlineCreate("sprint", projectId, folder._id)
+							}
+							className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground opacity-0 group-hover/folder:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
+						>
+							<Plus className="h-2.5 w-2.5" />
+						</button>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									className="flex items-center justify-center w-5 h-5 mr-1 rounded text-muted-foreground opacity-0 group-hover/folder:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
+								>
+									<DotsThree className="h-3.5 w-3.5" weight="bold" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="start"
+								sideOffset={4}
+								className="w-40"
+							>
+								<DropdownMenuItem
+									onClick={() => {
+										setFolderRenameValue(folder.name);
+										setIsFolderRenaming(true);
+									}}
+								>
+									<Pencil className="h-4 w-4" />
+									Rename
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={handleFolderDelete}
+									className="text-destructive focus:text-destructive"
+								>
+									<Trash2 className="h-4 w-4" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</>
+				)}
 			</div>
 
 			{isExpanded && (
@@ -1043,35 +1258,139 @@ function SprintNavItem({
 			? (sprint.completedCount / sprint.issueCount) * 100
 			: 0;
 
+	const [isRenaming, setIsRenaming] = useState(false);
+	const [renameValue, setRenameValue] = useState(sprint.name);
+	const sprintRenameRef = useRef<HTMLInputElement>(null);
+	const updateSprint = useMutation(api.sprints.update);
+	const removeSprint = useMutation(api.sprints.remove);
+
+	useEffect(() => {
+		if (isRenaming) {
+			sprintRenameRef.current?.focus();
+			sprintRenameRef.current?.select();
+		}
+	}, [isRenaming]);
+
+	const handleRenameSubmit = useCallback(async () => {
+		const trimmed = renameValue.trim();
+		if (!trimmed || trimmed === sprint.name) {
+			setIsRenaming(false);
+			setRenameValue(sprint.name);
+			return;
+		}
+		try {
+			await updateSprint({
+				sprintId: sprint._id as Id<"sprints">,
+				name: trimmed,
+			});
+			toast.success("Sprint renamed");
+		} catch {
+			toast.error("Failed to rename sprint");
+			setRenameValue(sprint.name);
+		}
+		setIsRenaming(false);
+	}, [renameValue, sprint._id, sprint.name, updateSprint]);
+
+	const handleDelete = useCallback(async () => {
+		if (!window.confirm(`Delete sprint "${sprint.name}"?`)) return;
+		try {
+			await removeSprint({ sprintId: sprint._id as Id<"sprints"> });
+			toast.success("Sprint deleted");
+		} catch {
+			toast.error("Failed to delete sprint");
+		}
+	}, [sprint._id, sprint.name, removeSprint]);
+
 	return (
 		<SidebarMenu>
 			<SidebarMenuItem>
-				<SidebarMenuButton
-					asChild
-					isActive={isActive}
-					tooltip={`${sprint.name}${sprint.issueCount > 0 ? ` — ${sprint.completedCount}/${sprint.issueCount}` : ""}`}
-					className="h-7 rounded-md px-2 text-muted-foreground"
-				>
-					<Link href={sprintHref} prefetch={false}>
-						{sprint.icon ? (
-							<span className="text-[11px] leading-none flex items-center justify-center w-[14px] h-[14px] shrink-0">
-								{sprint.icon}
-							</span>
-						) : (
+				<div className="flex items-center group/sprint min-w-0">
+					{isRenaming ? (
+						<div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 h-7">
 							<SprintProgressRing
 								percentage={pct}
 								isActive={sprint.status === "active"}
 								size={14}
 							/>
-						)}
-						<span className="flex-1 truncate text-xs">{sprint.name}</span>
-						{sprint.issueCount > 0 && (
-							<span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
-								{sprint.issueCount}
-							</span>
-						)}
-					</Link>
-				</SidebarMenuButton>
+							<input
+								ref={sprintRenameRef}
+								type="text"
+								value={renameValue}
+								onChange={(e) => setRenameValue(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") handleRenameSubmit();
+									if (e.key === "Escape") {
+										setIsRenaming(false);
+										setRenameValue(sprint.name);
+									}
+								}}
+								onBlur={handleRenameSubmit}
+								className="flex-1 min-w-0 h-5 text-xs bg-transparent border-b border-border focus:border-foreground outline-none"
+							/>
+						</div>
+					) : (
+						<SidebarMenuButton
+							asChild
+							isActive={isActive}
+							tooltip={`${sprint.name}${sprint.issueCount > 0 ? ` — ${sprint.completedCount}/${sprint.issueCount}` : ""}`}
+							className="h-7 rounded-md px-2 text-muted-foreground flex-1 min-w-0"
+						>
+							<Link href={sprintHref} prefetch={false}>
+								{sprint.icon ? (
+									<span className="text-[11px] leading-none flex items-center justify-center w-[14px] h-[14px] shrink-0">
+										{sprint.icon}
+									</span>
+								) : (
+									<SprintProgressRing
+										percentage={pct}
+										isActive={sprint.status === "active"}
+										size={14}
+									/>
+								)}
+								<span className="flex-1 truncate text-xs">{sprint.name}</span>
+								{sprint.issueCount > 0 && (
+									<span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
+										{sprint.issueCount}
+									</span>
+								)}
+							</Link>
+						</SidebarMenuButton>
+					)}
+					{!isRenaming && (
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<button
+									type="button"
+									className="flex items-center justify-center w-5 h-5 mr-1 rounded text-muted-foreground opacity-0 group-hover/sprint:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
+								>
+									<DotsThree className="h-3.5 w-3.5" weight="bold" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="start"
+								sideOffset={4}
+								className="w-40"
+							>
+								<DropdownMenuItem
+									onClick={() => {
+										setRenameValue(sprint.name);
+										setIsRenaming(true);
+									}}
+								>
+									<Pencil className="h-4 w-4" />
+									Rename
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onClick={handleDelete}
+									className="text-destructive focus:text-destructive"
+								>
+									<Trash2 className="h-4 w-4" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					)}
+				</div>
 			</SidebarMenuItem>
 		</SidebarMenu>
 	);

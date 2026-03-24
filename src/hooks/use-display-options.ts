@@ -61,18 +61,24 @@ export { DisplayOptionsContext };
 
 // ── Hook ────────────────────────────────────────────────────────────────────
 
-function loadFromStorage(viewContext: string): DisplayOptions {
-	if (typeof window === "undefined") return DEFAULT_DISPLAY_OPTIONS;
+function loadFromStorage(
+	viewContext: string,
+	defaults?: Partial<DisplayOptions>,
+): DisplayOptions {
+	const base = defaults
+		? { ...DEFAULT_DISPLAY_OPTIONS, ...defaults }
+		: DEFAULT_DISPLAY_OPTIONS;
+	if (typeof window === "undefined") return base;
 	try {
 		const stored = localStorage.getItem(getStorageKey(viewContext));
 		if (stored) {
 			const parsed = JSON.parse(stored) as Partial<DisplayOptions>;
-			return { ...DEFAULT_DISPLAY_OPTIONS, ...parsed };
+			return { ...base, ...parsed };
 		}
 	} catch {
 		// Corrupt data — fall through to default
 	}
-	return DEFAULT_DISPLAY_OPTIONS;
+	return base;
 }
 
 function saveToStorage(viewContext: string, options: DisplayOptions): void {
@@ -84,9 +90,12 @@ function saveToStorage(viewContext: string, options: DisplayOptions): void {
 	}
 }
 
-export function useDisplayOptions(viewContext: string) {
+export function useDisplayOptions(
+	viewContext: string,
+	defaults?: Partial<DisplayOptions>,
+) {
 	const [options, setOptionsState] = useState<DisplayOptions>(() =>
-		loadFromStorage(viewContext),
+		loadFromStorage(viewContext, defaults),
 	);
 
 	// Track the view context so we can reload when it changes

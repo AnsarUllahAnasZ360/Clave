@@ -1435,7 +1435,7 @@ export const update = mutation({
 		if (args.estimate !== undefined && args.estimate !== issue.estimate) {
 			await logActivity(ctx, {
 				...baseLog,
-				description: `changed estimate from ${issue.estimate ?? "none"} to ${args.estimate}`,
+				description: `changed estimate from ${issue.estimate != null ? `${issue.estimate}h` : "none"} to ${args.estimate}h`,
 				field: "estimate",
 				oldValue: issue.estimate != null ? String(issue.estimate) : undefined,
 				newValue: String(args.estimate),

@@ -153,7 +153,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 				{display.estimate !== false && issue.estimate !== undefined && (
 					<span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
 						<Timer className="h-3 w-3" />
-						{issue.estimate}
+						{issue.estimate}h
 					</span>
 				)}
 

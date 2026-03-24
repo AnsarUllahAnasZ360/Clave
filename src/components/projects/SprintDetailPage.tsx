@@ -11,6 +11,7 @@ import { IssueBoardView } from "@/components/issues/IssueBoardView";
 import { useIssueCreate } from "@/components/issues/IssueCreateContext";
 import type { IssueListData } from "@/components/issues/IssueListRow";
 import { IssueListView } from "@/components/issues/IssueListView";
+import { IssuePreviewSidebar } from "@/components/issues/IssuePreviewSidebar";
 import { IssueTimelineView } from "@/components/issues/IssueTimelineView";
 import {
 	IssueFilterChips,
@@ -76,7 +77,9 @@ export function SprintDetailPage({
 		sprint ? { sprintId: sprint._id } : "skip",
 	);
 
-	const displayOpts = useDisplayOptions(`sprint-${sprintId}`);
+	const displayOpts = useDisplayOptions(`sprint-${sprintId}`, {
+		layout: "list",
+	});
 	const options = displayOpts.options;
 
 	const handleCreateIssue = useCallback(() => {
@@ -97,6 +100,9 @@ export function SprintDetailPage({
 		applyFilters,
 	} = useIssueFilters();
 	const [showFilters, setShowFilters] = useState(false);
+	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(
+		null,
+	);
 
 	const members = useWorkspaceMembers();
 	const labels = useWorkspaceLabels();
@@ -363,6 +369,7 @@ export function SprintDetailPage({
 						orderBy={options.orderBy}
 						displayProperties={options.displayProperties}
 						hideFilter
+						onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 					/>
 				</div>
 			)}
@@ -373,6 +380,14 @@ export function SprintDetailPage({
 						externalIssues={filteredTimelineIssues}
 					/>
 				</div>
+			)}
+
+			{/* Issue peek sidebar */}
+			{selectedIssueId && (
+				<IssuePreviewSidebar
+					issueId={selectedIssueId}
+					onClose={() => setSelectedIssueId(null)}
+				/>
 			)}
 		</div>
 	);

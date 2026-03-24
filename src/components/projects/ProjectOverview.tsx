@@ -24,6 +24,7 @@ import {
 	CircleDot,
 	Diamond,
 	GripVertical,
+	LayoutList,
 	MoreHorizontal,
 	Pencil,
 	Plus,
@@ -31,6 +32,7 @@ import {
 	SquarePen,
 	Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ProjectAISummary } from "@/components/ai/project/ProjectAISummary";
@@ -103,8 +105,14 @@ export function ProjectOverview({
 	icon,
 	onUpdate,
 }: ProjectOverviewProps) {
-	const { workspaceId } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const milestones = useQuery(api.sprints.listByProject, {
+		projectId: project._id,
+	});
+	const backlogIssues = useQuery(api.issues.listBacklog, {
+		projectId: project._id,
+	});
+	const sprintFolders = useQuery(api.sprintFolders.listByProject, {
 		projectId: project._id,
 	});
 	const updateProject = useMutation(api.projects.update);
@@ -172,7 +180,32 @@ export function ProjectOverview({
 			<MilestonesSection
 				projectId={project._id}
 				milestones={(milestones ?? []) as MilestoneData[]}
+				folders={sprintFolders ?? []}
 			/>
+
+			{/* Backlog summary */}
+			<Separator />
+			<section>
+				<div className="flex items-center justify-between mb-3">
+					<h3 className="text-sm font-medium text-muted-foreground">Backlog</h3>
+					<span className="text-xs text-muted-foreground">
+						{backlogIssues?.length ?? 0} issues
+					</span>
+				</div>
+				{(backlogIssues?.length ?? 0) === 0 ? (
+					<p className="text-sm text-muted-foreground/70">
+						No unassigned issues in the backlog.
+					</p>
+				) : (
+					<Link
+						href={`/${workspaceSlug}/projects/${project.slug}/backlog`}
+						className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground hover:bg-muted/50 transition-colors"
+					>
+						<LayoutList className="h-4 w-4" />
+						View {backlogIssues?.length} backlog issues
+					</Link>
+				)}
+			</section>
 
 			{/* AI Project Actions */}
 			{workspaceId && (
@@ -332,12 +365,19 @@ type MilestoneData = {
 	progressPercentage: number;
 };
 
+type FolderData = {
+	_id: Id<"sprintFolders">;
+	name: string;
+};
+
 function MilestonesSection({
 	projectId,
 	milestones,
+	folders,
 }: {
 	projectId: Id<"projects">;
 	milestones: MilestoneData[];
+	folders: FolderData[];
 }) {
 	const [isAdding, setIsAdding] = useState(false);
 	const [detailMilestoneId, setDetailMilestoneId] =
@@ -392,6 +432,20 @@ function MilestonesSection({
 		[milestones, reorderMilestone],
 	);
 
+	// Group sprints by folder
+	const folderMap = new Map(folders.map((f) => [f._id, f.name]));
+	const looseSprints = milestones.filter(
+		(m) => !(m as MilestoneData & { folderId?: string }).folderId,
+	);
+	const folderGroups = folders
+		.map((f) => ({
+			folder: f,
+			sprints: milestones.filter(
+				(m) => (m as MilestoneData & { folderId?: string }).folderId === f._id,
+			),
+		}))
+		.filter((g) => g.sprints.length > 0);
+
 	return (
 		<section>
 			<div className="flex items-center justify-between mb-3">
@@ -436,7 +490,23 @@ function MilestonesSection({
 						strategy={verticalListSortingStrategy}
 					>
 						<div className="space-y-2">
-							{milestones.map((milestone) => (
+							{/* Sprint folders */}
+							{folderGroups.map((group) => (
+								<div key={group.folder._id} className="space-y-1">
+									<div className="text-xs font-medium text-muted-foreground/70 px-1 pt-1">
+										{group.folder.name}
+									</div>
+									{group.sprints.map((milestone) => (
+										<SortableMilestoneRow
+											key={milestone._id}
+											milestone={milestone}
+											onOpenDetail={setDetailMilestoneId}
+										/>
+									))}
+								</div>
+							))}
+							{/* Loose sprints (no folder) */}
+							{looseSprints.map((milestone) => (
 								<SortableMilestoneRow
 									key={milestone._id}
 									milestone={milestone}
