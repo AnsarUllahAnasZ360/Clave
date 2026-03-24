@@ -20,6 +20,7 @@ async function bootstrapSnapshotFromLegacy(
 ): Promise<Id<"yjsSnapshotsV3"> | null> {
 	const existingSnapshot = await ctx.db
 		.query("yjsSnapshotsV3")
+		// biome-ignore lint/suspicious/noExplicitAny: dynamic index type
 		.withIndex("by_document", (q: any) => q.eq("documentId", documentId))
 		.unique();
 	if (existingSnapshot) {
@@ -28,6 +29,7 @@ async function bootstrapSnapshotFromLegacy(
 
 	const legacy = await ctx.db
 		.query("yjsDocuments")
+		// biome-ignore lint/suspicious/noExplicitAny: dynamic index type
 		.withIndex("by_document", (q: any) => q.eq("documentId", documentId))
 		.unique();
 
@@ -171,6 +173,7 @@ export const pushUpdate = mutation({
 			.take(COMPACTION_THRESHOLD);
 
 		if (recentUpdates.length >= COMPACTION_THRESHOLD) {
+			// biome-ignore lint/suspicious/noExplicitAny: internal API cast
 			await ctx.scheduler.runAfter(0, (internal as any).yjsV3.compactUpdates, {
 				documentId: args.documentId,
 			});
@@ -233,6 +236,7 @@ export const compactUpdates = internalMutation({
 		}
 
 		if (updates.length === MAX_UPDATES_PER_COMPACTION) {
+			// biome-ignore lint/suspicious/noExplicitAny: internal API cast
 			await ctx.scheduler.runAfter(0, (internal as any).yjsV3.compactUpdates, {
 				documentId: args.documentId,
 			});

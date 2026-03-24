@@ -221,7 +221,7 @@ export const dispatchMention = internalAction({
 		}
 		if (assistantText === "Processed your request.") {
 			try {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				// biome-ignore lint/suspicious/noExplicitAny: AI SDK result type varies at runtime
 				const r = result as any;
 				const reasoningText = await r?.reasoningText;
 				if (typeof reasoningText === "string" && reasoningText.trim()) {
@@ -233,7 +233,7 @@ export const dispatchMention = internalAction({
 		}
 		if (assistantText === "Processed your request.") {
 			try {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				// biome-ignore lint/suspicious/noExplicitAny: AI SDK result type varies at runtime
 				const resp = await (result as any).response;
 				const lastMsg = resp?.messages
 					?.filter((m: { role: string }) => m.role === "assistant")

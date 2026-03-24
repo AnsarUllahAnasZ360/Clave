@@ -27,6 +27,7 @@ export default async function Page(props: PageProps) {
 	// fumadocs-mdx virtual module provides body/toc/full at build time
 	const pageData = page.data as unknown as Record<string, unknown>;
 	const MDX = pageData.body as React.ComponentType<{
+		// biome-ignore lint/suspicious/noExplicitAny: MDX component types are dynamic
 		components?: Record<string, React.ComponentType<any>>;
 	}>;
 	const breadcrumbs = getBreadcrumbItems(page.url, source.pageTree, {
@@ -73,6 +74,7 @@ export default async function Page(props: PageProps) {
 			<DocsBody>
 				<MDX
 					components={
+						// biome-ignore lint/suspicious/noExplicitAny: MDX component types are dynamic
 						defaultMdxComponents as Record<string, React.ComponentType<any>>
 					}
 				/>

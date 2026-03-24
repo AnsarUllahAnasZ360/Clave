@@ -65,7 +65,6 @@ function InputGroupAddon({
 			data-slot="input-group-addon"
 			data-align={align}
 			className={cn(inputGroupAddonVariants({ align }), className)}
-			// biome-ignore lint/a11y/noStaticElementInteractions: clicking the addon should focus the related input.
 			onClick={(e) => {
 				if ((e.target as HTMLElement).closest("button")) {
 					return;

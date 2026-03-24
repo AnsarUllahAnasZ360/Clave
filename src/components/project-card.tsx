@@ -149,7 +149,6 @@ export function ProjectCard({
 
 	return (
 		<div
-			// biome-ignore lint/a11y/useSemanticElements: draggable card root needs a non-button wrapper for nested controls.
 			role="button"
 			tabIndex={0}
 			aria-label={`Open project ${project.name}`}

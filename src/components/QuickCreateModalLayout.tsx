@@ -36,8 +36,8 @@ export function QuickCreateModalLayout({
 	};
 
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: overlay backdrop needs click-to-dismiss
 		<div
-			// biome-ignore lint/a11y/useSemanticElements: overlay backdrop must remain a container with click-to-dismiss behavior.
 			role="button"
 			tabIndex={-1}
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"

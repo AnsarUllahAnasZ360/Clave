@@ -435,7 +435,6 @@ export function DocsContent() {
 										onKeyDown={(e) =>
 											e.key === "Enter" && handleDocClick(doc._id)
 										}
-										// biome-ignore lint/a11y/useSemanticElements: card container includes nested interactive controls and keyboard handler.
 										role="button"
 										tabIndex={0}
 									>

@@ -203,7 +203,6 @@ const ThreadListItem = forwardRef<HTMLDivElement, ThreadListItemProps>(
 		return (
 			<div
 				ref={ref}
-				// biome-ignore lint/a11y/useSemanticElements: list row keeps div semantics for nested comment actions and layout.
 				role="button"
 				tabIndex={0}
 				className={cn(

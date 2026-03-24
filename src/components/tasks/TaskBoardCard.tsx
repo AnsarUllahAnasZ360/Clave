@@ -75,7 +75,6 @@ export function TaskBoardCard({
 				}
 			}}
 			tabIndex={0}
-			// biome-ignore lint/a11y/useSemanticElements: task card contains nested controls and requires non-button container semantics.
 			role="button"
 			aria-label={`Open task ${task.name}`}
 		>

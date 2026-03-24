@@ -248,9 +248,8 @@ export function AppSidebar() {
 					folderId: inlineCreate.folderId as Id<"sprintFolders"> | undefined,
 				});
 				if (inlineCreate.folderId) {
-					setExpandedFolders((prev) =>
-						new Set(prev).add(inlineCreate.folderId!),
-					);
+					const fid = inlineCreate.folderId;
+					setExpandedFolders((prev) => new Set(prev).add(fid));
 				}
 				toast.success("Sprint created");
 			} else {
@@ -548,16 +547,14 @@ export function AppSidebar() {
 							<SidebarGroupContent>
 								<SidebarMenu>
 									{sidebarProjects === undefined ? (
-										<>
-											{[1, 2, 3].map((i) => (
-												<SidebarMenuItem key={i}>
-													<div className="flex items-center gap-3 px-3 h-9">
-														<Skeleton className="h-[18px] w-[18px] rounded-full" />
-														<Skeleton className="h-3 flex-1" />
-													</div>
-												</SidebarMenuItem>
-											))}
-										</>
+										[1, 2, 3].map((i) => (
+											<SidebarMenuItem key={i}>
+												<div className="flex items-center gap-3 px-3 h-9">
+													<Skeleton className="h-[18px] w-[18px] rounded-full" />
+													<Skeleton className="h-3 flex-1" />
+												</div>
+											</SidebarMenuItem>
+										))
 									) : sidebarProjects.length === 0 ? (
 										<SidebarMenuItem>
 											<span className="px-3 text-xs text-muted-foreground">
@@ -718,7 +715,7 @@ function ProjectTreeItem({
 	const isProjectActive = pathname.startsWith(
 		`/${workspaceSlug}/projects/${project.slug}`,
 	);
-	const hasContent =
+	const _hasContent =
 		project.sprintFolders.length > 0 ||
 		project.looseSprints.length > 0 ||
 		project.backlogCount > 0;
@@ -1099,6 +1096,7 @@ function SprintProgressRing({
 
 	return (
 		<svg
+			aria-hidden="true"
 			width={size}
 			height={size}
 			viewBox={`0 0 ${size} ${size}`}
