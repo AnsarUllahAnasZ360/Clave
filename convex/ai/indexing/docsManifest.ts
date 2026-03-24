@@ -327,7 +327,7 @@ Full create: Press Shift+C or click New issue for the full modal with title, des
 
 From within a project: Navigate to project's Issues tab and click New issue — automatically linked to that project.
 
-Issue fields: Title (required), Description (rich text), Status (Triage/Backlog/Todo/In progress/In review/Done/Cancelled), Priority (Urgent/High/Medium/Low/No priority), Type (Issue/Bug/Improvement/Feature), Assignee, Project, Sprint, Labels, Estimate (1/2/3/5/8/13 points), Due date.
+Issue fields: Title (required), Description (rich text), Status (Triage/Backlog/Todo/In progress/In review/Done/Cancelled), Priority (Urgent/High/Medium/Low/No priority), Type (Issue/Bug/Improvement/Feature), Assignee, Project, Sprint, Labels, Estimate (0.5/1/2/4/8/16/24/40 hours), Due date.
 
 Issue identifiers: Auto-generated in PREFIX-NNN format (e.g., CLV-001). Immutable.
 

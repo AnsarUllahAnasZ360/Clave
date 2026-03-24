@@ -87,7 +87,7 @@ const ALL_COLUMNS: { id: ListColumnId; label: string; default: boolean }[] = [
 	{ id: "labels", label: "Labels", default: false },
 	{ id: "project", label: "Project", default: false },
 	{ id: "milestone", label: "Sprint", default: false },
-	{ id: "estimate", label: "Time estimate", default: false },
+	{ id: "estimate", label: "Hours", default: false },
 	{ id: "dueDate", label: "Due date", default: true },
 ];
 
@@ -328,6 +328,8 @@ export type IssueListViewProps = {
 	displayProperties?: DisplayPropertyId[];
 	/** Hide the internal filter toolbar (when parent already provides one) */
 	hideFilter?: boolean;
+	/** Callback when an issue row is clicked (for peek sidebar). If not provided, navigates to issue page. */
+	onIssueClick?: (issueId: string) => void;
 };
 
 export function IssueListView({
@@ -338,6 +340,7 @@ export function IssueListView({
 	orderBy: orderByProp = "manual",
 	displayProperties,
 	hideFilter,
+	onIssueClick,
 }: IssueListViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
@@ -659,9 +662,17 @@ export function IssueListView({
 
 	const handleIssueClick = useCallback(
 		(identifier: string) => {
+			if (onIssueClick) {
+				// Find the issue ID from identifier and call the peek callback
+				const issue = issues.find((i) => i.identifier === identifier);
+				if (issue) {
+					onIssueClick(issue._id);
+					return;
+				}
+			}
 			router.push(`/${workspaceSlug}/issues/${identifier}`);
 		},
-		[router, workspaceSlug],
+		[router, workspaceSlug, onIssueClick, issues],
 	);
 
 	const toggleGroup = useCallback((groupKey: string) => {

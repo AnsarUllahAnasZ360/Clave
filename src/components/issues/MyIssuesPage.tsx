@@ -488,7 +488,7 @@ function IssueRow({
 			{/* Estimate */}
 			{showEstimate && issue.estimate && (
 				<span className="hidden sm:inline-flex items-center shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums">
-					{issue.estimate}
+					{issue.estimate}h
 				</span>
 			)}
 

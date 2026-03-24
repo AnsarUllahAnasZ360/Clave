@@ -112,7 +112,7 @@ export const DISPLAY_PROPERTY_LABELS: Record<DisplayPropertyId, string> = {
 	assignee: "Assignee",
 	project: "Project",
 	milestone: "Sprint",
-	estimate: "Estimate",
+	estimate: "Hours",
 	dueDate: "Due date",
 	created: "Created",
 	updated: "Updated",

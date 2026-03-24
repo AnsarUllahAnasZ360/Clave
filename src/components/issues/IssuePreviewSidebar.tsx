@@ -383,9 +383,7 @@ export function IssuePreviewSidebar({
 						{/* Estimate */}
 						<PropertyRow icon={Clock} label="Estimate">
 							<span className={cn(!issue.estimate && "text-muted-foreground")}>
-								{issue.estimate
-									? `${issue.estimate} ${issue.estimate === 1 ? "point" : "points"}`
-									: "No estimate"}
+								{issue.estimate ? `${issue.estimate}h` : "No estimate"}
 							</span>
 						</PropertyRow>
 

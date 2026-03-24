@@ -117,12 +117,14 @@ const TYPE_CONFIG = TYPE_ITEMS;
 
 const ESTIMATE_OPTIONS = [
 	{ id: "0", label: "No estimate" },
-	{ id: "1", label: "1 point" },
-	{ id: "2", label: "2 points" },
-	{ id: "3", label: "3 points" },
-	{ id: "5", label: "5 points" },
-	{ id: "8", label: "8 points" },
-	{ id: "13", label: "13 points" },
+	{ id: "0.5", label: "0.5h" },
+	{ id: "1", label: "1h" },
+	{ id: "2", label: "2h" },
+	{ id: "4", label: "4h" },
+	{ id: "8", label: "8h" },
+	{ id: "16", label: "16h" },
+	{ id: "24", label: "24h" },
+	{ id: "40", label: "40h" },
 ];
 
 // ── Helper: Status icon ──────────────────────────────────────────────────
@@ -1094,7 +1096,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 										>
 											<span>
 												{issue.estimate ? (
-													`${issue.estimate} ${issue.estimate === 1 ? "point" : "points"}`
+													`${issue.estimate}h`
 												) : (
 													<span className="text-muted-foreground">
 														No estimate
