@@ -5,21 +5,15 @@ import { PixelLogo } from "./pixel-logo";
 const FOOTER_LINKS = {
 	Product: [
 		{ label: "Features", href: "#features" },
-		{ label: "Pricing", href: "#" },
 		{ label: "Changelog", href: "/changelog" },
-		{ label: "Roadmap", href: "#" },
 	],
 	Resources: [
 		{ label: "Documentation", href: "/docs" },
 		{ label: "Brand", href: "/brand" },
-		{ label: "API reference", href: "#" },
-		{ label: "Status", href: "#" },
-	],
-	Company: [
-		{ label: "About", href: "#" },
-		{ label: "Blog", href: "#" },
-		{ label: "Privacy", href: "#" },
-		{ label: "Terms", href: "#" },
+		{
+			label: "GitHub",
+			href: "https://github.com/AnsarUllahAnasZ360/Clave",
+		},
 	],
 };
 
