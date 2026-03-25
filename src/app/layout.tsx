@@ -1,15 +1,15 @@
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { ConvexProvider } from "@/components/providers/convex-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const inter = Inter({
+const plusJakarta = Plus_Jakarta_Sans({
 	subsets: ["latin"],
-	variable: "--font-inter",
+	variable: "--font-sans",
 });
 
 export const metadata: Metadata = {
@@ -26,7 +26,7 @@ export default function RootLayout({
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<body
-				className={`${inter.variable} ${GeistPixelSquare.variable} font-sans antialiased`}
+				className={`${plusJakarta.variable} ${GeistPixelSquare.variable} font-sans antialiased`}
 			>
 				<ConvexAuthNextjsServerProvider>
 					<ConvexProvider>

@@ -33,6 +33,8 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { IssueDevelopmentSection } from "@/components/github/IssueDevelopmentSection";
+import { EstimateInput } from "@/components/issues/EstimateInput";
+import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -121,10 +123,10 @@ const ESTIMATE_OPTIONS = [
 	{ id: "1", label: "1h" },
 	{ id: "2", label: "2h" },
 	{ id: "4", label: "4h" },
-	{ id: "8", label: "8h" },
-	{ id: "16", label: "16h" },
-	{ id: "24", label: "24h" },
-	{ id: "40", label: "40h" },
+	{ id: "8", label: "1d" },
+	{ id: "16", label: "2d" },
+	{ id: "24", label: "3d" },
+	{ id: "40", label: "5d" },
 ];
 
 // ── Helper: Status icon ──────────────────────────────────────────────────
@@ -1079,32 +1081,19 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 
 							{/* Estimate */}
 							<PropertyRow icon={Clock} label="Estimate">
-								<GenericPicker
-									items={ESTIMATE_OPTIONS}
-									onSelect={handleEstimateChange}
-									selectedId={issue.estimate ? String(issue.estimate) : "0"}
-									placeholder="Set estimate..."
-									renderItem={(item) => (
-										<div className="flex items-center gap-2 w-full">
-											<span className="flex-1">{item.label}</span>
-										</div>
-									)}
-									trigger={
-										<button
-											type="button"
-											className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
-										>
-											<span>
-												{issue.estimate ? (
-													`${issue.estimate}h`
-												) : (
-													<span className="text-muted-foreground">
-														No estimate
-													</span>
-												)}
-											</span>
-										</button>
-									}
+								<EstimateInput
+									value={issue.estimate ?? undefined}
+									onChange={async (hours) => {
+										try {
+											await updateIssue({
+												issueId: issueId as Id<"issues">,
+												estimate: hours === 0 ? undefined : hours,
+											});
+										} catch {
+											toast.error("Failed to update estimate");
+										}
+									}}
+									compact
 								/>
 							</PropertyRow>
 

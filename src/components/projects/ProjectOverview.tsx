@@ -380,6 +380,8 @@ function MilestonesSection({
 	folders: FolderData[];
 }) {
 	const [isAdding, setIsAdding] = useState(false);
+	const [isAddingFolder, setIsAddingFolder] = useState(false);
+	const createFolder = useMutation(api.sprintFolders.create);
 	const [detailMilestoneId, setDetailMilestoneId] =
 		useState<Id<"sprints"> | null>(null);
 	const reorderMilestone = useMutation(api.sprints.reorder);
@@ -461,10 +463,19 @@ function MilestonesSection({
 						variant="ghost"
 						size="sm"
 						className="h-7 gap-1 text-xs text-muted-foreground"
+						onClick={() => setIsAddingFolder(true)}
+					>
+						<Plus className="h-3.5 w-3.5" />
+						Folder
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-7 gap-1 text-xs text-muted-foreground"
 						onClick={() => setIsAdding(true)}
 					>
 						<Plus className="h-3.5 w-3.5" />
-						Add sprint
+						Sprint
 					</Button>
 				</div>
 			</div>
@@ -523,6 +534,44 @@ function MilestonesSection({
 					projectId={projectId}
 					onClose={() => setIsAdding(false)}
 				/>
+			)}
+
+			{isAddingFolder && (
+				<form
+					className="flex items-center gap-2 mt-2"
+					onSubmit={async (e) => {
+						e.preventDefault();
+						const input = (e.target as HTMLFormElement).elements.namedItem(
+							"folderName",
+						) as HTMLInputElement;
+						const name = input.value.trim();
+						if (!name) return;
+						await createFolder({ projectId, name });
+						toast.success("Sprint folder created");
+						setIsAddingFolder(false);
+					}}
+				>
+					<input
+						name="folderName"
+						type="text"
+						placeholder="Folder name..."
+						className="flex-1 h-8 rounded-md border border-border bg-transparent px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+						// biome-ignore lint/a11y/noAutofocus: inline create input needs focus
+						autoFocus
+					/>
+					<Button type="submit" size="sm" className="h-8">
+						Create
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="h-8"
+						onClick={() => setIsAddingFolder(false)}
+					>
+						Cancel
+					</Button>
+				</form>
 			)}
 
 			<MilestoneDetailPanel

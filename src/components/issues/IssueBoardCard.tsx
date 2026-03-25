@@ -5,6 +5,7 @@ import { Calendar, type LucideIcon, Timer } from "lucide-react";
 import { memo } from "react";
 
 import { BlockingIndicators } from "@/components/issues/BlockingIndicators";
+import { formatEstimate } from "@/components/issues/IssueListRow";
 import { SubIssueCountBadge } from "@/components/issues/SubIssueCountBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PRIORITY_RECORD } from "@/lib/issue-config";
@@ -153,7 +154,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 				{display.estimate !== false && issue.estimate !== undefined && (
 					<span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
 						<Timer className="h-3 w-3" />
-						{issue.estimate}h
+						{formatEstimate(issue.estimate)}
 					</span>
 				)}
 

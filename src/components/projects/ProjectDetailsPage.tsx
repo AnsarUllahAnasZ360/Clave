@@ -9,6 +9,7 @@ import { useMutation, useQuery } from "convex/react";
 import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ProjectGitHubTab } from "@/components/github/ProjectGitHubTab";
@@ -18,6 +19,7 @@ import { IssueBoardView } from "@/components/issues/IssueBoardView";
 import { useIssueCreate } from "@/components/issues/IssueCreateContext";
 import type { IssueListData } from "@/components/issues/IssueListRow";
 import { IssueListView } from "@/components/issues/IssueListView";
+import { IssuePreviewSidebar } from "@/components/issues/IssuePreviewSidebar";
 import { IssueTimelineView } from "@/components/issues/IssueTimelineView";
 import {
 	IssueFilterChips,
@@ -61,9 +63,26 @@ type ProjectDetailsPageProps = {
 
 export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
+	const router = useRouter();
+	const searchParams = useSearchParams();
 	const [showMeta, setShowMeta] = useState(true);
 	const [isEditOpen, setIsEditOpen] = useState(false);
-	const [activeTab, setActiveTab] = useState("overview");
+
+	// Persist active tab in URL so back navigation restores it
+	const activeTab = searchParams.get("tab") ?? "overview";
+	const setActiveTab = useCallback(
+		(tab: string) => {
+			const params = new URLSearchParams(searchParams.toString());
+			if (tab === "overview") {
+				params.delete("tab");
+			} else {
+				params.set("tab", tab);
+			}
+			const qs = params.toString();
+			router.replace(qs ? `?${qs}` : "?", { scroll: false });
+		},
+		[router, searchParams],
+	);
 
 	const project = useQuery(api.projects.getBySlug, { workspaceId, slug });
 	const stats = useQuery(
@@ -289,7 +308,8 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 						className={cn(
 							"flex-1 min-w-0 flex flex-col",
 							activeTab === "issues" &&
-								issueDisplayOpts.options.layout === "board"
+								(issueDisplayOpts.options.layout === "board" ||
+									issueDisplayOpts.options.layout === "timeline")
 								? "min-h-0"
 								: "overflow-auto",
 						)}
@@ -322,7 +342,8 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							value="issues"
 							className={cn(
 								"mt-0",
-								issueDisplayOpts.options.layout === "board" &&
+								(issueDisplayOpts.options.layout === "board" ||
+									issueDisplayOpts.options.layout === "timeline") &&
 									"data-[state=active]:flex flex-col flex-1 min-h-0",
 							)}
 						>
@@ -465,6 +486,9 @@ function ProjectIssuesTab({
 	const { workspaceId } = useWorkspace();
 	const { openQuickCreate } = useIssueCreate();
 	const options = displayOpts.options;
+	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(
+		null,
+	);
 
 	const handleCreateIssue = useCallback(() => {
 		openQuickCreate({ projectId: projectId as string });
@@ -608,107 +632,120 @@ function ProjectIssuesTab({
 	const projectMap = useMemo(() => new Map<string, string>(), []);
 
 	return (
-		<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
-			{/* Toolbar: Filter + Display | Create Issue */}
-			<div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 bg-muted/20 shrink-0">
-				<MyIssuesFilterPopover
-					open={showFilters}
-					onOpenChange={setShowFilters}
-					filters={filters}
-					setFilter={setFilter}
-					clearAll={clearAllFilters}
-					projects={[]}
-					labels={(labels ?? []).map((l) => ({
-						_id: l._id as string,
-						name: l.name,
-						color: l.color,
-					}))}
-					members={(members ?? []).map((m) => ({
-						id: m.userId as string,
-						name: m.user?.name ?? m.user?.email ?? "Unknown",
-					}))}
-					milestones={(sprints ?? []).map((m) => ({
-						id: m._id as string,
-						name: m.name,
-					}))}
-				/>
-				<DisplayOptionsPanel
-					layout={options.layout}
-					groupBy={options.groupBy}
-					subGroupBy={options.subGroupBy}
-					orderBy={options.orderBy}
-					orderDirection={options.orderDirection}
-					displayProperties={options.displayProperties}
-					showSubIssues={options.showSubIssues}
-					showEmptyGroups={options.showEmptyGroups}
-					swimlaneBy={options.swimlaneBy}
-					onLayoutChange={displayOpts.setLayout}
-					onGroupByChange={displayOpts.setGroupBy}
-					onSubGroupByChange={displayOpts.setSubGroupBy}
-					onOrderByChange={displayOpts.setOrderBy}
-					onOrderDirectionChange={displayOpts.setOrderDirection}
-					onDisplayPropertyToggle={displayOpts.toggleDisplayProperty}
-					onShowSubIssuesChange={displayOpts.setShowSubIssues}
-					onShowEmptyGroupsChange={displayOpts.setShowEmptyGroups}
-					onSwimlaneSetting={displayOpts.setSwimlaneSetting}
-					onReset={displayOpts.reset}
-				/>
-
-				<div className="flex-1" />
-
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-7 gap-1.5 text-xs rounded-md border-border/60 px-3 bg-transparent"
-					onClick={handleCreateIssue}
-				>
-					<Plus className="h-3.5 w-3.5" />
-					Create issue
-				</Button>
-			</div>
-
-			{/* Filter chips (shown when active filters exist) */}
-			{activeFilterCount > 0 && (
-				<IssueFilterChips
-					filters={filters}
-					setFilter={setFilter}
-					clearAll={clearAllFilters}
-					projectMap={projectMap}
-					labelMap={labelMap}
-					memberMap={memberMap}
-					milestoneMap={milestoneMap}
-				/>
-			)}
-
-			{/* Board / List / Timeline content */}
-			{options.layout === "board" && (
-				<IssueBoardView
-					projectId={projectId}
-					externalIssues={filteredBoardIssues}
-					displayProperties={boardDisplayProperties}
-					swimlaneBy={options.swimlaneBy}
-				/>
-			)}
-			{options.layout === "list" && (
-				<div className="px-6 pb-6 max-w-7xl mx-auto w-full">
-					<IssueListView
-						issues={filteredListIssues}
-						projectId={projectId}
+		<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+			<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+				{/* Toolbar: Filter + Display | Create Issue */}
+				<div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 bg-muted/20 shrink-0">
+					<MyIssuesFilterPopover
+						open={showFilters}
+						onOpenChange={setShowFilters}
+						filters={filters}
+						setFilter={setFilter}
+						clearAll={clearAllFilters}
+						projects={[]}
+						labels={(labels ?? []).map((l) => ({
+							_id: l._id as string,
+							name: l.name,
+							color: l.color,
+						}))}
+						members={(members ?? []).map((m) => ({
+							id: m.userId as string,
+							name: m.user?.name ?? m.user?.email ?? "Unknown",
+						}))}
+						milestones={(sprints ?? []).map((m) => ({
+							id: m._id as string,
+							name: m.name,
+						}))}
+					/>
+					<DisplayOptionsPanel
+						layout={options.layout}
 						groupBy={options.groupBy}
 						subGroupBy={options.subGroupBy}
 						orderBy={options.orderBy}
+						orderDirection={options.orderDirection}
 						displayProperties={options.displayProperties}
-						hideFilter
+						showSubIssues={options.showSubIssues}
+						showEmptyGroups={options.showEmptyGroups}
+						swimlaneBy={options.swimlaneBy}
+						onLayoutChange={displayOpts.setLayout}
+						onGroupByChange={displayOpts.setGroupBy}
+						onSubGroupByChange={displayOpts.setSubGroupBy}
+						onOrderByChange={displayOpts.setOrderBy}
+						onOrderDirectionChange={displayOpts.setOrderDirection}
+						onDisplayPropertyToggle={displayOpts.toggleDisplayProperty}
+						onShowSubIssuesChange={displayOpts.setShowSubIssues}
+						onShowEmptyGroupsChange={displayOpts.setShowEmptyGroups}
+						onSwimlaneSetting={displayOpts.setSwimlaneSetting}
+						onReset={displayOpts.reset}
 					/>
+
+					<div className="flex-1" />
+
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-7 gap-1.5 text-xs rounded-md border-border/60 px-3 bg-transparent"
+						onClick={handleCreateIssue}
+					>
+						<Plus className="h-3.5 w-3.5" />
+						Create issue
+					</Button>
 				</div>
-			)}
-			{options.layout === "timeline" && (
-				<div className="px-6 pb-6 max-w-7xl mx-auto w-full">
-					<IssueTimelineView
+
+				{/* Filter chips (shown when active filters exist) */}
+				{activeFilterCount > 0 && (
+					<IssueFilterChips
+						filters={filters}
+						setFilter={setFilter}
+						clearAll={clearAllFilters}
+						projectMap={projectMap}
+						labelMap={labelMap}
+						memberMap={memberMap}
+						milestoneMap={milestoneMap}
+					/>
+				)}
+
+				{/* Board / List / Timeline content */}
+				{options.layout === "board" && (
+					<IssueBoardView
 						projectId={projectId}
-						externalIssues={filteredTimelineIssues}
+						externalIssues={filteredBoardIssues}
+						displayProperties={boardDisplayProperties}
+						swimlaneBy={options.swimlaneBy}
+						onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 					/>
-				</div>
+				)}
+				{options.layout === "list" && (
+					<div className="px-6 pb-6 w-full">
+						<IssueListView
+							issues={filteredListIssues}
+							projectId={projectId}
+							groupBy={options.groupBy}
+							subGroupBy={options.subGroupBy}
+							orderBy={options.orderBy}
+							displayProperties={options.displayProperties}
+							hideFilter
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+						/>
+					</div>
+				)}
+				{options.layout === "timeline" && (
+					<div className="flex-1 min-h-0 flex flex-col">
+						<IssueTimelineView
+							projectId={projectId}
+							externalIssues={filteredTimelineIssues}
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+						/>
+					</div>
+				)}
+			</div>
+
+			{/* Issue peek sidebar */}
+			{selectedIssueId && (
+				<IssuePreviewSidebar
+					issueId={selectedIssueId}
+					onClose={() => setSelectedIssueId(null)}
+				/>
 			)}
 		</div>
 	);

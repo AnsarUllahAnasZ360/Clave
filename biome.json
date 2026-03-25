@@ -45,7 +45,12 @@
 			"a11y": {
 				"noStaticElementInteractions": "warn",
 				"useKeyWithClickEvents": "warn",
-				"useSemanticElements": "warn"
+				"useSemanticElements": "warn",
+				"noAutofocus": "warn",
+				"noSvgWithoutTitle": "warn"
+			},
+			"performance": {
+				"noImgElement": "warn"
 			}
 		}
 	},

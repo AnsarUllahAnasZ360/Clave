@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -214,17 +215,21 @@ export function IssuePreviewSidebar({
 			: description;
 
 	return (
-		<div className="w-[340px] shrink-0 border-l border-border/60 bg-background flex flex-col min-h-0">
+		<div className="w-[420px] shrink-0 border-l border-border/60 bg-background flex flex-col min-h-0 animate-in slide-in-from-right-4 duration-200">
 			{/* Header */}
-			<div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60">
-				<span className="text-[13px] font-mono text-muted-foreground">
-					{issue.identifier}
-				</span>
-				<div className="flex items-center gap-1">
+			<div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
+				<div className="flex items-center gap-2 min-w-0">
+					<span className="text-xs font-mono text-muted-foreground shrink-0">
+						{issue.identifier}
+					</span>
+					<span className="text-muted-foreground/40">|</span>
+					<h2 className="text-sm font-semibold truncate">{issue.title}</h2>
+				</div>
+				<div className="flex items-center gap-0.5 shrink-0">
 					<Button
 						variant="ghost"
 						size="icon"
-						className="h-6 w-6 text-muted-foreground hover:text-foreground"
+						className="h-7 w-7 text-muted-foreground hover:text-foreground"
 						onClick={() =>
 							issue &&
 							router.push(`/${workspaceSlug}/issues/${issue.identifier}`)
@@ -236,7 +241,7 @@ export function IssuePreviewSidebar({
 					<Button
 						variant="ghost"
 						size="icon"
-						className="h-6 w-6 text-muted-foreground hover:text-foreground"
+						className="h-7 w-7 text-muted-foreground hover:text-foreground"
 						onClick={onClose}
 						title="Close preview"
 					>
@@ -247,10 +252,7 @@ export function IssuePreviewSidebar({
 
 			{/* Scrollable content */}
 			<div className="flex-1 overflow-y-auto">
-				<div className="p-4 space-y-4">
-					{/* Title */}
-					<h2 className="text-sm font-semibold leading-snug">{issue.title}</h2>
-
+				<div className="px-5 py-4 space-y-5">
 					{/* Description */}
 					{description ? (
 						<div>
@@ -383,7 +385,9 @@ export function IssuePreviewSidebar({
 						{/* Estimate */}
 						<PropertyRow icon={Clock} label="Estimate">
 							<span className={cn(!issue.estimate && "text-muted-foreground")}>
-								{issue.estimate ? `${issue.estimate}h` : "No estimate"}
+								{issue.estimate
+									? formatEstimate(issue.estimate)
+									: "No estimate"}
 							</span>
 						</PropertyRow>
 

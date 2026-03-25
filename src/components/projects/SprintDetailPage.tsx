@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { DisplayOptionsPanel } from "@/components/issues/DisplayOptionsPanel";
+import { InlineFilterBar } from "@/components/issues/InlineFilterBar";
 import type { IssueCardData } from "@/components/issues/IssueBoardCard";
 import { IssueBoardView } from "@/components/issues/IssueBoardView";
 import { useIssueCreate } from "@/components/issues/IssueCreateContext";
@@ -13,11 +14,7 @@ import type { IssueListData } from "@/components/issues/IssueListRow";
 import { IssueListView } from "@/components/issues/IssueListView";
 import { IssuePreviewSidebar } from "@/components/issues/IssuePreviewSidebar";
 import { IssueTimelineView } from "@/components/issues/IssueTimelineView";
-import {
-	IssueFilterChips,
-	MyIssuesFilterPopover,
-	useIssueFilters,
-} from "@/components/issues/MyIssuesFilterPopover";
+import { useIssueFilters } from "@/components/issues/MyIssuesFilterPopover";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -282,15 +279,12 @@ export function SprintDetailPage({
 				</div>
 			</div>
 
-			{/* Toolbar */}
+			{/* Toolbar — Jira-style inline filters */}
 			<div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 bg-muted/20 shrink-0">
-				<MyIssuesFilterPopover
-					open={showFilters}
-					onOpenChange={setShowFilters}
+				<InlineFilterBar
 					filters={filters}
 					setFilter={setFilter}
 					clearAll={clearAllFilters}
-					projects={[]}
 					labels={(labels ?? []).map((l) => ({
 						_id: l._id as string,
 						name: l.name,
@@ -300,8 +294,11 @@ export function SprintDetailPage({
 						id: m.userId as string,
 						name: m.user?.name ?? m.user?.email ?? "Unknown",
 					}))}
-					milestones={[]}
+					hide={["sprint"]}
 				/>
+
+				<div className="flex-1" />
+
 				<DisplayOptionsPanel
 					layout={options.layout}
 					groupBy={options.groupBy}
@@ -324,8 +321,6 @@ export function SprintDetailPage({
 					onReset={displayOpts.reset}
 				/>
 
-				<div className="flex-1" />
-
 				<Button
 					variant="outline"
 					size="sm"
@@ -337,58 +332,52 @@ export function SprintDetailPage({
 				</Button>
 			</div>
 
-			{/* Filter chips */}
-			{activeFilterCount > 0 && (
-				<IssueFilterChips
-					filters={filters}
-					setFilter={setFilter}
-					clearAll={clearAllFilters}
-					projectMap={projectMap}
-					labelMap={labelMap}
-					memberMap={memberMap}
-					milestoneMap={milestoneMap}
-				/>
-			)}
-
-			{/* Issue views */}
-			{options.layout === "board" && (
-				<IssueBoardView
-					projectId={project._id}
-					externalIssues={filteredBoardIssues}
-					displayProperties={boardDisplayProperties}
-					swimlaneBy={options.swimlaneBy}
-				/>
-			)}
-			{options.layout === "list" && (
-				<div className="px-6 pb-6 max-w-7xl mx-auto w-full">
-					<IssueListView
-						issues={filteredListIssues}
-						projectId={project._id}
-						groupBy={options.groupBy}
-						subGroupBy={options.subGroupBy}
-						orderBy={options.orderBy}
-						displayProperties={options.displayProperties}
-						hideFilter
-						onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-					/>
+			{/* Content + peek sidebar row */}
+			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+				<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+					{/* Issue views */}
+					{options.layout === "board" && (
+						<IssueBoardView
+							projectId={project._id}
+							externalIssues={filteredBoardIssues}
+							displayProperties={boardDisplayProperties}
+							swimlaneBy={options.swimlaneBy}
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+						/>
+					)}
+					{options.layout === "list" && (
+						<div className="px-6 pb-6 w-full overflow-auto flex-1">
+							<IssueListView
+								issues={filteredListIssues}
+								projectId={project._id}
+								groupBy={options.groupBy}
+								subGroupBy={options.subGroupBy}
+								orderBy={options.orderBy}
+								displayProperties={options.displayProperties}
+								hideFilter
+								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+							/>
+						</div>
+					)}
+					{options.layout === "timeline" && (
+						<div className="flex-1 min-h-0 flex flex-col">
+							<IssueTimelineView
+								projectId={project._id}
+								externalIssues={filteredTimelineIssues}
+								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+							/>
+						</div>
+					)}
 				</div>
-			)}
-			{options.layout === "timeline" && (
-				<div className="px-6 pb-6 max-w-7xl mx-auto w-full">
-					<IssueTimelineView
-						projectId={project._id}
-						externalIssues={filteredTimelineIssues}
-					/>
-				</div>
-			)}
 
-			{/* Issue peek sidebar */}
-			{selectedIssueId && (
-				<IssuePreviewSidebar
-					issueId={selectedIssueId}
-					onClose={() => setSelectedIssueId(null)}
-				/>
-			)}
+				{/* Issue peek sidebar */}
+				{selectedIssueId && (
+					<IssuePreviewSidebar
+						issueId={selectedIssueId}
+						onClose={() => setSelectedIssueId(null)}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }

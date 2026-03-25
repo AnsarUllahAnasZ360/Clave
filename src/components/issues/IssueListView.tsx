@@ -101,7 +101,7 @@ const COLUMN_WIDTHS: Record<ListColumnId, string> = {
 	labels: "w-[120px]",
 	project: "w-[120px]",
 	milestone: "w-[100px]",
-	estimate: "w-[60px]",
+	estimate: "w-[90px]",
 	dueDate: "w-[90px]",
 };
 

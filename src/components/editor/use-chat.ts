@@ -256,6 +256,7 @@ export const useChat = () => {
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: chat object is intentionally synchronized from selected reactive fields.
 	React.useEffect(() => {
+		// biome-ignore lint/suspicious/noExplicitAny: Plate plugin API requires any cast
 		editor.setOption(AIChatPlugin, "chat", chat as any);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [chat.status, chat.messages, chat.error, editor.setOption]);

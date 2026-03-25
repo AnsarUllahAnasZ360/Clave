@@ -79,6 +79,8 @@ export type IssueBoardViewProps = {
 	swimlaneBy?: SwimlaneSetting;
 	/** Pre-fetched issues to use instead of internal queries (e.g., from My Issues) */
 	externalIssues?: IssueCardData[];
+	/** When provided, clicking a card calls this instead of navigating to issue page */
+	onIssueClick?: (issueId: string) => void;
 };
 
 // ── Fractional index helpers ──────────────────────────────────────────────
@@ -118,6 +120,7 @@ export function IssueBoardView({
 	displayProperties,
 	swimlaneBy = "none",
 	externalIssues,
+	onIssueClick: externalOnIssueClick,
 }: IssueBoardViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
@@ -500,12 +503,19 @@ export function IssueBoardView({
 		setActiveItem(null);
 	}, []);
 
-	// Card click navigation
+	// Card click — open sidebar if handler provided, else navigate
 	const onCardClick = useCallback(
 		(identifier: string) => {
+			if (externalOnIssueClick) {
+				const issue = rawIssues?.find((i) => i.identifier === identifier);
+				if (issue) {
+					externalOnIssueClick(issue._id);
+					return;
+				}
+			}
 			router.push(`/${workspaceSlug}/issues/${identifier}`);
 		},
-		[router, workspaceSlug],
+		[router, workspaceSlug, externalOnIssueClick, rawIssues],
 	);
 
 	// Scroll edge indicators (must be before any early returns — Rules of Hooks)

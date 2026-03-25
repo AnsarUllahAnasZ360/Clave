@@ -3,6 +3,7 @@
 import { format } from "date-fns";
 import { Calendar, Check, Clock, Flag } from "lucide-react";
 import { memo, useCallback, useState } from "react";
+import { EstimateInput } from "@/components/issues/EstimateInput";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
 	Command,
@@ -33,11 +34,34 @@ export const ESTIMATE_OPTIONS = [
 	{ id: "1", label: "1h" },
 	{ id: "2", label: "2h" },
 	{ id: "4", label: "4h" },
-	{ id: "8", label: "8h" },
-	{ id: "16", label: "16h" },
-	{ id: "24", label: "24h" },
-	{ id: "40", label: "40h" },
+	{ id: "8", label: "1d" },
+	{ id: "16", label: "2d" },
+	{ id: "24", label: "3d" },
+	{ id: "40", label: "5d" },
 ];
+
+/** Parse estimate input like "2h", "1d", "0.5d", "4" → hours number */
+export function parseEstimateInput(input: string): number | null {
+	const trimmed = input.trim().toLowerCase();
+	if (!trimmed || trimmed === "0") return 0;
+	const dayMatch = trimmed.match(/^([\d.]+)\s*d$/);
+	if (dayMatch) {
+		const days = Number.parseFloat(dayMatch[1]);
+		return Number.isNaN(days) ? null : days * 8;
+	}
+	const hourMatch = trimmed.match(/^([\d.]+)\s*h?$/);
+	if (hourMatch) {
+		const hours = Number.parseFloat(hourMatch[1]);
+		return Number.isNaN(hours) ? null : hours;
+	}
+	return null;
+}
+
+/** Format hours as display string — always in hours */
+export function formatEstimate(hours: number): string {
+	if (hours === 0) return "";
+	return `${hours}h`;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +75,7 @@ export type IssueListData = {
 	type?: string;
 	assigneeId?: Id<"users">;
 	labelIds?: Id<"labels">[];
+	startDate?: number;
 	dueDate?: number;
 	estimate?: number;
 	sortOrder: number;
@@ -290,6 +315,12 @@ export const IssueListRow = memo(function IssueListRow({
 		// biome-ignore lint/a11y/noStaticElementInteractions: spreadsheet-like list row with click-to-open and inline editing cells
 		<div
 			data-issue-id={issue._id}
+			draggable
+			onDragStart={(e) => {
+				e.dataTransfer.setData("application/clave-issue-id", issue._id);
+				e.dataTransfer.setData("text/plain", issue.identifier);
+				e.dataTransfer.effectAllowed = "move";
+			}}
 			className={cn(
 				"group flex items-center gap-x-6 h-9 border-b border-border/50 text-sm hover:bg-muted/40 transition-colors cursor-pointer",
 				isHighlighted && "bg-muted/60 ring-1 ring-primary/30",
@@ -567,35 +598,16 @@ export const IssueListRow = memo(function IssueListRow({
 							// biome-ignore lint/a11y/noStaticElementInteractions: inline editing cell
 							<div
 								key={col}
-								className="w-[60px] shrink-0 px-1"
+								className="w-[90px] shrink-0 px-1"
 								onClick={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
-								<GenericPicker
-									items={ESTIMATE_OPTIONS}
-									onSelect={handleEstimateSelect}
-									selectedId={issue.estimate ? String(issue.estimate) : "0"}
-									placeholder="Set estimate..."
-									renderItem={(item) => (
-										<div className="flex items-center gap-2 w-full">
-											<span className="flex-1">{item.label}</span>
-										</div>
-									)}
-									trigger={
-										<button
-											type="button"
-											className="flex items-center w-full rounded px-1 py-0.5 hover:bg-muted/80 transition-colors text-xs"
-										>
-											{issue.estimate ? (
-												<span className="flex items-center gap-1">
-													<Clock className="h-3 w-3 text-muted-foreground" />
-													{issue.estimate}h
-												</span>
-											) : (
-												<span className="text-muted-foreground">-</span>
-											)}
-										</button>
+								<EstimateInput
+									value={issue.estimate ?? undefined}
+									onChange={(hours) =>
+										onEstimateChange(issue._id, hours === 0 ? undefined : hours)
 									}
+									compact
 								/>
 							</div>
 						);

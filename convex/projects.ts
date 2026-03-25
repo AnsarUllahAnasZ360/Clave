@@ -162,11 +162,10 @@ export const listSidebarTree = query({
 			ctx,
 			args.workspaceId,
 		);
+		// Show all projects (not just active) for full sidebar tree
 		const projects = await ctx.db
 			.query("projects")
-			.withIndex("by_workspace_status", (q) =>
-				q.eq("workspaceId", args.workspaceId).eq("status", "active"),
-			)
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 		const active = projects.filter((p) => !p.deletedAt);
 		const accessible = await getAccessibleProjectIds(

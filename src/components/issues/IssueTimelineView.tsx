@@ -83,7 +83,9 @@ type MilestoneData = {
 	_id: Id<"sprints">;
 	name: string;
 	icon?: string;
+	startDate?: number;
 	targetDate?: number;
+	endDate?: number;
 	status: string;
 	issueCount: number;
 	completedCount: number;
@@ -106,6 +108,8 @@ export type IssueTimelineViewProps = {
 	projectId: Id<"projects">;
 	/** When provided, use these instead of fetching — e.g. pre-filtered by parent */
 	externalIssues?: IssueTimelineData[];
+	/** When provided, clicking an issue calls this instead of navigating */
+	onIssueClick?: (issueId: string) => void;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -120,6 +124,7 @@ const MILESTONE_ROW_HEIGHT = 32;
 export function IssueTimelineView({
 	projectId,
 	externalIssues,
+	onIssueClick,
 }: IssueTimelineViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 
@@ -141,6 +146,9 @@ export function IssueTimelineView({
 	);
 	const [groupBy, setGroupBy] = useState<GroupBy>("none");
 	const [showUnscheduled, setShowUnscheduled] = useState(true);
+	const [newIssueTitle, setNewIssueTitle] = useState("");
+	const [isCreating, setIsCreating] = useState(false);
+	const createIssue = useMutation(api.issues.create);
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 	const shouldAutoScrollRef = useRef(true);
 
@@ -167,6 +175,17 @@ export function IssueTimelineView({
 		) as (IssueTimelineData & { startDate: number; dueDate: number })[];
 	}, [issues]);
 
+	// All issues merged — scheduled first, then unscheduled, for the sidebar
+	const allIssuesSorted = useMemo(() => {
+		if (!issues) return [];
+		return [...issues].sort((a, b) => {
+			const aHasDates = a.startDate != null && a.dueDate != null ? 0 : 1;
+			const bHasDates = b.startDate != null && b.dueDate != null ? 0 : 1;
+			if (aHasDates !== bHasDates) return aHasDates - bHasDates;
+			return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+		});
+	}, [issues]);
+
 	const unscheduledIssues = useMemo(() => {
 		if (!issues) return [];
 		return issues.filter(
@@ -186,6 +205,29 @@ export function IssueTimelineView({
 	const baseCellWidth = viewMode === "day" ? 80 : viewMode === "week" ? 40 : 20;
 	const cellWidth = Math.max(16, Math.round(baseCellWidth * zoom));
 	const timelineWidth = dates.length * cellWidth;
+
+	// ── Month columns for Jira-style header backgrounds ─────────────────
+	const monthColumns = useMemo(() => {
+		if (dates.length === 0) return [];
+		const months: { label: string; startIdx: number; days: number }[] = [];
+		let currentMonth = -1;
+		let currentYear = -1;
+		for (let i = 0; i < dates.length; i++) {
+			const d = dates[i];
+			if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) {
+				currentMonth = d.getMonth();
+				currentYear = d.getFullYear();
+				months.push({
+					label: format(d, "MMMM"),
+					startIdx: i,
+					days: 1,
+				});
+			} else {
+				months[months.length - 1].days++;
+			}
+		}
+		return months;
+	}, [dates]);
 
 	// ── Today line position ─────────────────────────────────────────────
 	const todayOffset = useMemo(() => {
@@ -221,6 +263,27 @@ export function IssueTimelineView({
 			);
 		},
 		[viewMode],
+	);
+
+	// ── Inline create handler ──────────────────────────────────────────
+	const handleInlineCreate = useCallback(
+		async (title: string) => {
+			if (!title.trim() || !workspaceId) return;
+			setIsCreating(true);
+			try {
+				await createIssue({
+					workspaceId,
+					projectId,
+					title: title.trim(),
+				});
+				setNewIssueTitle("");
+			} catch {
+				toast.error("Failed to create issue");
+			} finally {
+				setIsCreating(false);
+			}
+		},
+		[workspaceId, projectId, createIssue],
 	);
 
 	// ── Drag-to-adjust handler ──────────────────────────────────────────
@@ -378,14 +441,13 @@ export function IssueTimelineView({
 		totalRows += section.issues.length;
 	}
 
-	// Add milestone row if any milestones have targetDate
-	const milestonesWithDates = milestones.filter((m) => m.targetDate != null);
-	const hasMilestoneRow = milestonesWithDates.length > 0;
+	// Add milestone row — show all milestones (with or without dates)
+	const hasMilestoneRow = milestones.length > 0;
 
 	return (
-		<div className="flex flex-1 flex-col overflow-hidden min-w-0">
+		<div className="flex flex-1 flex-col overflow-hidden min-w-0 h-full">
 			{/* ── Toolbar ──────────────────────────────────────────────── */}
-			<div className="flex items-center justify-between border-b border-border/30 px-4 py-2 shrink-0">
+			<div className="flex items-center justify-between border-b border-border/30 px-6 py-2 shrink-0">
 				<div className="flex items-center gap-2">
 					{/* Navigation */}
 					<Button
@@ -488,67 +550,117 @@ export function IssueTimelineView({
 			</div>
 
 			{/* ── Timeline content ─────────────────────────────────────── */}
-			<div ref={scrollContainerRef} className="flex-1 overflow-auto min-w-0">
-				<div className="relative min-w-max">
-					{/* ── Date header ──────────────────────────────────── */}
-					<div className="flex h-10 items-center border-b border-border/40 sticky top-0 z-20 bg-background">
-						{/* Sticky sidebar header */}
-						<div
-							className="shrink-0 bg-background sticky left-0 z-30 border-r border-border/20 flex items-center px-4"
-							style={{ width: SIDEBAR_WIDTH }}
-						>
-							<span className="text-xs font-medium text-muted-foreground">
-								Issues
-							</span>
-						</div>
-
-						{/* Date columns */}
-						<div
-							className="relative shrink-0 h-full flex items-center"
-							style={{ width: timelineWidth }}
-						>
-							{dates.map((day) => {
-								const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-								const showLabel =
-									viewMode === "day" ||
-									(viewMode === "week" && day.getDay() === 1) ||
-									(viewMode === "month" && day.getDate() === 1);
-
-								const label =
-									viewMode === "day"
-										? format(day, "EEE d")
-										: viewMode === "week"
-											? format(day, "d MMM")
-											: format(day, "MMM");
-
-								return (
+			<div
+				ref={scrollContainerRef}
+				className="flex-1 overflow-auto min-w-0 min-h-0"
+			>
+				<div className="relative min-w-max min-h-full flex flex-col">
+					{/* ── Date header (two rows: month + day) ─────────── */}
+					<div className="sticky top-0 z-20 bg-background border-b border-border/40">
+						{/* Month row */}
+						<div className="flex h-7 border-b border-border/20">
+							<div
+								className="shrink-0 bg-background sticky left-0 z-30 border-r border-border/20 flex items-center px-4"
+								style={{ width: SIDEBAR_WIDTH }}
+							>
+								<span className="text-xs font-medium text-muted-foreground">
+									Work
+								</span>
+							</div>
+							<div
+								className="relative shrink-0 h-full flex"
+								style={{ width: timelineWidth }}
+							>
+								{monthColumns.map((mc, idx) => (
 									<div
-										key={`hd-${day.getTime()}`}
+										key={`mc-${mc.label}-${mc.startIdx}`}
 										className={cn(
-											"flex-none h-full flex items-center justify-center border-r border-border/20",
-											isWeekend && viewMode === "day" ? "bg-muted/20" : "",
+											"flex-none h-full flex items-center justify-center border-r border-border/30 text-xs font-medium",
+											idx % 2 === 0
+												? "bg-muted/20 text-muted-foreground"
+												: "bg-muted/5 text-muted-foreground/80",
 										)}
-										style={{ width: cellWidth }}
+										style={{ width: mc.days * cellWidth }}
 									>
-										{showLabel && (
-											<span
-												className={cn(
-													"text-xs whitespace-nowrap",
-													isSameDay(day, TODAY)
-														? "text-primary font-semibold"
-														: "text-muted-foreground",
-												)}
-											>
-												{label}
-											</span>
-										)}
+										{mc.label}
 									</div>
-								);
-							})}
+								))}
+							</div>
+						</div>
+						{/* Day/week row */}
+						<div className="flex h-7">
+							<div
+								className="shrink-0 bg-background sticky left-0 z-30 border-r border-border/20"
+								style={{ width: SIDEBAR_WIDTH }}
+							/>
+							<div
+								className="relative shrink-0 h-full flex items-center"
+								style={{ width: timelineWidth }}
+							>
+								{dates.map((day) => {
+									const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+									const showLabel =
+										viewMode === "day" ||
+										(viewMode === "week" && day.getDay() === 1) ||
+										(viewMode === "month" && day.getDate() === 1);
+
+									const label =
+										viewMode === "day"
+											? format(day, "EEE d")
+											: viewMode === "week"
+												? format(day, "d MMM")
+												: format(day, "d");
+
+									return (
+										<div
+											key={`hd-${day.getTime()}`}
+											className={cn(
+												"flex-none h-full flex items-center justify-center border-r border-border/10",
+												isWeekend && viewMode === "day" ? "bg-muted/20" : "",
+											)}
+											style={{ width: cellWidth }}
+										>
+											{showLabel && (
+												<span
+													className={cn(
+														"text-[10px] whitespace-nowrap",
+														isSameDay(day, TODAY)
+															? "text-primary font-semibold"
+															: "text-muted-foreground/60",
+													)}
+												>
+													{label}
+												</span>
+											)}
+										</div>
+									);
+								})}
+							</div>
 						</div>
 					</div>
 
-					{/* ── Milestone row ─────────────────────────────────── */}
+					{/* ── Month background columns (alternating) ──────── */}
+					<div
+						className="absolute pointer-events-none z-0"
+						style={{
+							left: SIDEBAR_WIDTH,
+							top: 0,
+							bottom: 0,
+							width: timelineWidth,
+						}}
+					>
+						<div className="flex h-full">
+							{monthColumns.map((mc, idx) => (
+								<div
+									key={`mbg-${mc.label}-${mc.startIdx}`}
+									className={idx % 2 === 0 ? "bg-muted/8" : ""}
+									style={{ width: mc.days * cellWidth, height: "100%" }}
+								/>
+							))}
+						</div>
+					</div>
+
+					{/* ── Sprint row (Jira-style bars) ─────────────────── */}
 					{hasMilestoneRow && (
 						<div className="flex border-b border-border/20">
 							<div
@@ -580,44 +692,63 @@ export function IssueTimelineView({
 									))}
 								</div>
 
-								{/* Milestone diamonds */}
+								{/* Sprint bars */}
 								<TooltipProvider delayDuration={200}>
-									{milestonesWithDates.map((milestone) => {
-										if (milestone.targetDate == null) return null;
-										const targetDay = new Date(milestone.targetDate);
-										const offset = differenceInCalendarDays(
-											targetDay,
+									{milestones.map((milestone) => {
+										const mStart = milestone.startDate
+											? new Date(milestone.startDate)
+											: null;
+										const mEnd = milestone.targetDate
+											? new Date(milestone.targetDate)
+											: milestone.endDate
+												? new Date(milestone.endDate)
+												: null;
+
+										// If no dates, show as a pill at a calculated position
+										if (!mStart && !mEnd) return null;
+
+										const barStart = mStart ?? mEnd!;
+										const barEnd = mEnd ?? mStart!;
+										const offsetStart = differenceInCalendarDays(
+											barStart,
 											dates[0],
 										);
-										if (offset < 0 || offset >= dates.length) return null;
-										const x = offset * cellWidth + cellWidth / 2;
+										const durationDays =
+											differenceInCalendarDays(barEnd, barStart) + 1;
+										const barLeft = Math.max(0, offsetStart * cellWidth);
+										const barWidth = Math.max(
+											durationDays * cellWidth,
+											cellWidth * 2,
+										);
 
 										return (
 											<Tooltip key={milestone._id}>
 												<TooltipTrigger asChild>
 													<div
-														className="absolute flex items-center justify-center"
+														className="absolute flex items-center px-2 rounded border border-border/60 bg-muted/80 hover:bg-muted transition-colors cursor-default text-[11px] font-medium text-muted-foreground truncate"
 														style={{
-															left: x - 8,
-															top: (MILESTONE_ROW_HEIGHT - 16) / 2,
-															width: 16,
-															height: 16,
+															left: barLeft,
+															top: (MILESTONE_ROW_HEIGHT - 22) / 2,
+															width: barWidth,
+															height: 22,
 														}}
 													>
-														{milestone.icon ? (
-															<span className="text-sm leading-none">
+														{milestone.icon && (
+															<span className="mr-1 text-xs leading-none">
 																{milestone.icon}
 															</span>
-														) : (
-															<Diamond className="h-4 w-4 text-sienna-500 fill-sienna-500" />
 														)}
+														{milestone.name}
 													</div>
 												</TooltipTrigger>
 												<TooltipContent side="bottom" className="text-xs">
 													<p className="font-medium">{milestone.name}</p>
-													<p className="text-muted-foreground">
-														{format(targetDay, "MMM d, yyyy")}
-													</p>
+													{mStart && (
+														<p className="text-muted-foreground">
+															{format(barStart, "MMM d")} →{" "}
+															{format(barEnd, "MMM d, yyyy")}
+														</p>
+													)}
 													<p className="text-muted-foreground">
 														{milestone.completedCount}/{milestone.issueCount}{" "}
 														complete ({milestone.progressPercentage}%)
@@ -670,6 +801,7 @@ export function IssueTimelineView({
 										memberMap={memberMap}
 										workspaceSlug={workspaceSlug}
 										onDragEnd={handleDragEnd}
+										onIssueClick={onIssueClick}
 									/>
 								))}
 
@@ -728,93 +860,86 @@ export function IssueTimelineView({
 					)}
 				</div>
 
-				{/* ── Unscheduled section ─────────────────────────────── */}
-				{showUnscheduled && unscheduledIssues.length > 0 && (
+				{/* ── Unscheduled section (collapsible) ────────────── */}
+				{unscheduledIssues.length > 0 && (
 					<div className="border-t border-border/40">
-						<div className="flex h-8 items-center bg-muted/20 px-4">
-							<button
-								type="button"
-								className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
-								onClick={() => setShowUnscheduled(!showUnscheduled)}
+						<div className="flex border-b border-border/20">
+							<div
+								className="shrink-0 sticky left-0 z-10 bg-muted/30 border-r border-border/20 flex items-center px-4"
+								style={{ width: SIDEBAR_WIDTH, height: 32 }}
 							>
-								Unscheduled ({unscheduledIssues.length})
-							</button>
+								<button
+									type="button"
+									className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
+									onClick={() => setShowUnscheduled(!showUnscheduled)}
+								>
+									{showUnscheduled ? "▾" : "▸"} Unscheduled (
+									{unscheduledIssues.length})
+								</button>
+							</div>
+							<div
+								className="shrink-0 bg-muted/10"
+								style={{ width: timelineWidth, height: 32 }}
+							/>
 						</div>
-						<div className="divide-y divide-border/20">
-							{unscheduledIssues.map((issue) => {
-								const sc = getStatusConfig(issue.status);
-								const StatusIcon = sc.icon;
-								const member = issue.assigneeId
-									? memberMap.get(issue.assigneeId)
-									: null;
-
-								return (
-									<div
-										key={issue._id}
-										className="flex items-center gap-3 px-4 py-2 hover:bg-accent/20"
-									>
-										<StatusIcon className={cn("h-4 w-4", sc.color)} />
-										<span className="text-xs font-mono text-muted-foreground">
-											{issue.identifier}
-										</span>
-										<Link
-											href={`/${workspaceSlug}/issues/${issue.identifier}`}
-											className="text-sm truncate hover:underline flex-1 min-w-0"
-											prefetch={false}
-										>
-											{issue.title}
-										</Link>
-										{member && (
-											<Avatar className="h-5 w-5">
-												<AvatarImage src={member.image} />
-												<AvatarFallback className="text-[8px]">
-													{member.name.charAt(0).toUpperCase()}
-												</AvatarFallback>
-											</Avatar>
-										)}
-										<span className="text-xs text-muted-foreground">
-											No dates
-										</span>
-									</div>
-								);
-							})}
-						</div>
+						{showUnscheduled &&
+							unscheduledIssues.map((issue) => (
+								<UnscheduledIssueRow
+									key={issue._id}
+									issue={issue}
+									dates={dates}
+									cellWidth={cellWidth}
+									sidebarWidth={SIDEBAR_WIDTH}
+									timelineWidth={timelineWidth}
+									memberMap={memberMap}
+									workspaceSlug={workspaceSlug}
+									onDateSet={(issueId, startDate, dueDate) =>
+										handleDragEnd(issueId, startDate, dueDate)
+									}
+									onIssueClick={onIssueClick}
+								/>
+							))}
 					</div>
 				)}
 
-				{unscheduledIssues.length > 0 && !showUnscheduled && (
-					<div className="border-t border-border/40 px-4 py-2">
-						<button
-							type="button"
-							className="text-xs text-muted-foreground hover:text-foreground"
-							onClick={() => setShowUnscheduled(true)}
+				{/* ── Create issue row (Jira-style) ────────────────── */}
+				<div className="flex border-t border-border/40">
+					<div
+						className="shrink-0 sticky left-0 z-10 bg-background border-r border-border/20 flex items-center px-4"
+						style={{ width: SIDEBAR_WIDTH, height: ROW_HEIGHT }}
+					>
+						<form
+							className="flex items-center gap-2 w-full"
+							onSubmit={(e) => {
+								e.preventDefault();
+								handleInlineCreate(newIssueTitle);
+							}}
 						>
-							Show unscheduled ({unscheduledIssues.length})
-						</button>
+							<span className="text-muted-foreground/50 text-sm">+</span>
+							<input
+								type="text"
+								placeholder="Create issue..."
+								value={newIssueTitle}
+								onChange={(e) => setNewIssueTitle(e.target.value)}
+								disabled={isCreating}
+								className="flex-1 min-w-0 text-xs bg-transparent outline-none placeholder:text-muted-foreground/50"
+							/>
+						</form>
 					</div>
-				)}
+					<div
+						className="shrink-0"
+						style={{ width: timelineWidth, height: ROW_HEIGHT }}
+					/>
+				</div>
 
-				{/* Empty state */}
-				{issues.length === 0 && (
-					<div className="flex flex-col items-center justify-center py-20 text-center">
-						<p className="text-sm text-muted-foreground">
-							No issues in this project yet.
-						</p>
-					</div>
-				)}
-
-				{issues.length > 0 &&
-					scheduledIssues.length === 0 &&
-					unscheduledIssues.length > 0 && (
-						<div className="flex flex-col items-center justify-center py-10 text-center border-b border-border/20">
-							<p className="text-sm text-muted-foreground">
-								No issues with dates to display on the timeline.
-							</p>
-							<p className="text-xs text-muted-foreground mt-1">
-								Set start and due dates on issues to see them here.
-							</p>
-						</div>
-					)}
+				{/* Spacer: sidebar border continues to bottom */}
+				<div className="flex flex-1 min-h-0">
+					<div
+						className="shrink-0 sticky left-0 z-10 bg-background border-r border-border/20"
+						style={{ width: SIDEBAR_WIDTH }}
+					/>
+					<div className="shrink-0" style={{ width: timelineWidth }} />
+				</div>
 			</div>
 		</div>
 	);
@@ -832,6 +957,7 @@ function IssueTimelineRow({
 	memberMap,
 	workspaceSlug,
 	onDragEnd,
+	onIssueClick,
 }: {
 	issue: IssueTimelineData & { startDate: number; dueDate: number };
 	dates: Date[];
@@ -846,6 +972,7 @@ function IssueTimelineRow({
 		newStartDate: number,
 		newDueDate: number,
 	) => void;
+	onIssueClick?: (issueId: string) => void;
 }) {
 	const sc = getStatusConfig(issue.status);
 	const StatusIcon = sc.icon;
@@ -955,13 +1082,23 @@ function IssueTimelineRow({
 				<span className="text-xs font-mono text-muted-foreground shrink-0">
 					{issue.identifier}
 				</span>
-				<Link
-					href={`/${workspaceSlug}/issues/${issue.identifier}`}
-					className="text-sm truncate hover:underline flex-1 min-w-0"
-					prefetch={false}
-				>
-					{issue.title}
-				</Link>
+				{onIssueClick ? (
+					<button
+						type="button"
+						onClick={() => onIssueClick(issue._id)}
+						className="text-sm truncate hover:underline flex-1 min-w-0 text-left"
+					>
+						{issue.title}
+					</button>
+				) : (
+					<Link
+						href={`/${workspaceSlug}/issues/${issue.identifier}`}
+						className="text-sm truncate hover:underline flex-1 min-w-0"
+						prefetch={false}
+					>
+						{issue.title}
+					</Link>
+				)}
 				{member && (
 					<Avatar className="h-5 w-5 shrink-0">
 						<AvatarImage src={member.image} />
@@ -1193,5 +1330,170 @@ function DependencyArrowsForIssue({
 				);
 			})}
 		</>
+	);
+}
+
+// ── Unscheduled Issue Row (drag-to-create dates) ─────────────────────────
+
+function UnscheduledIssueRow({
+	issue,
+	dates,
+	cellWidth,
+	sidebarWidth,
+	timelineWidth,
+	memberMap,
+	workspaceSlug,
+	onDateSet,
+	onIssueClick,
+}: {
+	issue: IssueTimelineData;
+	dates: Date[];
+	cellWidth: number;
+	sidebarWidth: number;
+	timelineWidth: number;
+	memberMap: Map<string, MemberInfo>;
+	workspaceSlug: string;
+	onDateSet: (
+		issueId: Id<"issues">,
+		startDate: number,
+		dueDate: number,
+	) => void;
+	onIssueClick?: (issueId: string) => void;
+}) {
+	const sc = getStatusConfig(issue.status);
+	const StatusIcon = sc.icon;
+	const member = issue.assigneeId ? memberMap.get(issue.assigneeId) : null;
+
+	const [dragState, setDragState] = useState<{
+		startCol: number;
+		endCol: number;
+	} | null>(null);
+
+	const handleGridPointerDown = useCallback(
+		(e: ReactPointerEvent<HTMLDivElement>) => {
+			if (dates.length === 0) return;
+			const rect = e.currentTarget.getBoundingClientRect();
+			const x = e.clientX - rect.left;
+			const col = Math.floor(x / cellWidth);
+			setDragState({ startCol: col, endCol: col });
+			document.body.style.cursor = "crosshair";
+
+			const handlePointerMove = (moveEvent: PointerEvent) => {
+				const moveX = moveEvent.clientX - rect.left;
+				const moveCol = Math.max(
+					0,
+					Math.min(dates.length - 1, Math.floor(moveX / cellWidth)),
+				);
+				setDragState((prev) => (prev ? { ...prev, endCol: moveCol } : null));
+			};
+
+			const handlePointerUp = (upEvent: PointerEvent) => {
+				const endX = upEvent.clientX - rect.left;
+				const endCol = Math.max(
+					0,
+					Math.min(dates.length - 1, Math.floor(endX / cellWidth)),
+				);
+				const minCol = Math.min(col, endCol);
+				const maxCol = Math.max(col, endCol);
+				const startDate = dates[minCol];
+				const endDate = dates[maxCol];
+				if (startDate && endDate) {
+					onDateSet(issue._id, startDate.getTime(), endDate.getTime());
+				}
+				setDragState(null);
+				document.body.style.cursor = "";
+				window.removeEventListener("pointermove", handlePointerMove);
+				window.removeEventListener("pointerup", handlePointerUp);
+			};
+
+			window.addEventListener("pointermove", handlePointerMove);
+			window.addEventListener("pointerup", handlePointerUp);
+		},
+		[dates, cellWidth, issue._id, onDateSet],
+	);
+
+	// Compute drag preview bar
+	const previewLeft =
+		dragState !== null
+			? Math.min(dragState.startCol, dragState.endCol) * cellWidth
+			: 0;
+	const previewWidth =
+		dragState !== null
+			? (Math.abs(dragState.endCol - dragState.startCol) + 1) * cellWidth
+			: 0;
+
+	return (
+		<div className="flex border-b border-border/20 group hover:bg-accent/5">
+			{/* Sidebar */}
+			<div
+				className="shrink-0 sticky left-0 z-10 bg-background group-hover:bg-accent/5 border-r border-border/20 flex items-center gap-2 pl-8 pr-4"
+				style={{ width: sidebarWidth, height: ROW_HEIGHT }}
+			>
+				<StatusIcon className={cn("h-3.5 w-3.5 shrink-0", sc.color)} />
+				{onIssueClick ? (
+					<button
+						type="button"
+						onClick={() => onIssueClick(issue._id)}
+						className="text-xs truncate hover:underline flex-1 min-w-0 text-left"
+					>
+						{issue.title}
+					</button>
+				) : (
+					<Link
+						href={`/${workspaceSlug}/issues/${issue.identifier}`}
+						className="text-xs truncate hover:underline flex-1 min-w-0"
+						prefetch={false}
+					>
+						{issue.title}
+					</Link>
+				)}
+				{member && (
+					<Avatar className="h-5 w-5 shrink-0">
+						<AvatarImage src={member.image} />
+						<AvatarFallback className="text-[8px]">
+							{member.name.charAt(0).toUpperCase()}
+						</AvatarFallback>
+					</Avatar>
+				)}
+			</div>
+
+			{/* Timeline area — drag to create bar */}
+			<div
+				className="relative shrink-0 cursor-crosshair"
+				style={{ width: timelineWidth, height: ROW_HEIGHT }}
+				onPointerDown={handleGridPointerDown}
+			>
+				{/* Grid lines */}
+				<div className="absolute inset-0 flex pointer-events-none">
+					{dates.map((d) => (
+						<div
+							key={`ug-${issue._id}-${d.getTime()}`}
+							style={{ width: cellWidth }}
+							className="flex-none h-full border-r border-border/10"
+						/>
+					))}
+				</div>
+
+				{/* Drag preview bar */}
+				{dragState !== null && (
+					<div
+						className="absolute h-[28px] top-[8px] rounded-md bg-primary/30 border border-primary/50 pointer-events-none"
+						style={{
+							left: `${previewLeft}px`,
+							width: `${Math.max(previewWidth, cellWidth)}px`,
+						}}
+					/>
+				)}
+
+				{/* Hint text */}
+				{dragState === null && (
+					<div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+						<span className="text-[10px] text-muted-foreground/50">
+							Drag to set dates
+						</span>
+					</div>
+				)}
+			</div>
+		</div>
 	);
 }

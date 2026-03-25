@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -488,7 +489,7 @@ function IssueRow({
 			{/* Estimate */}
 			{showEstimate && issue.estimate && (
 				<span className="hidden sm:inline-flex items-center shrink-0 rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground tabular-nums">
-					{issue.estimate}h
+					{formatEstimate(issue.estimate)}
 				</span>
 			)}
 

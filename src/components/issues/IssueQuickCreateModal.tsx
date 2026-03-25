@@ -63,10 +63,10 @@ const ESTIMATE_OPTIONS = [
 	{ id: "1", label: "1h" },
 	{ id: "2", label: "2h" },
 	{ id: "4", label: "4h" },
-	{ id: "8", label: "8h" },
-	{ id: "16", label: "16h" },
-	{ id: "24", label: "24h" },
-	{ id: "40", label: "40h" },
+	{ id: "8", label: "1d" },
+	{ id: "16", label: "2d" },
+	{ id: "24", label: "3d" },
+	{ id: "40", label: "5d" },
 ];
 
 // ── Component ──────────────────────────────────────────────────────────────
