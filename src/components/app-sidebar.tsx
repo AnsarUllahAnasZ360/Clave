@@ -110,6 +110,7 @@ type FavoriteItem = {
 	entityId: string;
 	name: string;
 	icon?: string;
+	slug?: string;
 };
 
 type SidebarSprintItem = {
@@ -139,6 +140,8 @@ type SidebarProjectItem = {
 	sprintFolders: SidebarSprintFolder[];
 	looseSprints: SidebarSprintItem[];
 	backlogCount: number;
+	docs?: { _id: string; title: string }[];
+	boards?: { _id: string; title: string }[];
 };
 
 // ── Main component ──────────────────────────────────────────────────────────
@@ -619,7 +622,7 @@ function FavoriteNavItem({
 }) {
 	const base = `/${workspaceSlug}`;
 	const hrefMap: Record<string, string> = {
-		project: `${base}/projects/${fav.entityId}`,
+		project: `${base}/projects/${fav.slug ?? fav.entityId}`,
 		client: `${base}/clients/${fav.entityId}`,
 		document: `${base}/docs/${fav.entityId}`,
 		whiteboard: `${base}/boards/${fav.entityId}`,
@@ -999,6 +1002,26 @@ function ProjectTreeItem({
 								</Link>
 							</SidebarMenuButton>
 						</SidebarMenuItem>
+
+						{/* Docs linked to this project */}
+						{project.docs?.map((doc) => (
+							<DocNavItem
+								key={doc._id}
+								doc={doc}
+								workspaceSlug={workspaceSlug}
+								pathname={pathname}
+							/>
+						))}
+
+						{/* Boards linked to this project */}
+						{project.boards?.map((board) => (
+							<BoardNavItem
+								key={board._id}
+								board={board}
+								workspaceSlug={workspaceSlug}
+								pathname={pathname}
+							/>
+						))}
 					</SidebarMenu>
 				</div>
 			)}
@@ -1476,5 +1499,249 @@ function SprintProgressRing({
 				/>
 			)}
 		</svg>
+	);
+}
+
+// ── Doc nav item with rename/delete ─────────────────────────────────────
+
+function DocNavItem({
+	doc,
+	workspaceSlug,
+	pathname,
+}: {
+	doc: { _id: string; title: string };
+	workspaceSlug: string;
+	pathname: string;
+}) {
+	const [isRenaming, setIsRenaming] = useState(false);
+	const [renameValue, setRenameValue] = useState(doc.title);
+	const renameRef = useRef<HTMLInputElement>(null);
+	const updateDoc = useMutation(api.documents.update);
+	const removeDoc = useMutation(api.documents.remove);
+
+	useEffect(() => {
+		if (isRenaming) renameRef.current?.select();
+	}, [isRenaming]);
+
+	const handleRename = async () => {
+		const trimmed = renameValue.trim();
+		if (trimmed && trimmed !== doc.title) {
+			try {
+				await updateDoc({
+					documentId: doc._id as Id<"documents">,
+					title: trimmed,
+				});
+				toast.success("Document renamed");
+			} catch {
+				toast.error("Failed to rename");
+			}
+		}
+		setIsRenaming(false);
+	};
+
+	const handleDelete = async () => {
+		if (!window.confirm(`Delete "${doc.title}"?`)) return;
+		try {
+			await removeDoc({ documentId: doc._id as Id<"documents"> });
+			toast.success("Document deleted");
+		} catch {
+			toast.error("Failed to delete");
+		}
+	};
+
+	return (
+		<SidebarMenuItem className="group/doc">
+			{isRenaming ? (
+				<div className="flex items-center gap-1.5 h-7 px-2">
+					<FileText className="h-[14px] w-[14px] shrink-0 text-muted-foreground" />
+					<input
+						ref={renameRef}
+						value={renameValue}
+						onChange={(e) => setRenameValue(e.target.value)}
+						onBlur={handleRename}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") handleRename();
+							if (e.key === "Escape") setIsRenaming(false);
+						}}
+						className="flex-1 min-w-0 bg-transparent text-xs outline-none border-b border-sienna-500/50"
+					/>
+				</div>
+			) : (
+				<SidebarMenuButton
+					asChild
+					isActive={pathname.includes(`/docs/${doc._id}`)}
+					tooltip={doc.title}
+					className="h-7 rounded-md px-2 text-muted-foreground"
+				>
+					<Link
+						href={
+							`/${workspaceSlug}/docs/${doc._id}` as LinkProps<string>["href"]
+						}
+						prefetch={false}
+					>
+						<FileText className="h-[14px] w-[14px] shrink-0" />
+						<span className="flex-1 truncate text-xs">{doc.title}</span>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								asChild
+								onClick={(e) => e.preventDefault()}
+							>
+								<button
+									type="button"
+									className="opacity-0 group-hover/doc:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-accent/50 transition-opacity"
+								>
+									<DotsThree size={14} weight="bold" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="w-36">
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.preventDefault();
+										setRenameValue(doc.title);
+										setIsRenaming(true);
+									}}
+								>
+									<Pencil className="h-3.5 w-3.5 mr-2" />
+									Rename
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.preventDefault();
+										handleDelete();
+									}}
+									className="text-destructive focus:text-destructive"
+								>
+									<Trash2 className="h-3.5 w-3.5 mr-2" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</Link>
+				</SidebarMenuButton>
+			)}
+		</SidebarMenuItem>
+	);
+}
+
+// ── Board nav item with rename/delete ───────────────────────────────────
+
+function BoardNavItem({
+	board,
+	workspaceSlug,
+	pathname,
+}: {
+	board: { _id: string; title: string };
+	workspaceSlug: string;
+	pathname: string;
+}) {
+	const [isRenaming, setIsRenaming] = useState(false);
+	const [renameValue, setRenameValue] = useState(board.title);
+	const renameRef = useRef<HTMLInputElement>(null);
+	const updateBoard = useMutation(api.whiteboards.updateMetadata);
+	const removeBoard = useMutation(api.whiteboards.remove);
+
+	useEffect(() => {
+		if (isRenaming) renameRef.current?.select();
+	}, [isRenaming]);
+
+	const handleRename = async () => {
+		const trimmed = renameValue.trim();
+		if (trimmed && trimmed !== board.title) {
+			try {
+				await updateBoard({
+					whiteboardId: board._id as Id<"whiteboards">,
+					title: trimmed,
+				});
+				toast.success("Board renamed");
+			} catch {
+				toast.error("Failed to rename");
+			}
+		}
+		setIsRenaming(false);
+	};
+
+	const handleDelete = async () => {
+		if (!window.confirm(`Delete "${board.title}"?`)) return;
+		try {
+			await removeBoard({ whiteboardId: board._id as Id<"whiteboards"> });
+			toast.success("Board deleted");
+		} catch {
+			toast.error("Failed to delete");
+		}
+	};
+
+	return (
+		<SidebarMenuItem className="group/board">
+			{isRenaming ? (
+				<div className="flex items-center gap-1.5 h-7 px-2">
+					<PenNib className="h-[14px] w-[14px] shrink-0 text-muted-foreground" />
+					<input
+						ref={renameRef}
+						value={renameValue}
+						onChange={(e) => setRenameValue(e.target.value)}
+						onBlur={handleRename}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") handleRename();
+							if (e.key === "Escape") setIsRenaming(false);
+						}}
+						className="flex-1 min-w-0 bg-transparent text-xs outline-none border-b border-sienna-500/50"
+					/>
+				</div>
+			) : (
+				<SidebarMenuButton
+					asChild
+					isActive={pathname.includes(`/boards/${board._id}`)}
+					tooltip={board.title}
+					className="h-7 rounded-md px-2 text-muted-foreground"
+				>
+					<Link
+						href={
+							`/${workspaceSlug}/boards/${board._id}` as LinkProps<string>["href"]
+						}
+						prefetch={false}
+					>
+						<PenNib className="h-[14px] w-[14px] shrink-0" />
+						<span className="flex-1 truncate text-xs">{board.title}</span>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								asChild
+								onClick={(e) => e.preventDefault()}
+							>
+								<button
+									type="button"
+									className="opacity-0 group-hover/board:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-accent/50 transition-opacity"
+								>
+									<DotsThree size={14} weight="bold" />
+								</button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="start" className="w-36">
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.preventDefault();
+										setRenameValue(board.title);
+										setIsRenaming(true);
+									}}
+								>
+									<Pencil className="h-3.5 w-3.5 mr-2" />
+									Rename
+								</DropdownMenuItem>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem
+									onClick={(e) => {
+										e.preventDefault();
+										handleDelete();
+									}}
+									className="text-destructive focus:text-destructive"
+								>
+									<Trash2 className="h-3.5 w-3.5 mr-2" />
+									Delete
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</Link>
+				</SidebarMenuButton>
+			)}
+		</SidebarMenuItem>
 	);
 }

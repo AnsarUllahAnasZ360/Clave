@@ -155,6 +155,18 @@ export const listSidebarTree = query({
 			sprintFolders: v.array(sidebarFolderValidator),
 			looseSprints: v.array(sidebarSprintValidator),
 			backlogCount: v.number(),
+			docs: v.array(
+				v.object({
+					_id: v.id("documents"),
+					title: v.string(),
+				}),
+			),
+			boards: v.array(
+				v.object({
+					_id: v.id("whiteboards"),
+					title: v.string(),
+				}),
+			),
 		}),
 	),
 	handler: async (ctx, args) => {
@@ -213,7 +225,7 @@ export const listSidebarTree = query({
 
 		const results = await Promise.all(
 			filtered.map(async (project) => {
-				const [sprints, folders] = await Promise.all([
+				const [sprints, folders, docs, boards] = await Promise.all([
 					ctx.db
 						.query("sprints")
 						.withIndex("by_project_sort", (q) => q.eq("projectId", project._id))
@@ -221,6 +233,14 @@ export const listSidebarTree = query({
 					ctx.db
 						.query("sprintFolders")
 						.withIndex("by_project_sort", (q) => q.eq("projectId", project._id))
+						.collect(),
+					ctx.db
+						.query("documents")
+						.withIndex("by_project", (q) => q.eq("projectId", project._id))
+						.collect(),
+					ctx.db
+						.query("whiteboards")
+						.withIndex("by_project", (q) => q.eq("projectId", project._id))
 						.collect(),
 				]);
 
@@ -268,6 +288,14 @@ export const listSidebarTree = query({
 					sprintFolders,
 					looseSprints,
 					backlogCount: backlogByProjectId.get(project._id as string) ?? 0,
+					docs: docs
+						.filter((d) => !d.deletedAt)
+						.slice(0, 5)
+						.map((d) => ({ _id: d._id, title: d.title || "Untitled" })),
+					boards: boards
+						.filter((b) => !b.deletedAt)
+						.slice(0, 5)
+						.map((b) => ({ _id: b._id, title: b.title || "Untitled" })),
 				};
 			}),
 		);

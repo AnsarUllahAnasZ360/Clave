@@ -26,6 +26,7 @@ export const list = query({
 			entityId: v.string(),
 			name: v.string(),
 			icon: v.optional(v.string()),
+			slug: v.optional(v.string()),
 			sortOrder: v.optional(v.number()),
 		}),
 	),
@@ -49,12 +50,14 @@ export const list = query({
 			favorites.map(async (fav) => {
 				let name = "Unknown";
 				let icon: string | undefined;
+				let slug: string | undefined;
 				if (fav.entityType === "project") {
 					const project = await ctx.db.get(
 						fav.entityId as import("./_generated/dataModel").Id<"projects">,
 					);
 					name = project?.name || "Deleted project";
 					icon = project?.icon;
+					slug = project?.slug;
 				} else if (fav.entityType === "client") {
 					const client = await ctx.db.get(
 						fav.entityId as import("./_generated/dataModel").Id<"clients">,
@@ -84,6 +87,7 @@ export const list = query({
 					entityId: fav.entityId,
 					name,
 					icon,
+					slug,
 					sortOrder: fav.sortOrder,
 				};
 			}),

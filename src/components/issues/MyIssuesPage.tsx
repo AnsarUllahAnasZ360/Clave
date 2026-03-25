@@ -1111,6 +1111,7 @@ export function MyIssuesPage() {
 								displayOptions.displayProperties,
 							)}
 							swimlaneBy={displayOptions.swimlaneBy}
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>
 					) : (
 						<IssueTabContent
