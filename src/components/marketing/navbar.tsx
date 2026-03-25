@@ -37,12 +37,17 @@ export function Navbar() {
 
 				{/* Desktop nav */}
 				<div className="hidden items-center gap-8 md:flex">
-					<a
-						href="#features"
+					<button
+						type="button"
+						onClick={() =>
+							document
+								.getElementById("features")
+								?.scrollIntoView({ behavior: "smooth" })
+						}
 						className="relative text-sm text-[#525252] dark:text-[#A3A3A3] transition-colors hover:text-[#0A0A0A] dark:hover:text-[#FAFAFA] after:absolute after:bottom-[-2px] after:left-0 after:h-px after:w-0 after:bg-current after:transition-all after:duration-200 hover:after:w-full"
 					>
 						Features
-					</a>
+					</button>
 					<Link
 						href={"/docs" as never}
 						prefetch={false}

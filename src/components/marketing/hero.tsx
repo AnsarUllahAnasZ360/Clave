@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { ProductMockup } from "./product-mockup";
 
@@ -96,12 +98,17 @@ export function Hero() {
 								/>
 							</svg>
 						</Link>
-						<a
-							href="#features"
+						<button
+							type="button"
+							onClick={() =>
+								document
+									.getElementById("features")
+									?.scrollIntoView({ behavior: "smooth" })
+							}
 							className="inline-flex min-h-[48px] items-center justify-center rounded-lg border border-[#D4D4D4] dark:border-[#262626] bg-transparent px-8 py-3.5 text-sm font-medium text-[#0A0A0A] dark:text-[#FAFAFA] transition-all hover:bg-[#F5F5F5] dark:hover:bg-[#171717] hover:scale-[1.02] active:scale-100"
 						>
 							See how it works
-						</a>
+						</button>
 					</div>
 				</div>
 
