@@ -1582,10 +1582,7 @@ function DocNavItem({
 						<FileText className="h-[14px] w-[14px] shrink-0" />
 						<span className="flex-1 truncate text-xs">{doc.title}</span>
 						<DropdownMenu>
-							<DropdownMenuTrigger
-								asChild
-								onClick={(e) => e.preventDefault()}
-							>
+							<DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
 								<button
 									type="button"
 									className="opacity-0 group-hover/doc:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-accent/50 transition-opacity"
@@ -1704,10 +1701,7 @@ function BoardNavItem({
 						<PenNib className="h-[14px] w-[14px] shrink-0" />
 						<span className="flex-1 truncate text-xs">{board.title}</span>
 						<DropdownMenu>
-							<DropdownMenuTrigger
-								asChild
-								onClick={(e) => e.preventDefault()}
-							>
+							<DropdownMenuTrigger asChild onClick={(e) => e.preventDefault()}>
 								<button
 									type="button"
 									className="opacity-0 group-hover/board:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-accent/50 transition-opacity"
