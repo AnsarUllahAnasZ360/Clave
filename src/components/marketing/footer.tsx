@@ -1,4 +1,4 @@
-import { GithubLogo, XLogo } from "@phosphor-icons/react/dist/ssr";
+import { GithubLogo } from "@phosphor-icons/react/dist/ssr";
 import Link from "next/link";
 import { PixelLogo } from "./pixel-logo";
 
@@ -38,22 +38,13 @@ export function Footer() {
 						{/* Social links */}
 						<div className="mt-5 flex items-center gap-3">
 							<a
-								href="https://github.com"
+								href="https://github.com/AnsarUllahAnasZ360/Clave"
 								target="_blank"
 								rel="noopener noreferrer"
 								className="flex h-8 w-8 items-center justify-center rounded-md text-[#A3A3A3] dark:text-[#525252] transition-colors hover:bg-[#F5F5F5] dark:hover:bg-[#171717] hover:text-[#525252] dark:hover:text-[#A3A3A3]"
 								aria-label="GitHub"
 							>
 								<GithubLogo size={18} weight="regular" />
-							</a>
-							<a
-								href="https://x.com"
-								target="_blank"
-								rel="noopener noreferrer"
-								className="flex h-8 w-8 items-center justify-center rounded-md text-[#A3A3A3] dark:text-[#525252] transition-colors hover:bg-[#F5F5F5] dark:hover:bg-[#171717] hover:text-[#525252] dark:hover:text-[#A3A3A3]"
-								aria-label="X (Twitter)"
-							>
-								<XLogo size={18} weight="regular" />
 							</a>
 						</div>
 					</div>
