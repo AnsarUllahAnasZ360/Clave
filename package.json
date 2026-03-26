@@ -218,7 +218,7 @@
 		"convex-test": "^0.0.41",
 		"expect-type": "^1.3.0",
 		"jsdom": "^28.1.0",
-		"typescript": "^5.9.3",
+		"typescript": "^6.0.2",
 		"vitest": "^4.0.18"
 	},
 	"overrides": {
