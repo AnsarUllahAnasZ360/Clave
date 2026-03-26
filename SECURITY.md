@@ -12,7 +12,7 @@ If you discover a security vulnerability in Clave, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email **security@goclave.app** with:
+Instead, please email **support@z360.biz** with:
 
 1. A description of the vulnerability
 2. Steps to reproduce
