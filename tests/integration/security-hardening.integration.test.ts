@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server";
 import { describe, expect, it } from "vitest";
 
 describe("security hardening", () => {
@@ -25,7 +26,7 @@ describe("security hardening", () => {
 						repoOwner: "../etc",
 						repoName: "repo",
 					}),
-				}),
+				}) as unknown as NextRequest,
 			);
 			expect(res.status).toBe(400);
 			const body = await res.json();
@@ -45,7 +46,7 @@ describe("security hardening", () => {
 						repoOwner: "owner",
 						repoName: "repo/../../../etc/passwd",
 					}),
-				}),
+				}) as unknown as NextRequest,
 			);
 			expect(res.status).toBe(400);
 		});
@@ -64,7 +65,7 @@ describe("security hardening", () => {
 						repoOwner: "valid-owner",
 						repoName: "valid-repo.name",
 					}),
-				}),
+				}) as unknown as NextRequest,
 			);
 			// Should pass validation (400 means missing/invalid input, 401/502 means it reached GitHub)
 			expect(res.status).not.toBe(400);
