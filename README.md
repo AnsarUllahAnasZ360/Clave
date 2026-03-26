@@ -58,8 +58,6 @@ Rich collaborative editor powered by Plate.js with real-time Yjs sync. Threaded 
 <p align="center">
   <img src="public/docs/screenshots/documents-presence-avatars.png" alt="Collaborative Documents" width="48%" />
   &nbsp;
-  <img src="public/docs/screenshots/documents-add-comment.png" alt="Document Comments" width="48%" />
-</p>
 
 ### Whiteboards
 
@@ -68,8 +66,6 @@ Real-time Excalidraw boards with AI diagram generation, comment pins overlay, an
 <p align="center">
   <img src="public/docs/screenshots/whiteboards-ai-toolbar.png" alt="Whiteboard AI Toolbar" width="48%" />
   &nbsp;
-  <img src="public/docs/screenshots/whiteboards-comment-pin.png" alt="Whiteboard Comments" width="48%" />
-</p>
 
 ### AI Chat
 
@@ -78,8 +74,6 @@ Streaming AI chat with 21+ workspace-aware tools, sub-agents, composable skills,
 <p align="center">
   <img src="public/docs/screenshots/ai-chat-welcome.png" alt="AI Chat" width="48%" />
   &nbsp;
-  <img src="public/docs/screenshots/ai-auto-triage.png" alt="AI Auto-Triage" width="48%" />
-</p>
 
 ### And More
 
@@ -100,18 +94,18 @@ Streaming AI chat with 21+ workspace-aware tools, sub-agents, composable skills,
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 16, React 19, TypeScript (strict) |
-| **Backend** | Convex — real-time queries, mutations, actions, workflows |
-| **AI** | Vercel AI SDK v4, `@convex-dev/agent`, `@convex-dev/rag`, `@convex-dev/workflow` |
-| **Editors** | Plate.js v52 (docs), Excalidraw (whiteboards), BlockNote (notes), TipTap (comments) |
-| **UI** | Tailwind CSS 4, shadcn/ui, Radix UI, Lucide React |
-| **Auth** | Convex Auth + Google OAuth |
-| **Files** | UploadThing |
-| **Billing** | Stripe |
-| **Hosting** | Vercel (frontend) + Convex Cloud (backend) |
-| **Runtime** | Bun |
+| Layer        | Technology                                                                          |
+| ------------ | ----------------------------------------------------------------------------------- |
+| **Frontend** | Next.js 16, React 19, TypeScript (strict)                                           |
+| **Backend**  | Convex — real-time queries, mutations, actions, workflows                           |
+| **AI**       | Vercel AI SDK v4, `@convex-dev/agent`, `@convex-dev/rag`, `@convex-dev/workflow`    |
+| **Editors**  | Plate.js v52 (docs), Excalidraw (whiteboards), BlockNote (notes), TipTap (comments) |
+| **UI**       | Tailwind CSS 4, shadcn/ui, Radix UI, Lucide React                                   |
+| **Auth**     | Convex Auth + Google OAuth                                                          |
+| **Files**    | UploadThing                                                                         |
+| **Billing**  | Stripe                                                                              |
+| **Hosting**  | Vercel (frontend) + Convex Cloud (backend)                                          |
+| **Runtime**  | Bun                                                                                 |
 
 ## Local Setup
 
@@ -168,13 +162,13 @@ npx convex env set AUTH_GOOGLE_SECRET <your-client-secret>
 
 These are not required to run the app but enable additional features:
 
-| Service | What it enables | Setup |
-|---------|----------------|-------|
+| Service                                                                               | What it enables             | Setup                                        |
+| ------------------------------------------------------------------------------------- | --------------------------- | -------------------------------------------- |
 | [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) | AI chat, agents, RAG, voice | `npx convex env set AZURE_RESOURCE_NAME ...` |
-| [Resend](https://resend.com) | Email OTP, password reset | `npx convex env set AUTH_RESEND_KEY ...` |
-| [UploadThing](https://uploadthing.com) | File uploads | `npx convex env set UPLOADTHING_TOKEN ...` |
-| [Stripe](https://stripe.com) | Billing and subscriptions | `npx convex env set STRIPE_SECRET_KEY ...` |
-| [GitHub OAuth](https://github.com/settings/developers) | Repo indexing, issue sync | Set in both `.env.local` and Convex env |
+| [Resend](https://resend.com)                                                          | Email OTP, password reset   | `npx convex env set AUTH_RESEND_KEY ...`     |
+| [UploadThing](https://uploadthing.com)                                                | File uploads                | `npx convex env set UPLOADTHING_TOKEN ...`   |
+| [Stripe](https://stripe.com)                                                          | Billing and subscriptions   | `npx convex env set STRIPE_SECRET_KEY ...`   |
+| [GitHub OAuth](https://github.com/settings/developers)                                | Repo indexing, issue sync   | Set in both `.env.local` and Convex env      |
 
 See [.env.example](.env.example) for the full list of configuration options and setup instructions.
 
