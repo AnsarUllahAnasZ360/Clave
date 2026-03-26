@@ -13,43 +13,43 @@ import { Suspense, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "../../../../convex/_generated/api";
 
-const DEV_PASSWORD = "devmode123";
+const DEV_PASSWORD = process.env.NEXT_PUBLIC_DEV_PASSWORD ?? "devmode123";
 
 const DEV_USERS = [
 	{
-		name: "Kul",
-		email: "kul@goclave.app",
-		role: "Founder & CEO",
+		name: "Admin",
+		email: "admin@example.com",
+		role: "Super Admin",
 		badge: "Super Admin",
-		initials: "K",
+		initials: "AD",
 	},
 	{
-		name: "Cool",
-		email: "cool@gocliff.app",
+		name: "Editor",
+		email: "editor@example.com",
 		role: "Platform Admin",
 		badge: "Super Admin",
-		initials: "CO",
+		initials: "ED",
 	},
 	{
-		name: "Pull",
-		email: "pull@gocliff.app",
+		name: "Viewer",
+		email: "viewer@example.com",
 		role: "Platform Admin",
 		badge: "Super Admin",
-		initials: "PU",
+		initials: "VW",
 	},
 	{
-		name: "Alex Chen",
-		email: "alex@goclave.app",
+		name: "Alex Dev",
+		email: "dev@example.com",
 		role: "Lead Engineer",
 		badge: "Admin",
-		initials: "AC",
+		initials: "AD",
 	},
 	{
-		name: "Jordan Rivera",
-		email: "jordan@goclave.app",
+		name: "Jordan Test",
+		email: "test@example.com",
 		role: "Designer",
 		badge: "Member",
-		initials: "JR",
+		initials: "JT",
 	},
 ] as const;
 

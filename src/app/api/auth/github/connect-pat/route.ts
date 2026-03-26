@@ -18,6 +18,18 @@ export async function POST(request: NextRequest) {
 		);
 	}
 
+	// Validate repo owner/name to prevent path traversal and SSRF
+	const GITHUB_NAME_PATTERN = /^[a-zA-Z0-9._-]+$/;
+	if (
+		!GITHUB_NAME_PATTERN.test(repoOwner) ||
+		!GITHUB_NAME_PATTERN.test(repoName)
+	) {
+		return NextResponse.json(
+			{ error: "Invalid repository owner or name" },
+			{ status: 400 },
+		);
+	}
+
 	// Validate the token by fetching the repo
 	const repoResponse = await fetch(
 		`${GITHUB_API_URL}/repos/${repoOwner}/${repoName}`,

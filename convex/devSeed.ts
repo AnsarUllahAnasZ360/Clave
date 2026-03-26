@@ -164,17 +164,17 @@ export const seed = internalMutation({
 			return await ctx.db.insert("users", { email, ...data });
 		}
 
-		const kulId = await getOrCreateUser("kul@goclave.app", {
-			name: "Kul",
-			role: "Founder & CEO",
+		const kulId = await getOrCreateUser("admin@example.com", {
+			name: "Admin",
+			role: "Super Admin",
 			theme: "dark",
 			notifyEmail: true,
 			notifyPush: true,
 			notifyInApp: true,
 		});
 
-		const alexId = await getOrCreateUser("alex@goclave.app", {
-			name: "Alex Chen",
+		const alexId = await getOrCreateUser("dev@example.com", {
+			name: "Alex Dev",
 			role: "Lead Engineer",
 			theme: "dark",
 			notifyEmail: true,
@@ -182,8 +182,8 @@ export const seed = internalMutation({
 			notifyInApp: true,
 		});
 
-		const jordanId = await getOrCreateUser("jordan@goclave.app", {
-			name: "Jordan Rivera",
+		const jordanId = await getOrCreateUser("test@example.com", {
+			name: "Jordan Test",
 			role: "Designer",
 			theme: "dark",
 			notifyEmail: true,
@@ -192,7 +192,7 @@ export const seed = internalMutation({
 		});
 
 		console.log(
-			"[devSeed] Created/reused 3 users: Kul, Alex Chen, Jordan Rivera",
+			"[devSeed] Created/reused 3 users: Admin, Alex Dev, Jordan Test",
 		);
 
 		// ── Workspace: Clave HQ ──────────────────────────────────────────
@@ -331,8 +331,7 @@ export const seed = internalMutation({
 				workspaceId,
 				name: "Marketing Site",
 				slug: "marketing-site",
-				description:
-					"Landing page and marketing content for goclave.app launch.",
+				description: "Landing page and marketing content for product launch.",
 				status: "completed",
 				priority: "low",
 				leadId: jordanId,
@@ -3937,9 +3936,9 @@ export const clearSeed = internalMutation({
 
 		// Collect all seed user emails and delete users now that auth accounts are gone.
 		const seedEmails = [
-			"kul@goclave.app",
-			"alex@goclave.app",
-			"jordan@goclave.app",
+			"admin@example.com",
+			"dev@example.com",
+			"test@example.com",
 		];
 		let deletedUsers = 0;
 		for (const email of seedEmails) {

@@ -52,7 +52,7 @@ export function UserFooterMenu({ settingsHref = "/" }: UserFooterMenuProps) {
 		try {
 			await signOut();
 		} finally {
-			window.location.assign("/");
+			window.location.assign("/sign-in");
 		}
 	};
 

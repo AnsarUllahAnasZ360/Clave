@@ -10,6 +10,8 @@ import { action, mutation } from "./_generated/server";
 export const seedDatabase = action({
 	args: {},
 	handler: async (ctx) => {
+		// These delegate to internalMutation (not callable from outside Convex).
+		// No auth check — seeding runs before the user signs in on /dev-login.
 		await ctx.runMutation(internal.devSeed.seed);
 		return { success: true, message: "Sample data seeded successfully." };
 	},
@@ -40,21 +42,21 @@ export const ensureDevWorkspaceMember = mutation({
 
 		const now = Date.now();
 		const adminEmails = [
-			"kul@goclave.app",
-			"alex@goclave.app",
-			"cool@gocliff.app",
-			"pull@gocliff.app",
+			"admin@example.com",
+			"dev@example.com",
+			"editor@example.com",
+			"viewer@example.com",
 		];
 		const isAdmin = adminEmails.includes(user.email);
-		const isOwner = user.email === "kul@goclave.app";
+		const isOwner = user.email === "admin@example.com";
 		const superAdminEmails = [
-			"kul@goclave.app",
-			"cool@gocliff.app",
-			"pull@gocliff.app",
+			"admin@example.com",
+			"editor@example.com",
+			"viewer@example.com",
 		];
 		const shouldBeSuperAdmin = superAdminEmails.includes(user.email);
 
-		// Keep existing dev superadmin behavior and add cool@gocliff.app.
+		// Promote configured dev superadmins automatically.
 		if (shouldBeSuperAdmin && user.role !== "superadmin") {
 			await ctx.db.patch(userId, { role: "superadmin" });
 		}

@@ -8,11 +8,11 @@ import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { api } from "../../../convex/_generated/api";
 
-const DEV_SUPERADMIN_EMAILS = new Set([
-	"kul@goclave.app",
-	"cool@gocliff.app",
-	"pull@gocliff.app",
-]);
+const DEV_SUPERADMIN_EMAILS = new Set(
+	(process.env.NEXT_PUBLIC_DEV_SUPERADMIN_EMAILS ?? "admin@example.com")
+		.split(",")
+		.map((e) => e.trim().toLowerCase()),
+);
 
 export default function AdminLayout({
 	children,

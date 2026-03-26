@@ -56,9 +56,10 @@ yarn-error.log*
 .mcp.json
 .ralph-tui
 
-# GitHub (keep workflows tracked for CI/CD)
+# GitHub (keep workflows and dependabot tracked for CI/CD)
 .github/*
 !.github/workflows/
+!.github/dependabot.yml
 
 # Internal docs & planning (not code)
 /.scratchpad/
@@ -82,10 +83,12 @@ package-lock.json
 # Internal secrets — never commit
 team-env-keys.md
 
+# Internal ops docs (keep out of public repo)
+Agents.md
+
 # Misc
 *.tsbuildinfo
-.vercel/*
-!.vercel/project.json
+.vercel/
 .turbo/
 
 # Dev bootstrap runtime files

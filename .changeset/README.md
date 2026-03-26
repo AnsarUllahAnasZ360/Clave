@@ -19,7 +19,7 @@ bun run changeset
 ```
 
 This opens an interactive prompt:
-1. **Select packages** — press Space on `millhouse-web`, then Enter
+1. **Select packages** — press Space on `clave`, then Enter
 2. **Select bump type** — `patch` (bug fix), `minor` (new feature), or `major` (breaking change)
 3. **Write a summary** — one-line description of the change (shown in CHANGELOG.md)
 
