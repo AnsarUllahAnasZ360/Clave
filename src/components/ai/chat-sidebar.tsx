@@ -16,6 +16,7 @@ import {
 	ChatMessageList,
 	type SubAgentInvocation,
 } from "@/components/ai/ChatMessageList";
+import { ChatModeSelector } from "@/components/ai/ChatModeSelector";
 import { ConnectionBanner } from "@/components/ai/ConnectionBanner";
 import { McpActionMenuItems } from "@/components/ai/McpConnectorPicker";
 import { MentionAutocomplete } from "@/components/ai/MentionAutocomplete";
@@ -555,20 +556,29 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 				onSubmit={handleSubmit}
 				context={slashCommandContext}
 				onStop={stop}
-				disabled={hasPendingApproval}
+				disabled={hasPendingApproval || chat.hasPendingModeSuggestion}
 				isSending={isSending}
 				isStreaming={isStreaming}
 				placeholder={
 					hasPendingApproval
 						? "Approve or reject the pending action first..."
-						: "Ask your AI teammate..."
+						: chat.hasPendingModeSuggestion
+							? "Click the button above to switch mode..."
+							: "Ask your AI teammate..."
 				}
 				footerLeft={
-					<ModelSelector
-						value={selectedModel}
-						onValueChange={setThreadModel}
-						disabled={isSending || isStreaming}
-					/>
+					<div className="flex items-center gap-1.5">
+						<ChatModeSelector
+							mode={chat.chatMode}
+							onChange={chat.setChatMode}
+							disabled={isSending || isStreaming}
+						/>
+						<ModelSelector
+							value={selectedModel}
+							onValueChange={setThreadModel}
+							disabled={isSending || isStreaming}
+						/>
+					</div>
 				}
 				actionMenuItems={
 					<>

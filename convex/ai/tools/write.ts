@@ -499,7 +499,7 @@ export const createIssue = createTool({
 			description,
 			toolCallId: options.toolCallId,
 			issueId: "",
-			message: `⚠️ This action requires your approval: ${description}. Please approve or reject in the chat.`,
+			message: `⚠️ This action requires your approval: ${description}. Use the Approve or Reject buttons shown in the chat.`,
 		};
 	},
 });
@@ -611,7 +611,7 @@ export const updateIssue = createTool({
 				description,
 				toolCallId: options.toolCallId,
 				issueId: resolvedIssueId,
-				message: `⚠️ This action requires your approval: ${description}. Please approve or reject in the chat.`,
+				message: `⚠️ This action requires your approval: ${description}. Use the Approve or Reject buttons shown in the chat.`,
 			};
 		}
 
@@ -974,7 +974,7 @@ export const batchUpdateIssues = createTool({
 			description,
 			toolCallId: options.toolCallId,
 			issueCount: identifiers.length,
-			message: `⚠️ This action requires your approval: ${description}. Please approve or reject in the chat.`,
+			message: `⚠️ This action requires your approval: ${description}. Use the Approve or Reject buttons shown in the chat.`,
 		};
 	},
 });
@@ -1102,7 +1102,7 @@ export const createProject = createTool({
 			needsApproval: true,
 			description,
 			toolCallId: options.toolCallId,
-			message: `⚠️ This action requires your approval: ${description}. Please approve or reject in the chat.`,
+			message: `⚠️ This action requires your approval: ${description}. Use the Approve or Reject buttons shown in the chat.`,
 		};
 	},
 });
@@ -1363,6 +1363,214 @@ export const approvePendingAction = createTool({
 	},
 });
 
+// ── 11. createSprint ──────────────────────────────────────────────────────
+
+interface CreateSprintResult {
+	sprintId: string;
+	name: string;
+	message: string;
+}
+
+export const createSprint = createTool({
+	description:
+		"Create a new sprint in a project. Use this when the user asks to create a sprint, iteration, or cycle. Sprints organize issues into time-boxed work periods.",
+	inputSchema: z.object({
+		projectId: z.string().describe("Project ID to create the sprint in"),
+		name: z
+			.string()
+			.describe("Sprint name (e.g., 'Sprint 12', 'March Week 1')"),
+		description: z.string().optional().describe("Sprint description or goals"),
+		startDate: z
+			.number()
+			.optional()
+			.describe("Sprint start date as Unix timestamp (ms)"),
+		endDate: z
+			.number()
+			.optional()
+			.describe("Sprint end date as Unix timestamp (ms)"),
+		goals: z
+			.array(z.string())
+			.optional()
+			.describe(
+				"Sprint goals — short descriptions of what the sprint aims to achieve",
+			),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<CreateSprintResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		// Verify project exists and belongs to workspace
+		const project = await ctx.runQuery(internal.ai.toolQueries.getProjectById, {
+			projectId: args.projectId as Id<"projects">,
+			userId,
+		});
+		if (!project || project.workspaceId !== workspaceId) {
+			return { error: "Project not found." };
+		}
+
+		const sprintId = await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.createSprint, {
+				userId,
+				projectId: args.projectId as Id<"projects">,
+				name: args.name,
+				description: args.description,
+				startDate: args.startDate,
+				endDate: args.endDate,
+				goals: args.goals,
+			}),
+			TOOL_TIMEOUT_MS,
+			"createSprint",
+		);
+
+		return {
+			sprintId,
+			name: args.name,
+			message: `Created sprint "${args.name}" in project "${project.name}"`,
+		};
+	},
+});
+
+// ── 12. moveIssueToSprint ────────────────────────────────────────────────
+
+interface MoveIssueToSprintResult {
+	issueId: string;
+	identifier: string;
+	sprintName: string | null;
+	message: string;
+}
+
+export const moveIssueToSprint = createTool({
+	description:
+		'Move an issue to a sprint or back to the backlog. Use this when the user asks to assign an issue to a sprint, move issues between sprints, or send an issue back to the backlog. Provide the issue identifier (e.g., "CLV-042") and the target sprint ID. Omit sprintId to move to backlog.',
+	inputSchema: z.object({
+		identifier: z
+			.string()
+			.optional()
+			.describe('Issue identifier like "CLV-042"'),
+		issueId: z.string().optional().describe("Issue ID (Convex document ID)"),
+		sprintId: z
+			.string()
+			.optional()
+			.nullable()
+			.describe("Sprint ID to move to. Omit or null to move to backlog."),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<MoveIssueToSprintResult | ErrorResult> => {
+		if (!args.identifier && !args.issueId) {
+			return { error: "Provide either an identifier or issueId." };
+		}
+
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		// Resolve issue
+		let resolvedIssueId: Id<"issues">;
+		let issueIdentifier: string;
+		if (args.issueId) {
+			const issue = await ctx.runQuery(internal.ai.toolQueries.getIssueById, {
+				issueId: args.issueId as Id<"issues">,
+				userId,
+			});
+			if (!issue || issue.workspaceId !== workspaceId) {
+				return { error: "Issue not found." };
+			}
+			resolvedIssueId = issue._id;
+			issueIdentifier = issue.identifier;
+		} else {
+			const issue = await ctx.runQuery(
+				internal.ai.toolQueries.getIssueByIdentifier,
+				{ workspaceId, identifier: args.identifier as string, userId },
+			);
+			if (!issue) {
+				return { error: `Issue "${args.identifier}" not found.` };
+			}
+			resolvedIssueId = issue._id;
+			issueIdentifier = issue.identifier;
+		}
+
+		// Move the issue
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.moveIssueToSprint, {
+				userId,
+				issueId: resolvedIssueId,
+				sprintId: args.sprintId ? (args.sprintId as Id<"sprints">) : undefined,
+			}),
+			TOOL_TIMEOUT_MS,
+			"moveIssueToSprint",
+		);
+
+		const destination = args.sprintId ? "sprint" : "backlog";
+		return {
+			issueId: resolvedIssueId,
+			identifier: issueIdentifier,
+			sprintName: null,
+			message: `Moved issue ${issueIdentifier} to ${destination}`,
+		};
+	},
+});
+
+// ── 13. updateSprint ─────────────────────────────────────────────────────
+
+interface UpdateSprintResult {
+	sprintId: string;
+	updatedFields: string[];
+	message: string;
+}
+
+export const updateSprint = createTool({
+	description:
+		"Update a sprint's fields — name, status, dates, goals. Use when the user asks to start a sprint, complete a sprint, change sprint dates, or update sprint goals.",
+	inputSchema: z.object({
+		sprintId: z.string().describe("Sprint ID to update"),
+		name: z.string().optional().describe("New sprint name"),
+		status: z
+			.enum(["planned", "active", "completed", "cancelled"])
+			.optional()
+			.describe("New sprint status"),
+		startDate: z.number().optional().describe("New start date (Unix ms)"),
+		endDate: z.number().optional().describe("New end date (Unix ms)"),
+		goals: z.array(z.string()).optional().describe("Updated sprint goals"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<UpdateSprintResult | ErrorResult> => {
+		const userId = resolveToolUserId(ctx);
+
+		const updates: Record<string, unknown> = {};
+		if (args.name !== undefined) updates.name = args.name;
+		if (args.status !== undefined) updates.status = args.status;
+		if (args.startDate !== undefined) updates.startDate = args.startDate;
+		if (args.endDate !== undefined) updates.endDate = args.endDate;
+		if (args.goals !== undefined) updates.goals = args.goals;
+
+		if (Object.keys(updates).length === 0) {
+			return { error: "No fields to update." };
+		}
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.updateSprint, {
+				userId,
+				sprintId: args.sprintId as Id<"sprints">,
+				...updates,
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateSprint",
+		);
+
+		return {
+			sprintId: args.sprintId,
+			updatedFields: Object.keys(updates),
+			message: `Updated sprint: ${Object.keys(updates).join(", ")}`,
+		};
+	},
+});
+
 // ── Export all write tools as a named toolset ─────────────────────────────
 
 export const writeTools = {
@@ -1376,4 +1584,7 @@ export const writeTools = {
 	createLabel,
 	generateWhiteboardDiagram,
 	approvePendingAction,
+	createSprint,
+	moveIssueToSprint,
+	updateSprint,
 };

@@ -253,6 +253,17 @@ export default defineSchema({
 		),
 		typeLabel: v.optional(v.string()),
 		tags: v.optional(v.array(v.string())),
+		// Project-level overrides (if set, these override workspace defaults)
+		customStatuses: v.optional(
+			v.array(
+				v.object({ key: v.string(), name: v.string(), color: v.string() }),
+			),
+		),
+		customTypes: v.optional(
+			v.array(
+				v.object({ key: v.string(), name: v.string(), color: v.string() }),
+			),
+		),
 		sortOrder: v.number(),
 		createdBy: v.id("users"),
 		updatedAt: v.optional(v.number()),
@@ -1141,6 +1152,7 @@ export default defineSchema({
 		marketplaceInstalledAt: v.optional(v.number()),
 		marketplaceProjectNumber: v.optional(v.string()),
 		encryptedCredentials: v.optional(v.string()),
+		byosaClientEmail: v.optional(v.string()),
 		credentialSource: v.optional(
 			v.union(
 				v.literal("marketplace"),
@@ -1153,7 +1165,8 @@ export default defineSchema({
 	})
 		.index("by_workspace", ["workspaceId"])
 		.index("by_workspace_provider", ["workspaceId", "provider"])
-		.index("by_provider_status", ["provider", "status"]),
+		.index("by_provider_status", ["provider", "status"])
+		.index("by_byosa_client_email", ["byosaClientEmail"]),
 
 	chatVerificationCodes: defineTable({
 		workspaceId: v.id("workspaces"),

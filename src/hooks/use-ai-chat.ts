@@ -283,6 +283,10 @@ export type UseAIChatReturn = {
 	approvals: AIToolApproval[];
 	/** Whether there's a pending approval blocking input */
 	hasPendingApproval: boolean;
+	/** Whether AI suggested a mode switch and is waiting */
+	hasPendingModeSuggestion: boolean;
+	/** Dismiss a pending mode suggestion to continue in current mode */
+	dismissModeSuggestion: () => void;
 	/** Approve a pending tool action */
 	approveTool: (approvalId: Id<"aiToolApprovals">) => Promise<void>;
 	/** Reject a pending tool action */
@@ -311,6 +315,10 @@ export type UseAIChatReturn = {
 	selectedSubAgentId: Id<"subAgents"> | null;
 	/** Set selected sub-agent for the active thread */
 	setSelectedSubAgentId: (id: Id<"subAgents"> | null) => void;
+	/** Current chat mode: agent (full tools), plan (read-only + propose), ask (Q&A only) */
+	chatMode: "agent" | "plan" | "ask";
+	/** Set the chat mode */
+	setChatMode: (mode: "agent" | "plan" | "ask") => void;
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────
@@ -326,6 +334,42 @@ export function useAIChat(
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(
 		initialThreadId ?? null,
 	);
+	const [chatMode, setChatMode] = useState<"agent" | "plan" | "ask">("agent");
+	const chatModeRef = useRef(chatMode);
+	chatModeRef.current = chatMode;
+	// Mode suggestion blocks input until user switches or dismisses
+	const [hasPendingModeSuggestion, setHasPendingModeSuggestion] =
+		useState(false);
+
+	// Listen for mode switch and dismiss events from ModeSuggestCard buttons.
+	// Listen for mode switch — changes mode and triggers auto-continuation
+	const sendMessageRef = useRef<((text: string) => void) | null>(null);
+	useEffect(() => {
+		const switchHandler = (e: Event) => {
+			const mode = (e as CustomEvent).detail?.mode;
+			if (mode && ["agent", "plan", "ask"].includes(mode)) {
+				setChatMode(mode);
+				setHasPendingModeSuggestion(false);
+				// Auto-continue after a small delay for state to update
+				const modeLabel =
+					mode === "plan" ? "Plan" : mode === "ask" ? "Ask" : "Agent";
+				setTimeout(() => {
+					sendMessageRef.current?.(
+						`::mode-switch:: Switched to ${modeLabel} mode. Continue.`,
+					);
+				}, 200);
+			}
+		};
+		const dismissHandler = () => {
+			setHasPendingModeSuggestion(false);
+		};
+		window.addEventListener("clave:switch-mode", switchHandler);
+		window.addEventListener("clave:dismiss-mode-suggest", dismissHandler);
+		return () => {
+			window.removeEventListener("clave:switch-mode", switchHandler);
+			window.removeEventListener("clave:dismiss-mode-suggest", dismissHandler);
+		};
+	}, []);
 	const [isSending, setIsSending] = useState(false);
 	const isSendingRef = useRef(false);
 	const [isForceStopped, setIsForceStopped] = useState(false);
@@ -672,6 +716,36 @@ export function useAIChat(
 	const approvals = (rawApprovals ?? []) as AIToolApproval[];
 	const hasPendingApproval = approvals.some((a) => a.status === "pending");
 
+	// Detect mode-suggest blocks in last assistant message to block input.
+	// Only triggers when streaming completes (not during) and only for the very last message.
+	// Detect mode-suggest in the last assistant message ONLY after streaming ends
+	const prevStreamingRef2 = useRef(false);
+	useEffect(() => {
+		// Only trigger on streaming → not-streaming transition
+		const wasStreaming = prevStreamingRef2.current;
+		prevStreamingRef2.current = isStreaming;
+		if (!wasStreaming || isStreaming) return;
+
+		// Streaming just ended — check the last assistant message
+		if (messages.length === 0) return;
+		const lastMsg = messages[messages.length - 1];
+		if (lastMsg?.role !== "assistant") return;
+
+		const text =
+			lastMsg.parts
+				?.filter((p): p is { type: "text"; text: string } => p.type === "text")
+				.map((p) => p.text)
+				.join("") ?? "";
+		if (/:::mode-suggest[\s-]/.test(text)) {
+			setHasPendingModeSuggestion(true);
+		}
+	}, [isStreaming, messages]);
+
+	// Reset on thread change or new user message
+	useEffect(() => {
+		setHasPendingModeSuggestion(false);
+	}, [activeThreadId]);
+
 	// ── Actions & Mutations ─────────────────────────────────────────────
 	const sendMessageAction = useAction(api.ai.chat.sendMessage);
 	const createThreadMutation = useMutation(api.ai.threads.createThread);
@@ -730,6 +804,10 @@ export function useAIChat(
 					"A tool action is waiting for approval. Approve/reject it before sending another message.",
 				);
 				return;
+			}
+
+			if (hasPendingModeSuggestion) {
+				setHasPendingModeSuggestion(false);
 			}
 
 			isSendingRef.current = true;
@@ -822,6 +900,7 @@ export function useAIChat(
 								debugRequestId,
 							}
 						: {}),
+					chatMode: chatModeRef.current,
 				});
 
 				const result = (await actionPromise) as {
@@ -902,6 +981,9 @@ export function useAIChat(
 			deferFirstSendUntilThreadActivation,
 		],
 	);
+
+	// Keep sendMessage ref in sync for auto-continuation
+	sendMessageRef.current = sendMessage;
 
 	// Resume a deferred first-send after landing page navigates into /chat/[threadId].
 	useEffect(() => {
@@ -1128,6 +1210,8 @@ export function useAIChat(
 		loadMoreMessages,
 		approvals,
 		hasPendingApproval,
+		hasPendingModeSuggestion,
+		dismissModeSuggestion: () => setHasPendingModeSuggestion(false),
 		approveTool,
 		rejectTool,
 		selectedModel,
@@ -1142,5 +1226,7 @@ export function useAIChat(
 		subAgents,
 		selectedSubAgentId,
 		setSelectedSubAgentId,
+		chatMode,
+		setChatMode,
 	};
 }

@@ -43,7 +43,8 @@ export function TypesSettingsPane() {
 	const removeLabel = useMutation(api.labels.remove);
 
 	const currentMember = members?.find((m) => m.userId === currentUser?._id);
-	const isAdmin = currentMember?.role === "admin";
+	// Allow both admins and members to customize types/statuses
+	const isAdmin = Boolean(currentMember);
 
 	const typeNav = [
 		{ id: "types", label: "Issue types" },
@@ -104,11 +105,18 @@ export function TypesSettingsPane() {
 		defaults: { key: string; name: string; color: string }[],
 		custom: { key: string; name: string; color: string }[] | undefined,
 	) => {
-		if (!custom || custom.length === 0) return defaults;
-		return defaults.map((def) => {
+		if (!custom || custom.length === 0)
+			return defaults.map((d) => ({ ...d, isDefault: true }));
+		// Override defaults + append custom-added items
+		const merged = defaults.map((def) => {
 			const override = custom.find((c) => c.key === def.key);
-			return override ?? def;
+			return { ...(override ?? def), isDefault: true };
 		});
+		// Add items that don't exist in defaults (user-created)
+		const customOnly = custom.filter(
+			(c) => !defaults.some((d) => d.key === c.key),
+		);
+		return [...merged, ...customOnly.map((c) => ({ ...c, isDefault: false }))];
 	};
 
 	const types = mergeDefaults(defaultTypeItems, settings?.customTypes);
@@ -117,6 +125,21 @@ export function TypesSettingsPane() {
 		defaultPriorityItems,
 		settings?.customPriorities,
 	);
+
+	// State for adding new items
+	const [addingSection, setAddingSection] = useState<
+		"types" | "statuses" | "priorities" | null
+	>(null);
+	const [newItemKey, setNewItemKey] = useState("");
+	const [newItemName, setNewItemName] = useState("");
+	const [newItemColor, setNewItemColor] = useState("#6b7280");
+	const newItemRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (addingSection && newItemRef.current) {
+			newItemRef.current.focus();
+		}
+	}, [addingSection]);
 
 	// Editing state
 	const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -155,6 +178,72 @@ export function TypesSettingsPane() {
 		}
 	}, [editingLabelId]);
 
+	const handleAddItem = async (
+		section: "types" | "statuses" | "priorities",
+	) => {
+		if (!workspaceId) return;
+		const key = newItemKey.trim().toLowerCase().replace(/\s+/g, "_");
+		const name = newItemName.trim();
+		if (!key || !name) {
+			toast.error("Key and name are required");
+			return;
+		}
+		const items =
+			section === "types"
+				? types
+				: section === "statuses"
+					? statuses
+					: priorities;
+		if (items.some((i) => i.key === key)) {
+			toast.error("An item with this key already exists");
+			return;
+		}
+		const updated = [
+			...items.map(({ isDefault, ...rest }) => rest),
+			{ key, name, color: newItemColor },
+		];
+		try {
+			if (section === "types")
+				await updateTypes({ workspaceId, customTypes: updated });
+			else if (section === "statuses")
+				await updateStatuses({ workspaceId, customStatuses: updated });
+			else await updatePriorities({ workspaceId, customPriorities: updated });
+			toast.success(`Added "${name}"`);
+			setNewItemKey("");
+			setNewItemName("");
+			setNewItemColor("#6b7280");
+			setAddingSection(null);
+		} catch {
+			toast.error("Failed to add item");
+		}
+	};
+
+	const handleDeleteItem = async (
+		section: "types" | "statuses" | "priorities",
+		key: string,
+	) => {
+		if (!workspaceId) return;
+		const items =
+			section === "types"
+				? types
+				: section === "statuses"
+					? statuses
+					: priorities;
+		const updated = items
+			.filter((i) => i.key !== key)
+			.map(({ isDefault, ...rest }) => rest);
+		try {
+			if (section === "types")
+				await updateTypes({ workspaceId, customTypes: updated });
+			else if (section === "statuses")
+				await updateStatuses({ workspaceId, customStatuses: updated });
+			else await updatePriorities({ workspaceId, customPriorities: updated });
+			toast.success("Removed");
+		} catch {
+			toast.error("Failed to remove item");
+		}
+	};
+
 	const handleSaveItem = async (
 		section: "types" | "statuses" | "priorities",
 		key: string,
@@ -170,8 +259,12 @@ export function TypesSettingsPane() {
 					: priorities;
 		const updated = items.map((item) =>
 			item.key === key
-				? { ...item, name: newName || item.name, color: newColor ?? item.color }
-				: item,
+				? {
+						key: item.key,
+						name: newName || item.name,
+						color: newColor ?? item.color,
+					}
+				: { key: item.key, name: item.name, color: item.color },
 		);
 		try {
 			if (section === "types") {
@@ -201,7 +294,9 @@ export function TypesSettingsPane() {
 					? statuses
 					: priorities;
 		const updated = items.map((item) =>
-			item.key === key ? { ...item, color: newColor } : item,
+			item.key === key
+				? { key: item.key, name: item.name, color: newColor }
+				: { key: item.key, name: item.name, color: item.color },
 		);
 		try {
 			if (section === "types") {
@@ -283,18 +378,21 @@ export function TypesSettingsPane() {
 
 	const renderItemList = (
 		section: "types" | "statuses" | "priorities",
-		items: { key: string; name: string; color: string }[],
+		items: { key: string; name: string; color: string; isDefault: boolean }[],
 	) => (
 		<div className="space-y-2">
 			{items.map((item) => {
 				const Icon = getIcon(section, item.key);
-				const iconColor = getIconColor(section, item.key);
+				const isEditingThis = editingKey === `${section}-${item.key}`;
 				return (
 					<div
 						key={item.key}
-						className="flex items-center gap-4 rounded-2xl bg-muted/20 px-4 py-3"
+						className="flex items-center gap-3 rounded-2xl bg-muted/20 px-4 py-3 group"
 					>
-						<Icon className={cn("h-4 w-4 shrink-0", iconColor)} />
+						{/* Icon colored by item color */}
+						<Icon className="h-4 w-4 shrink-0" style={{ color: item.color }} />
+
+						{/* Color picker */}
 						<ColorPicker
 							color={item.color}
 							onColorChange={(color) =>
@@ -302,52 +400,125 @@ export function TypesSettingsPane() {
 							}
 							disabled={!isAdmin}
 						/>
-						<div className="flex flex-1 items-center gap-4 text-sm text-foreground">
-							{editingKey === `${section}-${item.key}` ? (
-								<Input
-									ref={editInputRef}
-									value={editName}
-									onChange={(e) => setEditName(e.target.value)}
-									onBlur={() =>
-										handleSaveItem(section, item.key, editName.trim())
+
+						{/* Name (editable) */}
+						{isEditingThis ? (
+							<Input
+								ref={editInputRef}
+								value={editName}
+								onChange={(e) => setEditName(e.target.value)}
+								onBlur={() =>
+									handleSaveItem(section, item.key, editName.trim())
+								}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										handleSaveItem(section, item.key, editName.trim());
 									}
-									onKeyDown={(e) => {
-										if (e.key === "Enter") {
-											handleSaveItem(section, item.key, editName.trim());
-										}
-										if (e.key === "Escape") {
-											setEditingKey(null);
-										}
-									}}
-									className="h-7 w-40 text-sm"
-								/>
-							) : (
-								<span
-									className={cn(
-										"font-medium",
-										isAdmin && "cursor-pointer hover:underline",
-									)}
-									onClick={() => {
-										if (!isAdmin) return;
-										setEditingKey(`${section}-${item.key}`);
-										setEditName(item.name);
-									}}
-									onKeyDown={() => {}}
-									role={isAdmin ? "button" : undefined}
-									tabIndex={isAdmin ? 0 : undefined}
-								>
-									{item.name}
-								</span>
-							)}
-							<span className="flex-1 text-left text-xs text-muted-foreground">
-								{item.key}
+									if (e.key === "Escape") {
+										setEditingKey(null);
+									}
+								}}
+								className="h-7 w-32 text-sm"
+							/>
+						) : (
+							<span
+								className={cn(
+									"text-sm font-medium",
+									isAdmin && "cursor-pointer hover:underline",
+								)}
+								onClick={() => {
+									if (!isAdmin) return;
+									setEditingKey(`${section}-${item.key}`);
+									setEditName(item.name);
+								}}
+								onKeyDown={() => {}}
+								role={isAdmin ? "button" : undefined}
+								tabIndex={isAdmin ? 0 : undefined}
+							>
+								{item.name}
 							</span>
-						</div>
+						)}
+
+						{/* Key (shown as badge) */}
+						<span className="text-[11px] font-mono text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
+							{item.key}
+						</span>
+
+						{/* Spacer */}
+						<div className="flex-1" />
+
+						{/* Delete button (visible on hover) */}
+						{isAdmin && (
+							<button
+								type="button"
+								onClick={() => handleDeleteItem(section, item.key)}
+								className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+								title="Remove item"
+							>
+								<TrashSimple className="h-3.5 w-3.5" />
+							</button>
+						)}
 					</div>
 				);
 			})}
 		</div>
 	);
+
+	const renderAddForm = (section: "types" | "statuses" | "priorities") => {
+		if (!isAdmin) return null;
+		if (addingSection !== section) {
+			return (
+				<button
+					type="button"
+					onClick={() => setAddingSection(section)}
+					className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2"
+				>
+					<Plus className="h-3.5 w-3.5" />
+					Add custom{" "}
+					{section === "types"
+						? "type"
+						: section === "statuses"
+							? "status"
+							: "priority"}
+				</button>
+			);
+		}
+		return (
+			<div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 mt-2">
+				<ColorPicker color={newItemColor} onColorChange={setNewItemColor} />
+				<Input
+					ref={newItemRef}
+					value={newItemKey}
+					onChange={(e) => setNewItemKey(e.target.value)}
+					placeholder="key (e.g. epic)"
+					className="h-7 text-xs w-24 font-mono"
+				/>
+				<Input
+					value={newItemName}
+					onChange={(e) => setNewItemName(e.target.value)}
+					placeholder="Display name"
+					className="h-7 text-xs flex-1"
+					onKeyDown={(e) => e.key === "Enter" && handleAddItem(section)}
+				/>
+				<Button
+					size="sm"
+					className="h-7 text-xs px-3"
+					onClick={() => handleAddItem(section)}
+					disabled={!newItemKey.trim() || !newItemName.trim()}
+				>
+					Add
+				</Button>
+				<Button
+					size="sm"
+					variant="ghost"
+					className="h-7 text-xs"
+					onClick={() => setAddingSection(null)}
+				>
+					Cancel
+				</Button>
+			</div>
+		);
+	};
 
 	const renderLabelsSection = () => (
 		<div className="space-y-4">
@@ -535,10 +706,11 @@ export function TypesSettingsPane() {
 								Issue types
 							</p>
 							<p className="text-xs text-muted-foreground">
-								Customize the display names and colors for issue types. The
-								internal key is fixed.
+								Customize display names, colors, and add custom types. Default
+								types can be renamed but not deleted.
 							</p>
 							{renderItemList("types", types)}
+							{renderAddForm("types")}
 						</div>
 					)}
 
@@ -548,10 +720,11 @@ export function TypesSettingsPane() {
 								Issue statuses
 							</p>
 							<p className="text-xs text-muted-foreground">
-								Customize the display names and colors for issue statuses used
-								in Kanban columns and badges.
+								Customize display names, colors, and add custom statuses for
+								your workflow. Default statuses can be renamed but not deleted.
 							</p>
 							{renderItemList("statuses", statuses)}
+							{renderAddForm("statuses")}
 						</div>
 					)}
 
@@ -561,9 +734,10 @@ export function TypesSettingsPane() {
 								Issue priorities
 							</p>
 							<p className="text-xs text-muted-foreground">
-								Customize the display names and colors for priority levels.
+								Customize display names, colors, and add custom priority levels.
 							</p>
 							{renderItemList("priorities", priorities)}
+							{renderAddForm("priorities")}
 						</div>
 					)}
 

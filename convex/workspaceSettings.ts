@@ -88,7 +88,7 @@ export const updateTypes = mutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		await requireWorkspaceAdmin(ctx, args.workspaceId);
+		await requireWorkspaceMember(ctx, args.workspaceId);
 
 		const settings = await ctx.db
 			.query("workspaceSettings")
@@ -113,7 +113,7 @@ export const updateStatuses = mutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		await requireWorkspaceAdmin(ctx, args.workspaceId);
+		await requireWorkspaceMember(ctx, args.workspaceId);
 
 		const settings = await ctx.db
 			.query("workspaceSettings")
@@ -138,7 +138,7 @@ export const updatePriorities = mutation({
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
-		await requireWorkspaceAdmin(ctx, args.workspaceId);
+		await requireWorkspaceMember(ctx, args.workspaceId);
 
 		const settings = await ctx.db
 			.query("workspaceSettings")

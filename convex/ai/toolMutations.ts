@@ -661,3 +661,120 @@ export const updateWhiteboardScene = internalMutation({
 		});
 	},
 });
+
+// ── 8. createSprint ─────────────────────────────────────────────────────
+
+export const createSprint = internalMutation({
+	args: {
+		userId: v.id("users"),
+		projectId: v.id("projects"),
+		name: v.string(),
+		description: v.optional(v.string()),
+		startDate: v.optional(v.number()),
+		endDate: v.optional(v.number()),
+		goals: v.optional(v.array(v.string())),
+	},
+	returns: v.id("sprints"),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireMembership(ctx, project.workspaceId, args.userId);
+
+		// Get next sort order
+		const existing = await ctx.db
+			.query("sprints")
+			.withIndex("by_project_sort", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		const sortOrder =
+			existing.length > 0
+				? Math.max(...existing.map((s) => s.sortOrder)) + 1
+				: 0;
+
+		const sprintId = await ctx.db.insert("sprints", {
+			projectId: args.projectId,
+			name: args.name,
+			description: args.description,
+			status: "planned",
+			sortOrder,
+			createdBy: args.userId,
+			startDate: args.startDate,
+			endDate: args.endDate,
+			goals: args.goals,
+		});
+
+		return sprintId;
+	},
+});
+
+// ── 9. moveIssueToSprint ────────────────────────────────────────────────
+
+export const moveIssueToSprint = internalMutation({
+	args: {
+		userId: v.id("users"),
+		issueId: v.id("issues"),
+		sprintId: v.optional(v.id("sprints")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const issue = await ctx.db.get(args.issueId);
+		if (!issue || issue.deletedAt) {
+			throw new ConvexError("Issue not found");
+		}
+		await requireMembership(ctx, issue.workspaceId, args.userId);
+
+		// If moving to a sprint, verify it exists and belongs to same workspace
+		if (args.sprintId) {
+			const sprint = await ctx.db.get(args.sprintId);
+			if (!sprint) {
+				throw new ConvexError("Sprint not found");
+			}
+		}
+
+		const oldSprintId = issue.sprintId;
+		await ctx.db.patch(args.issueId, {
+			sprintId: args.sprintId,
+			listId: undefined, // Sprint and list are mutually exclusive
+			updatedAt: Date.now(),
+		});
+
+		// Sprint issue counts are computed dynamically in queries,
+		// no need to patch sprint records here.
+	},
+});
+
+// ── 10. updateSprint ────────────────────────────────────────────────────
+
+export const updateSprint = internalMutation({
+	args: {
+		userId: v.id("users"),
+		sprintId: v.id("sprints"),
+		name: v.optional(v.string()),
+		status: v.optional(v.string()),
+		startDate: v.optional(v.number()),
+		endDate: v.optional(v.number()),
+		goals: v.optional(v.array(v.string())),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const sprint = await ctx.db.get(args.sprintId);
+		if (!sprint) {
+			throw new ConvexError("Sprint not found");
+		}
+		const project = await ctx.db.get(sprint.projectId);
+		if (!project) {
+			throw new ConvexError("Project not found");
+		}
+		await requireMembership(ctx, project.workspaceId, args.userId);
+
+		const patch: Record<string, unknown> = { updatedAt: Date.now() };
+		if (args.name !== undefined) patch.name = args.name;
+		if (args.status !== undefined) patch.status = args.status;
+		if (args.startDate !== undefined) patch.startDate = args.startDate;
+		if (args.endDate !== undefined) patch.endDate = args.endDate;
+		if (args.goals !== undefined) patch.goals = args.goals;
+
+		await ctx.db.patch(args.sprintId, patch);
+	},
+});

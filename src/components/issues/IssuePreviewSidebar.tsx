@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import {
 	Calendar,
@@ -18,7 +18,7 @@ import {
 	X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
@@ -28,9 +28,18 @@ import {
 } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { extractTextFromContent } from "@/lib/content-converters";
 import {
+	DEFAULT_ISSUE_TYPES,
+	DEFAULT_PRIORITIES,
+	DEFAULT_STATUSES,
 	PRIORITY_RECORD,
 	STATUS_RECORD,
 	TYPE_RECORD,
@@ -45,7 +54,7 @@ const STATUS_CONFIG = STATUS_RECORD;
 const PRIORITY_CONFIG = PRIORITY_RECORD;
 const TYPE_CONFIG = TYPE_RECORD;
 
-// ── Property row (read-only) ────────────────────────────────────────────────
+// ── Property row ────────────────────────────────────────────────────────────
 
 function PropertyRow({
 	icon: Icon,
@@ -67,6 +76,69 @@ function PropertyRow({
 	);
 }
 
+// ── Editable dropdown property ──────────────────────────────────────────────
+
+function EditableProperty<T extends string>({
+	icon: Icon,
+	label,
+	value,
+	options,
+	onChange,
+}: {
+	icon: LucideIcon;
+	label: string;
+	value: T;
+	options: { key: T; label: string; icon?: LucideIcon; color?: string }[];
+	onChange: (value: T) => void;
+}) {
+	const current = options.find((o) => o.key === value);
+	const CurrentIcon = current?.icon;
+
+	return (
+		<div className="flex items-center gap-3 min-h-[32px] py-0.5">
+			<span className="flex items-center gap-2 text-[12px] text-muted-foreground w-[88px] shrink-0">
+				<Icon className="h-3.5 w-3.5" />
+				{label}
+			</span>
+			<DropdownMenu>
+				<DropdownMenuTrigger asChild>
+					<button
+						type="button"
+						className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors min-w-0"
+					>
+						{CurrentIcon && (
+							<CurrentIcon
+								className={cn("h-3.5 w-3.5 shrink-0", current?.color)}
+							/>
+						)}
+						<span className="truncate">{current?.label ?? value}</span>
+					</button>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="start" className="w-44">
+					{options.map((opt) => {
+						const OptIcon = opt.icon;
+						return (
+							<DropdownMenuItem
+								key={opt.key}
+								onClick={() => onChange(opt.key)}
+								className={cn(
+									"gap-2 text-xs",
+									opt.key === value && "bg-accent",
+								)}
+							>
+								{OptIcon && (
+									<OptIcon className={cn("h-3.5 w-3.5", opt.color)} />
+								)}
+								{opt.label}
+							</DropdownMenuItem>
+						);
+					})}
+				</DropdownMenuContent>
+			</DropdownMenu>
+		</div>
+	);
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export function IssuePreviewSidebar({
@@ -79,6 +151,14 @@ export function IssuePreviewSidebar({
 	const { workspaceSlug } = useWorkspace();
 	const router = useRouter();
 	const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+	const updateIssue = useMutation(api.issues.update);
+
+	const handleUpdate = useCallback(
+		(field: string, value: unknown) => {
+			updateIssue({ issueId, [field]: value });
+		},
+		[updateIssue, issueId],
+	);
 
 	// Fetch issue data
 	const issue = useQuery(api.issues.getById, { issueId });
@@ -283,50 +363,95 @@ export function IssuePreviewSidebar({
 							Properties
 						</h3>
 
-						{/* Status */}
-						<PropertyRow icon={CircleDashed} label="Status">
-							{statusConfig ? (
-								<span className="flex items-center gap-1.5">
-									<statusConfig.icon
-										className={cn("h-3.5 w-3.5", statusConfig.color)}
-									/>
-									<span>{statusConfig.label}</span>
-								</span>
-							) : (
-								<span className="text-muted-foreground">Unknown</span>
-							)}
-						</PropertyRow>
+						{/* Status (editable) */}
+						<EditableProperty
+							icon={CircleDashed}
+							label="Status"
+							value={issue.status}
+							options={DEFAULT_STATUSES.map((s) => ({
+								key: s.key,
+								label: s.name,
+								icon: s.icon,
+								color: s.color,
+							}))}
+							onChange={(v) => handleUpdate("status", v)}
+						/>
 
-						{/* Priority */}
-						<PropertyRow icon={SignalHigh} label="Priority">
-							{priorityConfig ? (
-								<span className="flex items-center gap-1.5">
-									<priorityConfig.icon
-										className={cn("h-3.5 w-3.5", priorityConfig.color)}
-									/>
-									<span>{priorityConfig.label}</span>
-								</span>
-							) : (
-								<span className="text-muted-foreground">No priority</span>
-							)}
-						</PropertyRow>
+						{/* Priority (editable) */}
+						<EditableProperty
+							icon={SignalHigh}
+							label="Priority"
+							value={issue.priority}
+							options={DEFAULT_PRIORITIES.map((p) => ({
+								key: p.key,
+								label: p.name,
+								icon: p.icon,
+								color: p.color,
+							}))}
+							onChange={(v) => handleUpdate("priority", v)}
+						/>
 
-						{/* Assignee */}
-						<PropertyRow icon={User} label="Assignee">
-							{assignee ? (
-								<span className="flex items-center gap-1.5">
-									<Avatar className="h-4 w-4">
-										<AvatarImage src={assignee.image} />
-										<AvatarFallback className="text-[8px]">
-											{assigneeInitials}
-										</AvatarFallback>
-									</Avatar>
-									<span>{assignee.name}</span>
-								</span>
-							) : (
-								<span className="text-muted-foreground">Unassigned</span>
-							)}
-						</PropertyRow>
+						{/* Assignee (editable) */}
+						<div className="flex items-center gap-3 min-h-[32px] py-0.5">
+							<span className="flex items-center gap-2 text-[12px] text-muted-foreground w-[88px] shrink-0">
+								<User className="h-3.5 w-3.5" />
+								Assignee
+							</span>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors"
+									>
+										{assignee ? (
+											<>
+												<Avatar className="h-4 w-4">
+													<AvatarImage src={assignee.image} />
+													<AvatarFallback className="text-[8px]">
+														{assigneeInitials}
+													</AvatarFallback>
+												</Avatar>
+												<span>{assignee.name}</span>
+											</>
+										) : (
+											<span className="text-muted-foreground">Unassigned</span>
+										)}
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent
+									align="start"
+									className="w-48 max-h-60 overflow-y-auto"
+								>
+									<DropdownMenuItem
+										onClick={() => handleUpdate("assigneeId", undefined)}
+										className="gap-2 text-xs"
+									>
+										<User className="h-3.5 w-3.5 text-muted-foreground" />
+										Unassigned
+									</DropdownMenuItem>
+									{members?.map((m) =>
+										m.user ? (
+											<DropdownMenuItem
+												key={m.userId}
+												onClick={() => handleUpdate("assigneeId", m.userId)}
+												className={cn(
+													"gap-2 text-xs",
+													m.userId === issue.assigneeId && "bg-accent",
+												)}
+											>
+												<Avatar className="h-4 w-4">
+													<AvatarImage src={m.user.avatarUrl ?? m.user.image} />
+													<AvatarFallback className="text-[8px]">
+														{m.user.name?.charAt(0) ?? "?"}
+													</AvatarFallback>
+												</Avatar>
+												{m.user.name ?? "Unknown"}
+											</DropdownMenuItem>
+										) : null,
+									)}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
 
 						{/* Labels */}
 						<PropertyRow icon={Tag} label="Labels">
@@ -359,28 +484,69 @@ export function IssuePreviewSidebar({
 							</span>
 						</PropertyRow>
 
-						{/* Milestone */}
-						<PropertyRow icon={Flag} label="Sprint">
-							<span className={cn(!milestoneName && "text-muted-foreground")}>
-								{milestoneName ?? "No sprint"}
+						{/* Sprint (editable) */}
+						<div className="flex items-center gap-3 min-h-[32px] py-0.5">
+							<span className="flex items-center gap-2 text-[12px] text-muted-foreground w-[88px] shrink-0">
+								<Flag className="h-3.5 w-3.5" />
+								Sprint
 							</span>
-						</PropertyRow>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors"
+									>
+										<span
+											className={cn(!milestoneName && "text-muted-foreground")}
+										>
+											{milestoneName ?? "No sprint"}
+										</span>
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent
+									align="start"
+									className="w-48 max-h-60 overflow-y-auto"
+								>
+									<DropdownMenuItem
+										onClick={() => handleUpdate("sprintId", undefined)}
+										className="gap-2 text-xs"
+									>
+										<Flag className="h-3.5 w-3.5 text-muted-foreground" />
+										No sprint (backlog)
+									</DropdownMenuItem>
+									{sprints?.map((s) => (
+										<DropdownMenuItem
+											key={s._id}
+											onClick={() => handleUpdate("sprintId", s._id)}
+											className={cn(
+												"gap-2 text-xs",
+												s._id === (issue.sprintId ?? issue.milestoneId) &&
+													"bg-accent",
+											)}
+										>
+											<Flag className="h-3.5 w-3.5 text-sienna-500" />
+											{s.name}
+										</DropdownMenuItem>
+									))}
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
 
 						<Separator className="my-2 bg-border/40" />
 
-						{/* Type */}
-						<PropertyRow icon={CircleDot} label="Type">
-							{typeConfig ? (
-								<span className="flex items-center gap-1.5">
-									<typeConfig.icon
-										className={cn("h-3.5 w-3.5", typeConfig.color)}
-									/>
-									<span>{typeConfig.label}</span>
-								</span>
-							) : (
-								<span className="text-muted-foreground">Issue</span>
-							)}
-						</PropertyRow>
+						{/* Type (editable) */}
+						<EditableProperty
+							icon={CircleDot}
+							label="Type"
+							value={issue.type ?? "issue"}
+							options={DEFAULT_ISSUE_TYPES.map((t) => ({
+								key: t.key,
+								label: t.name,
+								icon: t.icon,
+								color: t.color,
+							}))}
+							onChange={(v) => handleUpdate("type", v)}
+						/>
 
 						{/* Estimate */}
 						<PropertyRow icon={Clock} label="Estimate">

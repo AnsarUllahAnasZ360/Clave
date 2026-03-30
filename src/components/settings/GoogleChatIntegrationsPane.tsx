@@ -92,6 +92,7 @@ const connectRef = makeFunctionReference<
 		authAudience?: string;
 		externalAppName?: string;
 		encryptedCredentials?: string;
+		byosaClientEmail?: string;
 		credentialSource?: "marketplace" | "byosa" | "global";
 	},
 	Id<"chatConnections">
@@ -262,6 +263,7 @@ export function GoogleChatIntegrationsPane() {
 				externalAppName: appName.trim() || undefined,
 				authAudience: audience.trim() || undefined,
 				encryptedCredentials: data.encryptedCredentials,
+				byosaClientEmail: data.clientEmail,
 				credentialSource: "byosa",
 			});
 			setServiceAccountJson("");

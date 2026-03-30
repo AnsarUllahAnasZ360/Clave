@@ -20,7 +20,7 @@ import {
 	resolveChatModel,
 	supportsTemperatureSetting,
 } from "./providers";
-import { allTools } from "./tools";
+import { allTools, readTools } from "./tools";
 
 type IncomingAttachment = {
 	url: string;
@@ -268,6 +268,10 @@ export const sendMessage = action({
 			),
 		),
 		debugRequestId: v.optional(v.string()),
+		/** Chat mode: "agent" (full tools), "plan" (read-only + propose), "ask" (read-only Q&A) */
+		chatMode: v.optional(
+			v.union(v.literal("agent"), v.literal("plan"), v.literal("ask")),
+		),
 	},
 	returns: v.object({
 		threadId: v.string(),
@@ -309,6 +313,7 @@ export const sendMessage = action({
 			aiTeammateId,
 			mentions,
 			debugRequestId,
+			chatMode: chatModeArg,
 		},
 	) => {
 		const t0 = performance.now();
@@ -582,7 +587,80 @@ export const sendMessage = action({
 			// saveStreamDeltas persists each token to the DB as it arrives,
 			// allowing real-time subscriptions to push updates to the client.
 
-			const systemPrompt = composedBase + contextSuffix;
+			// ── Mode-based system prompt & tool filtering ────────────────
+			const chatMode = chatModeArg ?? "agent";
+			let modePromptSuffix = "";
+			let modeTools = allTools;
+
+			if (chatMode === "agent") {
+				modePromptSuffix = `\n\n## Mode: Agent
+You are in AGENT mode. You can take action — create, update, and manage workspace resources.
+
+### CRITICAL: Todo-first execution pattern
+For ANY multi-step request (creating multiple issues, setting up a sprint, organizing work, building a project), you MUST:
+
+1. FIRST output a todo checklist showing all the steps you will take:
+
+:::todo-list
+- [ ] Step 1 description
+- [ ] Step 2 description
+- [ ] Step 3 description
+:::
+
+2. THEN execute each step one by one using your tools.
+3. After completing each step, output an UPDATED todo list with that item checked off:
+
+:::todo-list
+- [x] Step 1 description — done
+- [ ] Step 2 description
+- [ ] Step 3 description
+:::
+
+4. Continue until all items are checked. This gives the user real-time visibility into progress.
+
+For simple single-action requests ("create one issue", "update this status"), just execute directly — no todo list needed.
+
+### Mode switching
+When the user asks to plan, strategize, or create a roadmap — suggest Plan mode and STOP. Do not continue with any planning or execution after the card. Just show the card and a brief one-line explanation:
+
+:::mode-suggest plan
+Switch to Plan mode for a structured breakdown. Once the plan is ready, switch back to Agent mode to execute.
+:::
+`;
+			} else if (chatMode === "plan") {
+				modePromptSuffix = `\n\n## Mode: Plan
+You are in PLAN mode. Your role is to research, analyze, and propose — never execute.
+- Use read/search tools to gather information about the project, issues, sprints, and docs.
+- Present structured plans with clear steps, trade-offs, and recommendations.
+- When proposing actions (create issues, move to sprint, etc.), describe what you WOULD do but do NOT call write tools.
+- Format plans as markdown with headers, bullet points, and tables where appropriate.
+- Ask clarifying questions if the request is ambiguous.
+- Use the todo-list format for actionable items:
+
+:::todo-list
+- [ ] Step 1 description
+- [ ] Step 2 description
+:::
+
+- At the end of your plan, show a mode switch card so the user can execute:
+
+:::mode-suggest agent
+Plan ready! Switch to Agent mode to execute these actions.
+:::
+`;
+				modeTools = readTools as typeof allTools;
+			} else if (chatMode === "ask") {
+				modePromptSuffix = `\n\n## Mode: Ask
+You are in ASK mode. Your role is to answer questions — never take action.
+- Use read/search tools to find information and answer questions accurately.
+- Reference specific issues, docs, and projects by their identifiers.
+- Do NOT create, update, or modify anything. Only read and report.
+- Be concise and direct. Cite sources (issue IDs, doc titles) when possible.
+- If the user asks you to take action, remind them to switch to Agent mode.`;
+				modeTools = readTools as typeof allTools;
+			}
+
+			const systemPrompt = composedBase + contextSuffix + modePromptSuffix;
 			const reasoningOptions = getReasoningProviderOptions(modelIdForRequest);
 			const supportsTemperature = supportsTemperatureSetting(modelIdForRequest);
 			mark("before_stream");
@@ -602,11 +680,15 @@ export const sendMessage = action({
 							temperature: teammateConfig.temperature,
 						}),
 					...(reasoningOptions && { providerOptions: reasoningOptions }),
-					// Merge MCP tools with workspace tools when MCP servers are configured.
-					// Per-call tools override agent defaults, so we spread both sets together.
-					...(hasMcpTools && {
-						tools: { ...allTools, ...mcpResult.tools },
-					}),
+					// In agent mode, only override tools when MCP servers are active.
+					// In plan/ask mode, always override to restrict to read-only tools.
+					...(chatMode === "agent"
+						? hasMcpTools
+							? { tools: { ...allTools, ...mcpResult.tools } }
+							: {}
+						: hasMcpTools
+							? { tools: { ...modeTools, ...mcpResult.tools } }
+							: { tools: modeTools }),
 					experimental_telemetry: {
 						isEnabled: true,
 						metadata: {

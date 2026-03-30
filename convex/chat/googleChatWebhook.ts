@@ -73,7 +73,7 @@ type GoogleChatIssueContext = {
 
 const resolveWorkspaceForWebhookRef = makeFunctionReference<
 	"query",
-	{ provider: "google-chat"; spaceName?: string },
+	{ provider: "google-chat"; spaceName?: string; chatUserId?: string },
 	Id<"workspaces"> | null
 >("chatIntegrations:resolveWorkspaceForWebhook");
 
@@ -1569,6 +1569,7 @@ export const handleWebhook = action({
 		const workspaceId = await ctx.runQuery(resolveWorkspaceForWebhookRef, {
 			provider: "google-chat",
 			spaceName,
+			chatUserId: chatUserId || undefined,
 		});
 		if (!workspaceId) {
 			return {

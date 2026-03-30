@@ -834,6 +834,16 @@ export const update = mutation({
 		),
 		typeLabel: v.optional(v.string()),
 		tags: v.optional(v.array(v.string())),
+		customStatuses: v.optional(
+			v.array(
+				v.object({ key: v.string(), name: v.string(), color: v.string() }),
+			),
+		),
+		customTypes: v.optional(
+			v.array(
+				v.object({ key: v.string(), name: v.string(), color: v.string() }),
+			),
+		),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {

@@ -6,6 +6,7 @@ import type { Route } from "next";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChatModeSelector } from "@/components/ai/ChatModeSelector";
 import {
 	ChatWelcomeScreen,
 	SUGGESTION_CHIPS,
@@ -225,11 +226,18 @@ export default function ChatPage() {
 		isStreaming: chat.isStreaming,
 		placeholder: "Ask your AI teammate..." as const,
 		footerLeft: (
-			<ModelSelector
-				value={chat.selectedModel}
-				onValueChange={chat.setThreadModel}
-				disabled={chat.isSending || chat.isStreaming}
-			/>
+			<div className="flex items-center gap-1.5">
+				<ChatModeSelector
+					mode={chat.chatMode}
+					onChange={chat.setChatMode}
+					disabled={chat.isSending || chat.isStreaming}
+				/>
+				<ModelSelector
+					value={chat.selectedModel}
+					onValueChange={chat.setThreadModel}
+					disabled={chat.isSending || chat.isStreaming}
+				/>
+			</div>
 		),
 		actionMenuItems: (
 			<>
@@ -301,10 +309,13 @@ export default function ChatPage() {
 			   DOM tree swap that caused the persistent flickering. */}
 			<div
 				className={cn(
-					"flex flex-1 flex-col items-center justify-center gap-6 px-6 pb-8",
+					"flex flex-1 flex-col items-center gap-6 px-6",
 					showConversation && "hidden",
 				)}
 			>
+				{/* Spacer to push content to visual center */}
+				<div className="flex-1" />
+
 				<ChatWelcomeScreen />
 
 				{chat.modelWarning && (
@@ -323,13 +334,16 @@ export default function ChatPage() {
 					onSelect={handleSuggestionClick}
 					className="max-w-3xl"
 				/>
+
+				{/* Spacer below — slightly larger to push input above true center */}
+				<div className="flex-[1.5]" />
 			</div>
 
 			{/* Conversation — hidden until active, then stays visible.
 			   Both views remain in the DOM; only CSS visibility changes. */}
 			<div
 				className={cn(
-					"mx-auto flex w-full max-w-4xl flex-1 flex-col min-h-0",
+					"flex w-full flex-1 flex-col min-h-0",
 					!showConversation && "hidden",
 				)}
 			>
@@ -341,6 +355,10 @@ export default function ChatPage() {
 					error={chat.error}
 					onRetry={chat.retry}
 					className="flex-1"
+					contentClassName="max-w-4xl mx-auto"
+					approvals={chat.approvals}
+					onApproveTool={chat.approveTool}
+					onRejectTool={chat.rejectTool}
 				/>
 
 				{chat.modelWarning && (
@@ -351,7 +369,9 @@ export default function ChatPage() {
 					</div>
 				)}
 
-				<MentionAutocomplete {...inputProps} />
+				<div className="max-w-4xl mx-auto w-full">
+					<MentionAutocomplete {...inputProps} />
+				</div>
 			</div>
 
 			{/* Thread browser popup */}

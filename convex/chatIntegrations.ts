@@ -48,6 +48,7 @@ const connectionDocValidator = v.object({
 	marketplaceInstalledAt: v.optional(v.number()),
 	marketplaceProjectNumber: v.optional(v.string()),
 	encryptedCredentials: v.optional(v.string()),
+	byosaClientEmail: v.optional(v.string()),
 	credentialSource: v.optional(
 		v.union(v.literal("marketplace"), v.literal("byosa"), v.literal("global")),
 	),
@@ -190,6 +191,7 @@ export const connect = mutation({
 		marketplaceInstallId: v.optional(v.string()),
 		marketplaceProjectNumber: v.optional(v.string()),
 		encryptedCredentials: v.optional(v.string()),
+		byosaClientEmail: v.optional(v.string()),
 		credentialSource: v.optional(
 			v.union(
 				v.literal("marketplace"),
@@ -226,6 +228,27 @@ export const connect = mutation({
 			);
 		}
 
+		// Guard: prevent the same service account from being used by multiple workspaces.
+		// Each BYOSA service account can only be connected to one workspace at a time,
+		// because the bot identity is shared and DMs can't be disambiguated otherwise.
+		if (args.byosaClientEmail && credentialSource === "byosa") {
+			const existing = await ctx.db
+				.query("chatConnections")
+				.withIndex("by_byosa_client_email", (q) =>
+					q.eq("byosaClientEmail", args.byosaClientEmail),
+				)
+				.collect();
+			const conflict = existing.find(
+				(c) =>
+					c.workspaceId !== args.workspaceId && c.status !== "disconnected",
+			);
+			if (conflict) {
+				throw new ConvexError(
+					"This service account is already connected to another workspace. Each Google Chat bot (service account) can only be linked to one workspace. Disconnect it from the other workspace first, or use a different service account.",
+				);
+			}
+		}
+
 		const existingConnection = await ctx.db
 			.query("chatConnections")
 			.withIndex("by_workspace_provider", (q) =>
@@ -247,6 +270,9 @@ export const connect = mutation({
 			credentialSource,
 			...(args.encryptedCredentials !== undefined && {
 				encryptedCredentials: args.encryptedCredentials,
+			}),
+			...(args.byosaClientEmail !== undefined && {
+				byosaClientEmail: args.byosaClientEmail,
 			}),
 		};
 
@@ -414,6 +440,7 @@ export const resolveWorkspaceForWebhook = query({
 	args: {
 		provider: providerValidator,
 		spaceName: v.optional(v.string()),
+		chatUserId: v.optional(v.string()),
 	},
 	returns: v.union(v.id("workspaces"), v.null()),
 	handler: async (ctx, args) => {
@@ -440,6 +467,7 @@ export const resolveWorkspaceForWebhook = query({
 				error: errorConnections.length,
 				total: candidateConnections.length,
 				spaceName: args.spaceName,
+				chatUserId: args.chatUserId,
 				statuses: candidateConnections.map((c) => c.status),
 				workspaces: candidateConnections.map((c) => c.workspaceId),
 			}),
@@ -453,24 +481,43 @@ export const resolveWorkspaceForWebhook = query({
 			return candidateConnections[0].workspaceId;
 		}
 
-		if (!args.spaceName) {
-			return null;
+		// Try space subscription match first
+		if (args.spaceName) {
+			const spaceName = args.spaceName;
+			for (const connection of candidateConnections) {
+				const subscription = await ctx.db
+					.query("chatSubscriptions")
+					.withIndex("by_workspace_provider_target", (q) =>
+						q
+							.eq("workspaceId", connection.workspaceId)
+							.eq("provider", args.provider)
+							.eq("targetType", "space")
+							.eq("targetId", spaceName),
+					)
+					.first();
+				if (subscription?.enabled) {
+					return connection.workspaceId;
+				}
+			}
 		}
-		const spaceName = args.spaceName;
 
-		for (const connection of candidateConnections) {
-			const subscription = await ctx.db
-				.query("chatSubscriptions")
-				.withIndex("by_workspace_provider_target", (q) =>
-					q
-						.eq("workspaceId", connection.workspaceId)
-						.eq("provider", args.provider)
-						.eq("targetType", "space")
-						.eq("targetId", spaceName),
-				)
-				.first();
-			if (subscription?.enabled) {
-				return connection.workspaceId;
+		// Fall back to identity link resolution (important for DMs where the
+		// space name is a private DM channel with no subscription)
+		const chatUserId = args.chatUserId;
+		if (chatUserId) {
+			for (const connection of candidateConnections) {
+				const link = await ctx.db
+					.query("chatUserLinks")
+					.withIndex("by_workspace_provider_chat_user_id", (q) =>
+						q
+							.eq("workspaceId", connection.workspaceId)
+							.eq("provider", args.provider)
+							.eq("chatUserId", chatUserId),
+					)
+					.first();
+				if (link) {
+					return connection.workspaceId;
+				}
 			}
 		}
 

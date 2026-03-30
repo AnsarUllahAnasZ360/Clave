@@ -21,7 +21,7 @@ function getConvexClient(): ConvexHttpClient {
 
 const resolveWorkspaceForWebhookRef = makeFunctionReference<
 	"query",
-	{ provider: "google-chat"; spaceName?: string },
+	{ provider: "google-chat"; spaceName?: string; chatUserId?: string },
 	Id<"workspaces"> | null
 >("chatIntegrations:resolveWorkspaceForWebhook");
 
@@ -162,6 +162,7 @@ function stripMarkdown(md: string): string {
 async function resolveWorkspace(
 	convex: ConvexHttpClient,
 	channelId: string,
+	chatUserId?: string,
 ): Promise<Id<"workspaces"> | null> {
 	const spaceName = channelId.startsWith("gchat:")
 		? channelId.split(":")[1]
@@ -170,12 +171,14 @@ async function resolveWorkspace(
 	console.log("[chat-sdk] resolveWorkspace", {
 		channelId,
 		spaceName,
+		chatUserId,
 		convexUrl: url,
 	});
 	try {
 		const result = await convex.query(resolveWorkspaceForWebhookRef, {
 			provider: "google-chat",
 			spaceName: spaceName || undefined,
+			chatUserId: chatUserId || undefined,
 		});
 		console.log("[chat-sdk] resolveWorkspace result", { result });
 		return result;
@@ -320,7 +323,12 @@ async function handleMessage(
 ) {
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(thread.channelId);
-	const workspaceId = await resolveWorkspace(convex, thread.channelId);
+	const chatUserId = message.author?.userId ?? "";
+	const workspaceId = await resolveWorkspace(
+		convex,
+		thread.channelId,
+		chatUserId || undefined,
+	);
 
 	// Extract the message name from the sent "Thinking..." message for editing
 	const sentMessageName: string | undefined = sent?.name ?? sent?.messageName;
@@ -340,7 +348,6 @@ async function handleMessage(
 		spaceName,
 		thread.id.split(":")[2],
 	);
-	const chatUserId = message.author?.userId ?? "";
 	const messageText = (message.text ?? "").trim();
 	const trimmedUpper = messageText.toUpperCase();
 
@@ -451,7 +458,63 @@ bot.onNewMention(async (thread, message) => {
 	// Post "Thinking..." via Convex (uses BYOSA credentials) with SDK fallback
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(thread.channelId);
-	const workspaceId = await resolveWorkspace(convex, thread.channelId);
+	const chatUserId = message.author?.userId ?? "";
+	const workspaceId = await resolveWorkspace(
+		convex,
+		thread.channelId,
+		chatUserId || undefined,
+	);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let sent: any;
+	const postResult = workspaceId
+		? await convex
+				.action(postMessageRef, {
+					workspaceId,
+					spaceName,
+					text: "_Thinking..._",
+				})
+				.catch(() => null)
+		: null;
+	if (postResult?.status === "sent" && postResult.messageName && workspaceId) {
+		const msgName = postResult.messageName;
+		const wsId = workspaceId;
+		sent = {
+			name: msgName,
+			messageName: msgName,
+			edit: async (text: string) => {
+				await convex.action(updateMessageRef, {
+					workspaceId: wsId,
+					messageName: msgName,
+					text,
+				});
+			},
+		};
+	} else {
+		sent = await thread.post("_Thinking..._");
+	}
+	await handleMessage(thread, message, sent);
+});
+
+// ---------------------------------------------------------------------------
+// onNewMessage (DMs) — catch DM messages that aren't detected as @mentions.
+// In DMs, users type directly without @-mentioning the bot, so detectMention
+// returns false and onNewMention never fires. This catch-all ensures DMs are
+// processed the same way as mentions.
+// ---------------------------------------------------------------------------
+
+bot.onNewMessage(/[\s\S]*/, async (thread, message) => {
+	// Only handle DMs — space messages require an explicit @mention
+	if (!(thread.isDM ?? false)) return;
+
+	thread.subscribe().catch(() => {});
+	const convex = getConvexClient();
+	const spaceName = extractSpaceName(thread.channelId);
+	const chatUserId = message.author?.userId ?? "";
+	const workspaceId = await resolveWorkspace(
+		convex,
+		thread.channelId,
+		chatUserId || undefined,
+	);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let sent: any;
 	const postResult = workspaceId
@@ -491,7 +554,12 @@ bot.onSubscribedMessage(async (thread, message) => {
 	if (message.author?.isMe) return;
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(thread.channelId);
-	const workspaceId = await resolveWorkspace(convex, thread.channelId);
+	const chatUserId = message.author?.userId ?? "";
+	const workspaceId = await resolveWorkspace(
+		convex,
+		thread.channelId,
+		chatUserId || undefined,
+	);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let sent: any;
 	const postResult = workspaceId
@@ -533,7 +601,12 @@ bot.onAction(
 	async (event) => {
 		const convex = getConvexClient();
 		const spaceName = extractSpaceName(event.thread.channelId);
-		const workspaceId = await resolveWorkspace(convex, event.thread.channelId);
+		const chatUserId = event.user?.userId ?? "";
+		const workspaceId = await resolveWorkspace(
+			convex,
+			event.thread.channelId,
+			chatUserId || undefined,
+		);
 
 		if (!workspaceId) {
 			await postViaConvex(
@@ -570,7 +643,12 @@ bot.onAction(
 bot.onAction(["ai_approval_approve", "ai_approval_reject"], async (event) => {
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(event.thread.channelId);
-	const workspaceId = await resolveWorkspace(convex, event.thread.channelId);
+	const chatUserId = event.user?.userId ?? "";
+	const workspaceId = await resolveWorkspace(
+		convex,
+		event.thread.channelId,
+		chatUserId || undefined,
+	);
 
 	if (!workspaceId) {
 		await postViaConvex(
@@ -612,7 +690,12 @@ bot.onAction(
 	async (event) => {
 		const convex = getConvexClient();
 		const spaceName = extractSpaceName(event.thread.channelId);
-		const workspaceId = await resolveWorkspace(convex, event.thread.channelId);
+		const chatUserId = event.user?.userId ?? "";
+		const workspaceId = await resolveWorkspace(
+			convex,
+			event.thread.channelId,
+			chatUserId || undefined,
+		);
 
 		if (!workspaceId) {
 			await postViaConvex(

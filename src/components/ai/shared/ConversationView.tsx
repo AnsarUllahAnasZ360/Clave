@@ -91,6 +91,7 @@ export type ConversationViewProps = {
 	retryCountdown?: number | null;
 	onSuggestedPrompt?: (prompt: string) => void;
 	className?: string;
+	contentClassName?: string;
 	approvals?: AIToolApproval[];
 	onApproveTool?: (approvalId: Id<"aiToolApprovals">) => Promise<void>;
 	onRejectTool?: (approvalId: Id<"aiToolApprovals">) => Promise<void>;
@@ -109,6 +110,7 @@ export function ConversationView({
 	retryCountdown,
 	onSuggestedPrompt,
 	className,
+	contentClassName,
 	approvals,
 	onApproveTool,
 	onRejectTool,
@@ -167,7 +169,7 @@ export function ConversationView({
 			aria-live="polite"
 			aria-atomic={false}
 		>
-			<ConversationContent>
+			<ConversationContent className={contentClassName}>
 				{hasMessages ? (
 					<>
 						{messages.map((message) =>

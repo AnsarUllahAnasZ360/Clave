@@ -22,6 +22,12 @@ import {
 } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 import { ArtifactCard } from "@/components/ai/ArtifactCard";
+import {
+	hasCustomBlocks,
+	ModeSuggestCardRenderer,
+	parseCustomBlocks,
+	TodoListCardRenderer,
+} from "@/components/ai/ChatBlockRenderer";
 import type { SearchResult } from "@/components/ai/SearchResultCard";
 import { SearchResultsList } from "@/components/ai/SearchResultsList";
 import {
@@ -372,6 +378,19 @@ export const UserMessage = memo(function UserMessage({
 			part.type === "file" && "url" in part && typeof part.url === "string",
 	);
 
+	// System-style messages (mode switch, etc.) — render as a small centered pill
+	if (message.text?.startsWith("::mode-switch::")) {
+		const label = message.text.replace("::mode-switch::", "").trim();
+		return (
+			<div className="flex justify-center py-1">
+				<span className="inline-flex items-center gap-1.5 rounded-full bg-muted/50 px-3 py-1 text-[11px] text-muted-foreground">
+					<span className="h-1.5 w-1.5 rounded-full bg-sienna-500" />
+					{label}
+				</span>
+			</div>
+		);
+	}
+
 	return (
 		<div className="flex justify-end">
 			<Message from="user">
@@ -447,10 +466,38 @@ export const AssistantMessage = memo(
 				<Message from="assistant">
 					<MessageContent>
 						{message.text ? (
-							<StreamdownRenderer
-								content={message.text}
-								isStreaming={isStreaming}
-							/>
+							hasCustomBlocks(message.text) ? (
+								<>
+									{parseCustomBlocks(message.text).map((block, bi) =>
+										block.type === "mode-suggest" ? (
+											<ModeSuggestCardRenderer
+												key={`ms-${bi}`}
+												mode={block.mode}
+												description={block.description}
+											/>
+										) : block.type === "todo-list" ? (
+											<TodoListCardRenderer
+												key={`tl-${bi}`}
+												items={block.items}
+											/>
+										) : (
+											<StreamdownRenderer
+												key={`tx-${bi}`}
+												content={block.content}
+												isStreaming={
+													bi === parseCustomBlocks(message.text).length - 1 &&
+													isStreaming
+												}
+											/>
+										),
+									)}
+								</>
+							) : (
+								<StreamdownRenderer
+									content={message.text}
+									isStreaming={isStreaming}
+								/>
+							)
 						) : isStreaming ? (
 							<StreamingDots />
 						) : null}
@@ -468,6 +515,52 @@ export const AssistantMessage = memo(
 		let textBuffer = "";
 		let toolGroup: ToolGroupItem[] = [];
 		let pendingSearchResults: SearchResult[] | null = null;
+
+		// Helper: render text with custom block support
+		function renderTextContent(
+			content: string,
+			key: string,
+			streaming: boolean,
+		) {
+			if (hasCustomBlocks(content)) {
+				const blocks = parseCustomBlocks(content);
+				for (let bi = 0; bi < blocks.length; bi++) {
+					const block = blocks[bi];
+					if (block.type === "mode-suggest") {
+						rendered.push(
+							<ModeSuggestCardRenderer
+								key={`${key}-ms-${bi}`}
+								mode={block.mode}
+								description={block.description}
+							/>,
+						);
+					} else if (block.type === "todo-list") {
+						rendered.push(
+							<TodoListCardRenderer
+								key={`${key}-tl-${bi}`}
+								items={block.items}
+							/>,
+						);
+					} else {
+						rendered.push(
+							<StreamdownRenderer
+								key={`${key}-tx-${bi}`}
+								content={block.content}
+								isStreaming={bi === blocks.length - 1 && streaming}
+							/>,
+						);
+					}
+				}
+			} else {
+				rendered.push(
+					<StreamdownRenderer
+						key={key}
+						content={content}
+						isStreaming={streaming}
+					/>,
+				);
+			}
+		}
 
 		// Determine if reasoning is still streaming (no text parts generated yet)
 		const hasTextParts = parts.some(
@@ -507,13 +600,7 @@ export const AssistantMessage = memo(
 				const rp = part as ReasoningPart;
 				flushToolGroup();
 				if (textBuffer) {
-					rendered.push(
-						<StreamdownRenderer
-							key={`text-${i}`}
-							content={textBuffer}
-							isStreaming={false}
-						/>,
-					);
+					renderTextContent(textBuffer, `text-${i}`, false);
 					textBuffer = "";
 				}
 				rendered.push(
@@ -542,13 +629,7 @@ export const AssistantMessage = memo(
 
 				// Flush accumulated text before tool group
 				if (textBuffer) {
-					rendered.push(
-						<StreamdownRenderer
-							key={`text-${i}`}
-							content={textBuffer}
-							isStreaming={false}
-						/>,
-					);
+					renderTextContent(textBuffer, `text-${i}`, false);
 					textBuffer = "";
 				}
 
@@ -587,13 +668,7 @@ export const AssistantMessage = memo(
 
 		// Flush remaining text (last segment may still be streaming)
 		if (textBuffer) {
-			rendered.push(
-				<StreamdownRenderer
-					key="text-final"
-					content={textBuffer}
-					isStreaming={isStreaming}
-				/>,
-			);
+			renderTextContent(textBuffer, "text-final", isStreaming);
 		}
 
 		// If nothing rendered and still streaming, show dots

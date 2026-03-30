@@ -37,6 +37,7 @@ import { ProjectEditDialog } from "@/components/projects/ProjectEditDialog";
 import { ProjectHeader } from "@/components/projects/ProjectHeader";
 import { ProjectOverview } from "@/components/projects/ProjectOverview";
 import { ProjectPropertiesPanel } from "@/components/projects/ProjectPropertiesPanel";
+import { ProjectSettingsTab } from "@/components/projects/ProjectSettingsTab";
 import { ResourcesTab } from "@/components/projects/ResourcesTab";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
@@ -256,9 +257,6 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							<TabsTrigger value="issues" className={TAB_TRIGGER_CLASS}>
 								Issues
 							</TabsTrigger>
-							<TabsTrigger value="knowledge" className={TAB_TRIGGER_CLASS}>
-								Knowledge
-							</TabsTrigger>
 							<TabsTrigger value="resources" className={TAB_TRIGGER_CLASS}>
 								Resources
 							</TabsTrigger>
@@ -267,6 +265,9 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							</TabsTrigger>
 							<TabsTrigger value="activity" className={TAB_TRIGGER_CLASS}>
 								Activity
+							</TabsTrigger>
+							<TabsTrigger value="settings" className={TAB_TRIGGER_CLASS}>
+								Settings
 							</TabsTrigger>
 							{githubConnections && githubConnections.length > 0 && (
 								<TabsTrigger value="github" className={TAB_TRIGGER_CLASS}>
@@ -365,17 +366,18 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 							</div>
 						</TabsContent>
 
-						<TabsContent value="knowledge" className="mt-0">
-							<div className="px-6 py-4 max-w-7xl mx-auto">
-								<KnowledgeTab
-									projectId={project._id}
-									workspaceId={workspaceId}
-								/>
+						<TabsContent value="settings" className="mt-0">
+							<div className="px-6 py-4 max-w-3xl mx-auto">
+								<ProjectSettingsTab projectId={project._id} project={project} />
 							</div>
 						</TabsContent>
 
 						<TabsContent value="resources" className="mt-0">
-							<div className="px-6 py-4 max-w-7xl mx-auto">
+							<div className="px-6 py-4 max-w-7xl mx-auto space-y-6">
+								<KnowledgeTab
+									projectId={project._id}
+									workspaceId={workspaceId}
+								/>
 								<ResourcesTab
 									projectId={project._id}
 									workspaceId={workspaceId}

@@ -6,6 +6,7 @@ import type { Route } from "next";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChatModeSelector } from "@/components/ai/ChatModeSelector";
 import { ConnectionBanner } from "@/components/ai/ConnectionBanner";
 import { McpActionMenuItems } from "@/components/ai/McpConnectorPicker";
 import { MentionAutocomplete } from "@/components/ai/MentionAutocomplete";
@@ -296,7 +297,7 @@ export default function ChatThreadPage() {
 			)}
 
 			{/* Conversation — centered column */}
-			<div className="mx-auto flex w-full max-w-4xl flex-1 flex-col min-h-0">
+			<div className="flex w-full flex-1 flex-col min-h-0">
 				<ConversationView
 					messages={chat.messages}
 					isSending={chat.isSending}
@@ -310,6 +311,7 @@ export default function ChatThreadPage() {
 						chat.isIncognito ? undefined : handleSuggestedPrompt
 					}
 					className="flex-1"
+					contentClassName="max-w-4xl mx-auto"
 					approvals={chat.approvals}
 					onApproveTool={chat.approveTool}
 					onRejectTool={chat.rejectTool}
@@ -325,48 +327,57 @@ export default function ChatThreadPage() {
 				)}
 
 				{/* Input */}
-				<MentionAutocomplete
-					workspaceId={workspaceId}
-					onSubmit={handleSubmit}
-					context={slashCommandContext}
-					onStop={chat.stop}
-					disabled={chat.hasPendingApproval}
-					isSending={chat.isSending}
-					isStreaming={chat.isStreaming}
-					placeholder={
-						chat.hasPendingApproval
-							? "Approve or reject the pending action first..."
-							: chat.isIncognito
-								? "This conversation won't be saved..."
-								: "Ask your AI teammate..."
-					}
-					footerLeft={
-						<ModelSelector
-							value={chat.selectedModel}
-							onValueChange={chat.setThreadModel}
-							disabled={chat.isSending || chat.isStreaming}
-						/>
-					}
-					actionMenuItems={
-						<>
-							<SkillsActionMenuItems
-								skills={chat.skills}
-								selectedIds={chat.selectedSkillIds}
-								onChange={chat.setSelectedSkillIds}
-							/>
-							<SubAgentActionMenuItems
-								subAgents={chat.subAgents}
-								selectedId={chat.selectedSubAgentId}
-								onChange={chat.setSelectedSubAgentId}
-							/>
-							<McpActionMenuItems
-								servers={chat.mcpServers}
-								selectedIds={chat.selectedMcpServerIds}
-								onChange={chat.setThreadMcpServers}
-							/>
-						</>
-					}
-				/>
+				<div className="max-w-4xl mx-auto w-full">
+					<MentionAutocomplete
+						workspaceId={workspaceId}
+						onSubmit={handleSubmit}
+						context={slashCommandContext}
+						onStop={chat.stop}
+						disabled={chat.hasPendingApproval}
+						isSending={chat.isSending}
+						isStreaming={chat.isStreaming}
+						placeholder={
+							chat.hasPendingApproval
+								? "Approve or reject the pending action first..."
+								: chat.isIncognito
+									? "This conversation won't be saved..."
+									: "Ask your AI teammate..."
+						}
+						footerLeft={
+							<div className="flex items-center gap-1.5">
+								<ChatModeSelector
+									mode={chat.chatMode}
+									onChange={chat.setChatMode}
+									disabled={chat.isSending || chat.isStreaming}
+								/>
+								<ModelSelector
+									value={chat.selectedModel}
+									onValueChange={chat.setThreadModel}
+									disabled={chat.isSending || chat.isStreaming}
+								/>
+							</div>
+						}
+						actionMenuItems={
+							<>
+								<SkillsActionMenuItems
+									skills={chat.skills}
+									selectedIds={chat.selectedSkillIds}
+									onChange={chat.setSelectedSkillIds}
+								/>
+								<SubAgentActionMenuItems
+									subAgents={chat.subAgents}
+									selectedId={chat.selectedSubAgentId}
+									onChange={chat.setSelectedSubAgentId}
+								/>
+								<McpActionMenuItems
+									servers={chat.mcpServers}
+									selectedIds={chat.selectedMcpServerIds}
+									onChange={chat.setThreadMcpServers}
+								/>
+							</>
+						}
+					/>
+				</div>
 				{!chat.isIncognito && (
 					<p className="animate-[fadeOut_0.5s_ease-out_4s_forwards] pb-3 text-center text-xs text-muted-foreground">
 						Press{" "}

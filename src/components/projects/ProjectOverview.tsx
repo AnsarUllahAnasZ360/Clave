@@ -20,9 +20,11 @@ import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import {
 	Calendar,
+	ChevronRight,
 	CircleCheck,
 	CircleDot,
 	Diamond,
+	Folder,
 	GripVertical,
 	LayoutList,
 	MoreHorizontal,
@@ -370,6 +372,119 @@ type FolderData = {
 	name: string;
 };
 
+function FolderGroup({
+	folder,
+	sprints,
+	projectId,
+	onOpenDetail,
+}: {
+	folder: FolderData;
+	sprints: MilestoneData[];
+	projectId: Id<"projects">;
+	onOpenDetail: (id: Id<"sprints"> | null) => void;
+}) {
+	const [expanded, setExpanded] = useState(true);
+	const [isAddingSprint, setIsAddingSprint] = useState(false);
+	const createSprint = useMutation(api.sprints.create);
+	const [newSprintName, setNewSprintName] = useState("");
+
+	const handleCreateSprint = async () => {
+		if (!newSprintName.trim()) return;
+		await createSprint({
+			projectId,
+			name: newSprintName.trim(),
+			folderId: folder._id,
+		});
+		setNewSprintName("");
+		setIsAddingSprint(false);
+	};
+
+	return (
+		<div className="rounded-lg border border-border/40 bg-muted/20 overflow-hidden">
+			<div className="flex items-center">
+				<button
+					type="button"
+					onClick={() => setExpanded(!expanded)}
+					className="flex items-center gap-2 flex-1 px-3 py-2 hover:bg-muted/40 transition-colors"
+				>
+					<ChevronRight
+						className={cn(
+							"h-3.5 w-3.5 text-muted-foreground transition-transform",
+							expanded && "rotate-90",
+						)}
+					/>
+					<Folder className="h-3.5 w-3.5 text-sienna-500" />
+					<span className="text-xs font-medium">{folder.name}</span>
+					<span className="text-[10px] text-muted-foreground ml-auto">
+						{sprints.length}
+					</span>
+				</button>
+				<button
+					type="button"
+					onClick={(e) => {
+						e.stopPropagation();
+						setExpanded(true);
+						setIsAddingSprint(true);
+					}}
+					className="p-1.5 mr-1 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+					title="Add sprint to folder"
+				>
+					<Plus className="h-3.5 w-3.5" />
+				</button>
+			</div>
+			{expanded && (
+				<div className="px-2 pb-2 space-y-1">
+					{sprints.map((milestone) => (
+						<SortableMilestoneRow
+							key={milestone._id}
+							milestone={milestone}
+							onOpenDetail={onOpenDetail}
+						/>
+					))}
+					{sprints.length === 0 && !isAddingSprint && (
+						<button
+							type="button"
+							onClick={() => setIsAddingSprint(true)}
+							className="w-full text-xs text-muted-foreground/50 hover:text-muted-foreground px-3 py-2 text-left transition-colors"
+						>
+							+ Add sprint
+						</button>
+					)}
+					{isAddingSprint && (
+						<form
+							className="flex items-center gap-2 px-2 py-1"
+							onSubmit={(e) => {
+								e.preventDefault();
+								handleCreateSprint();
+							}}
+						>
+							<input
+								type="text"
+								value={newSprintName}
+								onChange={(e) => setNewSprintName(e.target.value)}
+								placeholder="Sprint name..."
+								className="flex-1 text-xs bg-transparent border border-border/60 rounded px-2 py-1 outline-none focus:border-sienna-500/50"
+								autoFocus
+								onKeyDown={(e) => {
+									if (e.key === "Escape") setIsAddingSprint(false);
+								}}
+							/>
+							<Button
+								type="submit"
+								size="sm"
+								className="h-6 text-[10px] px-2"
+								disabled={!newSprintName.trim()}
+							>
+								Add
+							</Button>
+						</form>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 function MilestonesSection({
 	projectId,
 	milestones,
@@ -439,14 +554,12 @@ function MilestonesSection({
 	const looseSprints = milestones.filter(
 		(m) => !(m as MilestoneData & { folderId?: string }).folderId,
 	);
-	const folderGroups = folders
-		.map((f) => ({
-			folder: f,
-			sprints: milestones.filter(
-				(m) => (m as MilestoneData & { folderId?: string }).folderId === f._id,
-			),
-		}))
-		.filter((g) => g.sprints.length > 0);
+	const folderGroups = folders.map((f) => ({
+		folder: f,
+		sprints: milestones.filter(
+			(m) => (m as MilestoneData & { folderId?: string }).folderId === f._id,
+		),
+	}));
 
 	return (
 		<section>
@@ -501,20 +614,15 @@ function MilestonesSection({
 						strategy={verticalListSortingStrategy}
 					>
 						<div className="space-y-2">
-							{/* Sprint folders */}
+							{/* Sprint folders (collapsible like sidebar) */}
 							{folderGroups.map((group) => (
-								<div key={group.folder._id} className="space-y-1">
-									<div className="text-xs font-medium text-muted-foreground/70 px-1 pt-1">
-										{group.folder.name}
-									</div>
-									{group.sprints.map((milestone) => (
-										<SortableMilestoneRow
-											key={milestone._id}
-											milestone={milestone}
-											onOpenDetail={setDetailMilestoneId}
-										/>
-									))}
-								</div>
+								<FolderGroup
+									key={group.folder._id}
+									folder={group.folder}
+									sprints={group.sprints}
+									projectId={projectId}
+									onOpenDetail={setDetailMilestoneId}
+								/>
 							))}
 							{/* Loose sprints (no folder) */}
 							{looseSprints.map((milestone) => (
