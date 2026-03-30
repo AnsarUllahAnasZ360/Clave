@@ -454,7 +454,11 @@ async function handleMessage(
 const bot = getBot();
 
 bot.onNewMention(async (thread, message) => {
-	thread.subscribe().catch(() => {});
+	// Only subscribe in spaces — DMs can't have Workspace Events subscriptions
+	// with service account auth, and attempting it produces 403 errors.
+	if (!(thread.isDM ?? false)) {
+		thread.subscribe().catch(() => {});
+	}
 	// Post "Thinking..." via Convex (uses BYOSA credentials) with SDK fallback
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(thread.channelId);
@@ -505,8 +509,6 @@ bot.onNewMention(async (thread, message) => {
 bot.onNewMessage(/[\s\S]*/, async (thread, message) => {
 	// Only handle DMs — space messages require an explicit @mention
 	if (!(thread.isDM ?? false)) return;
-
-	thread.subscribe().catch(() => {});
 	const convex = getConvexClient();
 	const spaceName = extractSpaceName(thread.channelId);
 	const chatUserId = message.author?.userId ?? "";

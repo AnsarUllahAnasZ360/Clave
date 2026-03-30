@@ -43,6 +43,9 @@ const connectRef = makeFunctionReference<
 		webhookUrl?: string;
 		authAudience?: string;
 		externalAppName?: string;
+		encryptedCredentials?: string;
+		byosaClientEmail?: string;
+		credentialSource?: "marketplace" | "byosa" | "global";
 	},
 	Id<"chatConnections">
 >("chatIntegrations:connect");
@@ -186,6 +189,54 @@ describe("google chat integrations (integration)", () => {
 				provider: "google-chat",
 			}),
 		).rejects.toThrow(/Admin access required/i);
+	});
+
+	it("rejects BYOSA duplicate when same service account connects to another workspace", async () => {
+		const t = createBackend();
+		const fx = await seedFixture(t);
+		const admin = t.withIdentity({ subject: fx.adminId });
+
+		// Create a second workspace under the same org
+		const workspace2Id = await t.run(async (ctx) => {
+			const ws2 = await ctx.db.insert("workspaces", {
+				name: "GC Workspace 2",
+				slug: "gc-workspace-2",
+				ownerId: fx.adminId,
+				organizationId: (await ctx.db.get(fx.workspaceId))!.organizationId,
+			});
+			await ctx.db.insert("workspaceMembers", {
+				workspaceId: ws2,
+				userId: fx.adminId,
+				role: "admin",
+				joinedAt: Date.now(),
+			});
+			await ctx.db.insert("workspaceSettings", {
+				workspaceId: ws2,
+				storyPrefix: "GC2",
+				nextStoryNumber: 1,
+			});
+			return ws2;
+		});
+
+		// Connect workspace 1 with BYOSA
+		await admin.mutation(connectRef, {
+			workspaceId: fx.workspaceId,
+			provider: "google-chat",
+			encryptedCredentials: "encrypted-blob",
+			byosaClientEmail: "bot@project.iam.gserviceaccount.com",
+			credentialSource: "byosa",
+		});
+
+		// Same service account on workspace 2 should fail
+		await expect(
+			admin.mutation(connectRef, {
+				workspaceId: workspace2Id,
+				provider: "google-chat",
+				encryptedCredentials: "encrypted-blob",
+				byosaClientEmail: "bot@project.iam.gserviceaccount.com",
+				credentialSource: "byosa",
+			}),
+		).rejects.toThrow(/already connected to another workspace/i);
 	});
 
 	it("enforces chat identity uniqueness and workspace membership", async () => {
