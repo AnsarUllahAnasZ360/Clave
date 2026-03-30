@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, it } from "vitest";
 
 // Tests run without credentials — allow global connections
+// Covers: connect/disconnect, BYOSA duplicate guard, identity links, workspace resolution fallback
 beforeAll(() => {
 	process.env.DEV_MODE = "true";
 });

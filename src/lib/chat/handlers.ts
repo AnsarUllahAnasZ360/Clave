@@ -183,6 +183,33 @@ async function resolveWorkspace(
 		console.log("[chat-sdk] resolveWorkspace result", { result });
 		return result;
 	} catch (err) {
+		// Retry without chatUserId if the Convex function doesn't support it yet
+		// (handles rolling deploys where Next.js is ahead of Convex)
+		if (
+			chatUserId &&
+			err instanceof Error &&
+			err.message.includes("chatUserId")
+		) {
+			console.warn(
+				"[chat-sdk] resolveWorkspace: chatUserId not supported, retrying without it",
+			);
+			try {
+				const result = await convex.query(resolveWorkspaceForWebhookRef, {
+					provider: "google-chat",
+					spaceName: spaceName || undefined,
+				});
+				console.log("[chat-sdk] resolveWorkspace result (fallback)", {
+					result,
+				});
+				return result;
+			} catch (fallbackErr) {
+				console.error(
+					"[chat-sdk] resolveWorkspace fallback error",
+					fallbackErr,
+				);
+				return null;
+			}
+		}
 		console.error("[chat-sdk] resolveWorkspace error", err);
 		return null;
 	}

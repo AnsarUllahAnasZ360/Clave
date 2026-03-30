@@ -1,5 +1,5 @@
 // @vitest-environment node
-// Tests for webhook route: SDK delegation, welcome messages, slash commands, DM handling
+// Tests for webhook route: SDK delegation, welcome messages, slash commands, DM handling, fallback resolution
 
 import { describe, expect, it, vi } from "vitest";
 
