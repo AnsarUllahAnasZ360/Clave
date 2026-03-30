@@ -215,7 +215,7 @@
 		"@types/react-dom": "^19.2.3",
 		"@vitejs/plugin-react": "^5.1.2",
 		"@vitest/coverage-v8": "^4.0.18",
-		"convex-test": "^0.0.41",
+		"convex-test": "^0.0.46",
 		"expect-type": "^1.3.0",
 		"jsdom": "^28.1.0",
 		"typescript": "^5.9.3",
