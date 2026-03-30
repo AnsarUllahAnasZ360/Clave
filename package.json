@@ -174,7 +174,7 @@
 		"react-dom": "^19.2.3",
 		"react-easy-crop": "^5.5.6",
 		"react-jsx-parser": "^2.4.1",
-		"react-lite-youtube-embed": "2.4.0",
+		"react-lite-youtube-embed": "3.5.1",
 		"react-markdown": "^10.1.0",
 		"react-player": "3.3.1",
 		"react-resizable-panels": "^4",
