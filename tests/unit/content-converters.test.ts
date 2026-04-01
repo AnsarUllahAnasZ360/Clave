@@ -3,6 +3,8 @@ import {
 	blockNoteToSlate,
 	detectContentFormat,
 	extractTextFromSlate,
+	looksLikeMarkdown,
+	markdownToSlate,
 	parseAnyContentToSlate,
 	plainTextToSlate,
 	prosemirrorToSlate,
@@ -948,6 +950,22 @@ describe("detectContentFormat", () => {
 	it("detects plain text for invalid JSON", () => {
 		expect(detectContentFormat("{invalid json")).toBe("plain");
 	});
+
+	it("detects markdown with headings and lists", () => {
+		const md = "# Title\n\n- Item 1\n- Item 2\n\nSome text";
+		expect(detectContentFormat(md)).toBe("markdown");
+	});
+
+	it("detects markdown with tables", () => {
+		const md =
+			"# Report\n\n| Name | Value |\n| --- | --- |\n| A | 1 |\n| B | 2 |";
+		expect(detectContentFormat(md)).toBe("markdown");
+	});
+
+	it("does not detect single-signal text as markdown", () => {
+		// Only one heading, not enough signals
+		expect(detectContentFormat("# Just a heading")).toBe("plain");
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -1633,6 +1651,21 @@ describe("parseAnyContentToSlate", () => {
 	it("returns undefined for whitespace-only plain text", () => {
 		expect(parseAnyContentToSlate("   ")).toBeUndefined();
 	});
+
+	it("parses markdown and converts to Slate", () => {
+		const md = "# Title\n\n- Item 1\n- Item 2";
+		const result = parseAnyContentToSlate(md);
+		expect(result).toBeDefined();
+		expect(result![0]).toEqual({
+			type: "h1",
+			children: [{ text: "Title" }],
+		});
+		expect(result![1]).toMatchObject({
+			type: "p",
+			indent: 1,
+			listStyleType: "disc",
+		});
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -1828,5 +1861,309 @@ describe("extractTextFromSlate", () => {
 			{ type: "p", children: [{ text: "After" }] },
 		];
 		expect(extractTextFromSlate(nodes)).toBe("After");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// looksLikeMarkdown
+// ---------------------------------------------------------------------------
+
+describe("looksLikeMarkdown", () => {
+	it("detects headings + lists", () => {
+		expect(looksLikeMarkdown("# Title\n- item")).toBe(true);
+	});
+
+	it("detects tables", () => {
+		expect(looksLikeMarkdown("| A | B |\n| --- | --- |\n| 1 | 2 |")).toBe(true);
+	});
+
+	it("detects code fences + bold", () => {
+		expect(looksLikeMarkdown("```js\ncode\n```\n**bold**")).toBe(true);
+	});
+
+	it("rejects plain text with only one signal", () => {
+		expect(looksLikeMarkdown("# Just a heading")).toBe(false);
+	});
+
+	it("rejects plain text with no signals", () => {
+		expect(looksLikeMarkdown("Hello world, nothing special")).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// markdownToSlate
+// ---------------------------------------------------------------------------
+
+describe("markdownToSlate", () => {
+	it("returns empty paragraph for empty input", () => {
+		expect(markdownToSlate("")).toEqual([
+			{ type: "p", children: [{ text: "" }] },
+		]);
+	});
+
+	// ── Headings ─────────────────────────────────────────────────────────
+
+	it("converts headings h1 through h6", () => {
+		const result = markdownToSlate(
+			"# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6",
+		);
+		expect(result).toEqual([
+			{ type: "h1", children: [{ text: "H1" }] },
+			{ type: "h2", children: [{ text: "H2" }] },
+			{ type: "h3", children: [{ text: "H3" }] },
+			{ type: "h4", children: [{ text: "H4" }] },
+			{ type: "h5", children: [{ text: "H5" }] },
+			{ type: "h6", children: [{ text: "H6" }] },
+		]);
+	});
+
+	// ── Inline formatting ────────────────────────────────────────────────
+
+	it("converts bold text", () => {
+		const result = markdownToSlate("Some **bold** text");
+		expect(result[0].children).toEqual([
+			{ text: "Some " },
+			{ text: "bold", bold: true },
+			{ text: " text" },
+		]);
+	});
+
+	it("converts italic text", () => {
+		const result = markdownToSlate("Some *italic* text");
+		expect(result[0].children).toEqual([
+			{ text: "Some " },
+			{ text: "italic", italic: true },
+			{ text: " text" },
+		]);
+	});
+
+	it("converts inline code", () => {
+		const result = markdownToSlate("Use `console.log` here");
+		expect(result[0].children).toEqual([
+			{ text: "Use " },
+			{ text: "console.log", code: true },
+			{ text: " here" },
+		]);
+	});
+
+	it("converts strikethrough", () => {
+		const result = markdownToSlate("~~removed~~ text");
+		expect(result[0].children).toEqual([
+			{ text: "removed", strikethrough: true },
+			{ text: " text" },
+		]);
+	});
+
+	it("converts links", () => {
+		const result = markdownToSlate("Click [here](https://example.com)");
+		expect(result[0].children).toEqual([
+			{ text: "Click " },
+			{
+				type: "a",
+				url: "https://example.com",
+				children: [{ text: "here" }],
+			},
+		]);
+	});
+
+	// ── Lists ────────────────────────────────────────────────────────────
+
+	it("converts bullet lists", () => {
+		const result = markdownToSlate("- Item 1\n- Item 2\n- Item 3");
+		expect(result).toEqual([
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "disc",
+				children: [{ text: "Item 1" }],
+			},
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "disc",
+				children: [{ text: "Item 2" }],
+			},
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "disc",
+				children: [{ text: "Item 3" }],
+			},
+		]);
+	});
+
+	it("converts numbered lists", () => {
+		const result = markdownToSlate("1. First\n2. Second");
+		expect(result).toEqual([
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "decimal",
+				children: [{ text: "First" }],
+			},
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "decimal",
+				children: [{ text: "Second" }],
+			},
+		]);
+	});
+
+	it("converts checkbox lists", () => {
+		const result = markdownToSlate("- [ ] Todo\n- [x] Done");
+		expect(result).toEqual([
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "todo",
+				checked: false,
+				children: [{ text: "Todo" }],
+			},
+			{
+				type: "p",
+				indent: 1,
+				listStyleType: "todo",
+				checked: true,
+				children: [{ text: "Done" }],
+			},
+		]);
+	});
+
+	// ── Code blocks ──────────────────────────────────────────────────────
+
+	it("converts fenced code blocks", () => {
+		const result = markdownToSlate(
+			"```typescript\nconst x = 1;\nreturn x;\n```",
+		);
+		expect(result).toEqual([
+			{
+				type: "code_block",
+				lang: "typescript",
+				children: [
+					{ type: "code_line", children: [{ text: "const x = 1;" }] },
+					{ type: "code_line", children: [{ text: "return x;" }] },
+				],
+			},
+		]);
+	});
+
+	// ── Tables ───────────────────────────────────────────────────────────
+
+	it("converts markdown tables", () => {
+		const md = "| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |";
+		const result = markdownToSlate(md);
+		expect(result).toEqual([
+			{
+				type: "table",
+				children: [
+					{
+						type: "tr",
+						children: [
+							{
+								type: "th",
+								children: [{ type: "p", children: [{ text: "Name" }] }],
+							},
+							{
+								type: "th",
+								children: [{ type: "p", children: [{ text: "Age" }] }],
+							},
+						],
+					},
+					{
+						type: "tr",
+						children: [
+							{
+								type: "td",
+								children: [{ type: "p", children: [{ text: "Alice" }] }],
+							},
+							{
+								type: "td",
+								children: [{ type: "p", children: [{ text: "30" }] }],
+							},
+						],
+					},
+					{
+						type: "tr",
+						children: [
+							{
+								type: "td",
+								children: [{ type: "p", children: [{ text: "Bob" }] }],
+							},
+							{
+								type: "td",
+								children: [{ type: "p", children: [{ text: "25" }] }],
+							},
+						],
+					},
+				],
+			},
+		]);
+	});
+
+	// ── Blockquotes ──────────────────────────────────────────────────────
+
+	it("converts blockquotes", () => {
+		const result = markdownToSlate("> This is quoted");
+		expect(result).toEqual([
+			{
+				type: "blockquote",
+				children: [{ type: "p", children: [{ text: "This is quoted" }] }],
+			},
+		]);
+	});
+
+	// ── Horizontal rule ──────────────────────────────────────────────────
+
+	it("converts horizontal rules", () => {
+		const result = markdownToSlate("---");
+		expect(result).toEqual([{ type: "hr", children: [{ text: "" }] }]);
+	});
+
+	// ── Mixed document ───────────────────────────────────────────────────
+
+	it("converts a full markdown document", () => {
+		const md = [
+			"# Project Overview",
+			"",
+			"This project uses **React** and *TypeScript*.",
+			"",
+			"## Features",
+			"",
+			"- Fast rendering",
+			"- Type safety",
+			"",
+			"| Feature | Status |",
+			"| --- | --- |",
+			"| Auth | Done |",
+		].join("\n");
+
+		const result = markdownToSlate(md);
+		expect(result[0]).toEqual({
+			type: "h1",
+			children: [{ text: "Project Overview" }],
+		});
+		// Paragraph with inline formatting
+		expect(result[1].type).toBe("p");
+		expect(result[1].children).toContainEqual({
+			text: "React",
+			bold: true,
+		});
+		expect(result[1].children).toContainEqual({
+			text: "TypeScript",
+			italic: true,
+		});
+		// Subheading
+		expect(result[2]).toEqual({
+			type: "h2",
+			children: [{ text: "Features" }],
+		});
+		// List items
+		expect(result[3]).toMatchObject({
+			type: "p",
+			listStyleType: "disc",
+		});
+		// Table
+		expect(result[5].type).toBe("table");
 	});
 });

@@ -134,6 +134,8 @@ Rules:
 - For wireframes: use large containers (300+ width), nested panels, realistic labels.
 - Use backgroundColor with fillStyle: "solid" on shapes for color.
 - Use roundness: { type: 3 } on rectangles for rounded corners.
+- CRITICAL: Every shape MUST have a "label" property with "text" and "fontSize". Shapes without labels are useless. Use fontSize 16 minimum for body text, 20 for titles.
+- Example labeled shape: { "type": "rectangle", "id": "r1", "x": 100, "y": 100, "width": 200, "height": 80, "backgroundColor": "#a5d8ff", "fillStyle": "solid", "label": { "text": "My Label", "fontSize": 20 } }
 - Return valid JSON only.`;
 }
 

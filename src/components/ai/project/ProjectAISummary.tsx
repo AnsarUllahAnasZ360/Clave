@@ -233,7 +233,7 @@ export function ProjectAISummary({
 				<div className="flex items-center gap-2 mb-3">
 					<Loader2Icon className="h-4 w-4 animate-spin text-sienna-500 dark:text-sienna-400" />
 					<span className="text-sm font-medium text-foreground">
-						Generating summary with GPT 5.2...
+						Generating summary with GPT 5.4...
 					</span>
 				</div>
 				<p className="mb-3 text-xs text-muted-foreground">

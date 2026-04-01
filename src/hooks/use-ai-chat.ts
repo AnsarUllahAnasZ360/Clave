@@ -486,7 +486,7 @@ export function useAIChat(
 	} = useUIMessages(
 		api.ai.chatQueries.listThreadMessages,
 		activeThreadId ? { threadId: activeThreadId } : "skip",
-		{ initialNumItems: 20, stream: true },
+		{ initialNumItems: 100, stream: true },
 	);
 	const mcpServersRaw = useQuery(api.mcpServers.list, { workspaceId });
 	const mcpServers = (mcpServersRaw ?? []) as MCPServerSummary[];

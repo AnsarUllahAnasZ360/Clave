@@ -663,6 +663,14 @@ You are in ASK mode. Your role is to answer questions — never take action.
 			const systemPrompt = composedBase + contextSuffix + modePromptSuffix;
 			const reasoningOptions = getReasoningProviderOptions(modelIdForRequest);
 			const supportsTemperature = supportsTemperatureSetting(modelIdForRequest);
+			if (reasoningOptions) {
+				console.info(
+					"[chat:sendMessage] reasoning options:",
+					JSON.stringify(reasoningOptions),
+					"model:",
+					modelIdForRequest,
+				);
+			}
 			mark("before_stream");
 			streamStartedAt = Date.now();
 			const result = await getClaveAgent().streamText(
@@ -722,6 +730,7 @@ You are in ASK mode. Your role is to answer questions — never take action.
 			// from the agent persistence path.
 			await result.consumeStream();
 			stageTimings.streamMs = Date.now() - streamStartedAt;
+
 			logChatTiming(
 				`stream complete model=${modelIdForRequest} mcp=${hasMcpTools} (${Date.now() - streamStartedAt}ms)`,
 				startedAt,

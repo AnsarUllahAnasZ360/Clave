@@ -296,7 +296,7 @@ export default function ChatThreadPage() {
 				/>
 			)}
 
-			{/* Conversation — centered column */}
+			{/* Conversation */}
 			<div className="flex w-full flex-1 flex-col min-h-0">
 				<ConversationView
 					messages={chat.messages}

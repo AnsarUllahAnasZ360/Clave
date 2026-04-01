@@ -550,7 +550,7 @@ function applyBlockColors(
  */
 export function detectContentFormat(
 	content: string,
-): "slate" | "prosemirror" | "blocknote" | "plain" {
+): "slate" | "prosemirror" | "blocknote" | "markdown" | "plain" {
 	try {
 		const parsed = JSON.parse(content);
 
@@ -571,7 +571,8 @@ export function detectContentFormat(
 
 		return "plain";
 	} catch {
-		return "plain";
+		// Not JSON — check if it looks like markdown before falling back to plain
+		return looksLikeMarkdown(content) ? "markdown" : "plain";
 	}
 }
 
@@ -916,6 +917,268 @@ function applyBnBlockColors(
 }
 
 // ---------------------------------------------------------------------------
+// Markdown → Slate JSON converter
+// ---------------------------------------------------------------------------
+
+/**
+ * Heuristic: does this text look like markdown?
+ * Checks for common markdown syntax patterns. Needs at least 2 signals
+ * to avoid false positives on plain text that happens to contain `*` etc.
+ */
+export function looksLikeMarkdown(text: string): boolean {
+	const lines = text.split("\n");
+	let signals = 0;
+
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (/^#{1,6}\s+/.test(trimmed)) signals++; // heading
+		if (/^\s*[-*+]\s+/.test(line)) signals++; // bullet list
+		if (/^\s*\d+\.\s+/.test(line)) signals++; // numbered list
+		if (/^\|.+\|/.test(trimmed)) signals++; // table row
+		if (/^```/.test(trimmed)) signals++; // code fence
+		if (/^>\s+/.test(trimmed)) signals++; // blockquote
+		if (/^([-*_])\1{2,}\s*$/.test(trimmed)) signals++; // horizontal rule
+		if (/\*\*.+?\*\*/.test(line)) signals++; // bold
+		if (/\[.+?\]\(.+?\)/.test(line)) signals++; // link
+	}
+
+	return signals >= 2;
+}
+
+/**
+ * Parse inline markdown (bold, italic, code, links, strikethrough) into
+ * Slate inline nodes.
+ */
+function parseInlineMarkdown(text: string): SlateNode[] {
+	if (!text) return [{ text: "" }];
+
+	const result: SlateNode[] = [];
+	// Order matters: bold (**) before italic (*), backtick before others
+	const pattern =
+		/(\*\*(.+?)\*\*)|(`([^`]+)`)|(~~(.+?)~~)|(\[([^\]]+)\]\(([^)]+)\))|(\*(.+?)\*)/g;
+
+	let lastIndex = 0;
+	let match: RegExpExecArray | null;
+
+	while ((match = pattern.exec(text)) !== null) {
+		// Text before the match
+		if (match.index > lastIndex) {
+			result.push({ text: text.slice(lastIndex, match.index) });
+		}
+
+		if (match[1]) {
+			// Bold: **text**
+			result.push({ text: match[2], bold: true });
+		} else if (match[3]) {
+			// Code: `text`
+			result.push({ text: match[4], code: true });
+		} else if (match[5]) {
+			// Strikethrough: ~~text~~
+			result.push({ text: match[6], strikethrough: true });
+		} else if (match[7]) {
+			// Link: [text](url)
+			result.push({
+				type: "a",
+				url: match[9],
+				children: [{ text: match[8] }],
+			});
+		} else if (match[10]) {
+			// Italic: *text*
+			result.push({ text: match[11], italic: true });
+		}
+
+		lastIndex = match.index + match[0].length;
+	}
+
+	// Remaining text
+	if (lastIndex < text.length) {
+		result.push({ text: text.slice(lastIndex) });
+	}
+
+	return result.length > 0 ? result : [{ text: "" }];
+}
+
+/**
+ * Parse a markdown table row into cell strings.
+ */
+function parseMdTableRow(line: string): string[] {
+	return line
+		.split("|")
+		.map((c) => c.trim())
+		.filter(Boolean);
+}
+
+/**
+ * Convert a markdown string to Slate JSON nodes.
+ *
+ * Handles headings, bold/italic/code/links, bullet & numbered lists,
+ * code blocks (fenced), blockquotes, horizontal rules, and tables.
+ */
+export function markdownToSlate(markdown: string): SlateNode[] {
+	const lines = markdown.split("\n");
+	const nodes: SlateNode[] = [];
+	let i = 0;
+
+	while (i < lines.length) {
+		const line = lines[i];
+		const trimmed = line.trim();
+
+		// ── Fenced code block ───────────────────────────────────────
+		if (trimmed.startsWith("```")) {
+			const lang = trimmed.slice(3).trim();
+			const codeLines: string[] = [];
+			i++;
+			while (i < lines.length && !lines[i].trim().startsWith("```")) {
+				codeLines.push(lines[i]);
+				i++;
+			}
+			i++; // skip closing ```
+			nodes.push({
+				type: "code_block",
+				lang,
+				children:
+					codeLines.length > 0
+						? codeLines.map((l) => ({
+								type: "code_line",
+								children: [{ text: l }],
+							}))
+						: [{ type: "code_line", children: [{ text: "" }] }],
+			});
+			continue;
+		}
+
+		// ── Heading (# to ######) ───────────────────────────────────
+		const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
+		if (headingMatch) {
+			const level = Math.min(headingMatch[1].length, 6);
+			nodes.push({
+				type: `h${level}`,
+				children: parseInlineMarkdown(headingMatch[2]),
+			});
+			i++;
+			continue;
+		}
+
+		// ── Table (| ... | with separator row) ──────────────────────
+		if (
+			trimmed.startsWith("|") &&
+			i + 1 < lines.length &&
+			/^\|[\s:|-]+\|$/.test(lines[i + 1].trim())
+		) {
+			const headers = parseMdTableRow(line);
+			i++; // header row
+			i++; // separator row
+			const dataRows: string[][] = [];
+			while (i < lines.length && lines[i].trim().startsWith("|")) {
+				dataRows.push(parseMdTableRow(lines[i]));
+				i++;
+			}
+			nodes.push({
+				type: "table",
+				children: [
+					{
+						type: "tr",
+						children: headers.map((h) => ({
+							type: "th",
+							children: [{ type: "p", children: parseInlineMarkdown(h) }],
+						})),
+					},
+					...dataRows.map((row) => ({
+						type: "tr",
+						children: row.map((cell) => ({
+							type: "td",
+							children: [{ type: "p", children: parseInlineMarkdown(cell) }],
+						})),
+					})),
+				],
+			});
+			continue;
+		}
+
+		// ── Blockquote (> ...) ──────────────────────────────────────
+		if (trimmed.startsWith("> ")) {
+			const quoteLines: string[] = [];
+			while (i < lines.length && lines[i].trim().startsWith("> ")) {
+				quoteLines.push(lines[i].trim().slice(2));
+				i++;
+			}
+			nodes.push({
+				type: "blockquote",
+				children: [
+					{ type: "p", children: parseInlineMarkdown(quoteLines.join(" ")) },
+				],
+			});
+			continue;
+		}
+
+		// ── Horizontal rule (---, ***, ___) ─────────────────────────
+		if (/^([-*_])\1{2,}\s*$/.test(trimmed)) {
+			nodes.push({ type: "hr", children: [{ text: "" }] });
+			i++;
+			continue;
+		}
+
+		// ── Checkbox list (- [ ] or - [x]) ──────────────────────────
+		const checkMatch = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)/);
+		if (checkMatch) {
+			const indent = Math.floor(checkMatch[1].length / 2) + 1;
+			nodes.push({
+				type: "p",
+				indent,
+				listStyleType: "todo",
+				checked: checkMatch[2].toLowerCase() === "x",
+				children: parseInlineMarkdown(checkMatch[3]),
+			});
+			i++;
+			continue;
+		}
+
+		// ── Bullet list (- or * or +) ───────────────────────────────
+		const bulletMatch = line.match(/^(\s*)([-*+])\s+(.*)/);
+		if (bulletMatch) {
+			const indent = Math.floor(bulletMatch[1].length / 2) + 1;
+			nodes.push({
+				type: "p",
+				indent,
+				listStyleType: "disc",
+				children: parseInlineMarkdown(bulletMatch[3]),
+			});
+			i++;
+			continue;
+		}
+
+		// ── Numbered list (1. 2. etc.) ──────────────────────────────
+		const numberedMatch = line.match(/^(\s*)\d+\.\s+(.*)/);
+		if (numberedMatch) {
+			const indent = Math.floor(numberedMatch[1].length / 2) + 1;
+			nodes.push({
+				type: "p",
+				indent,
+				listStyleType: "decimal",
+				children: parseInlineMarkdown(numberedMatch[2]),
+			});
+			i++;
+			continue;
+		}
+
+		// ── Empty line (skip) ───────────────────────────────────────
+		if (trimmed === "") {
+			i++;
+			continue;
+		}
+
+		// ── Paragraph (default) ─────────────────────────────────────
+		nodes.push({
+			type: "p",
+			children: parseInlineMarkdown(trimmed),
+		});
+		i++;
+	}
+
+	return nodes.length > 0 ? nodes : [{ type: "p", children: [{ text: "" }] }];
+}
+
+// ---------------------------------------------------------------------------
 // Plain text → Slate JSON converter
 // ---------------------------------------------------------------------------
 
@@ -940,7 +1203,7 @@ export function plainTextToSlate(text: string): SlateNode[] | null {
 /**
  * Parse any content string into Slate JSON nodes.
  *
- * Detection order: Slate JSON → BlockNote JSON → ProseMirror/TipTap JSON → plain text.
+ * Detection order: Slate JSON → BlockNote JSON → ProseMirror/TipTap JSON → Markdown → plain text.
  *
  * This replaces the duplicated `parseContent()` functions in the simple editors.
  */
@@ -974,6 +1237,10 @@ export function parseAnyContentToSlate(
 			} catch {
 				return undefined;
 			}
+		}
+
+		case "markdown": {
+			return markdownToSlate(content);
 		}
 
 		case "plain": {

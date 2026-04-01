@@ -115,6 +115,7 @@ export function TableArtifact({ artifact }: { artifact: ArtifactData }) {
 			await createDocument({
 				workspaceId: workspace.workspaceId,
 				title: artifact.title,
+				content: artifact.content,
 			});
 			toast.success("Saved to Docs");
 		} catch {

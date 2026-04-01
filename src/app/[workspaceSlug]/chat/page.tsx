@@ -343,7 +343,7 @@ export default function ChatPage() {
 			   Both views remain in the DOM; only CSS visibility changes. */}
 			<div
 				className={cn(
-					"flex w-full flex-1 flex-col min-h-0",
+					"flex w-full flex-1 flex-col h-0",
 					!showConversation && "hidden",
 				)}
 			>

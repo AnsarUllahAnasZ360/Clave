@@ -227,7 +227,7 @@ function ChatLayoutInner({ children }: { children: ReactNode }) {
 
 	return (
 		<div ref={containerRef} className="flex h-full flex-1 overflow-hidden">
-			<div className="min-w-0 flex-1">{children}</div>
+			<div className="min-w-0 flex-1 flex flex-col h-full overflow-hidden">{children}</div>
 			{/* Mobile: ArtifactPanel renders itself as a full-screen Dialog overlay */}
 			{isMobile && <ArtifactPanel />}
 			{/* Desktop: resizable split-view, opens at 40% width */}

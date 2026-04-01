@@ -783,7 +783,7 @@ Starting a conversation: Type in the input field, press Enter. Real-time streami
 
 Thread browser: Click History icon. Threads listed by recency. Rename or delete threads.
 
-Choosing a model: GPT 5.2 (default, fast) or Kimi K2.5 (higher-capacity). Selection persists per conversation.
+Choosing a model: GPT 5.4 (default, fast) or Kimi K2.5 (higher-capacity). Selection persists per conversation.
 
 Context chips: Auto-added when on a specific page (issue, document, project). Tells AI what you're looking at.
 
