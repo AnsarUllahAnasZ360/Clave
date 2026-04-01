@@ -958,9 +958,9 @@ function parseInlineMarkdown(text: string): SlateNode[] {
 		/(\*\*(.+?)\*\*)|(`([^`]+)`)|(~~(.+?)~~)|(\[([^\]]+)\]\(([^)]+)\))|(\*(.+?)\*)/g;
 
 	let lastIndex = 0;
-	let match: RegExpExecArray | null;
+	let match: RegExpExecArray | null = pattern.exec(text);
 
-	while ((match = pattern.exec(text)) !== null) {
+	while (match !== null) {
 		// Text before the match
 		if (match.index > lastIndex) {
 			result.push({ text: text.slice(lastIndex, match.index) });
@@ -988,6 +988,7 @@ function parseInlineMarkdown(text: string): SlateNode[] {
 		}
 
 		lastIndex = match.index + match[0].length;
+		match = pattern.exec(text);
 	}
 
 	// Remaining text

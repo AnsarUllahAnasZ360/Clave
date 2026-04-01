@@ -588,6 +588,57 @@ export const updateDocumentContent = internalMutation({
 	},
 });
 
+// ── 5b. updateDocument ──────────────────────────────────────────────────
+
+export const updateDocument = internalMutation({
+	args: {
+		userId: v.id("users"),
+		documentId: v.id("documents"),
+		title: v.optional(v.string()),
+		content: v.optional(v.string()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const document = await ctx.db.get(args.documentId);
+		if (!document || document.deletedAt) {
+			throw new ConvexError("Document not found");
+		}
+
+		await requireMembership(ctx, document.workspaceId, args.userId);
+
+		const now = Date.now();
+		const patch: Record<string, unknown> = {
+			updatedAt: now,
+			lastEditedBy: args.userId,
+		};
+		if (args.title !== undefined) patch.title = args.title;
+		if (args.content !== undefined) patch.content = args.content;
+
+		await ctx.db.patch(args.documentId, patch);
+
+		// Re-index if title or content changed
+		const shouldIndex = args.title !== undefined || args.content !== undefined;
+		if (shouldIndex) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.ai.indexing.documentIndexer.indexDocument,
+				{ documentId: args.documentId },
+			);
+		}
+
+		await logActivity(ctx, {
+			workspaceId: document.workspaceId,
+			entityType: "document",
+			entityId: args.documentId,
+			action: "updated",
+			actorId: args.userId,
+			description: `Updated document "${args.title ?? document.title}"`,
+			projectId: document.projectId,
+			documentId: args.documentId,
+		});
+	},
+});
+
 // ── 6. createLabel ───────────────────────────────────────────────────────
 
 export const createLabel = internalMutation({
@@ -658,6 +709,52 @@ export const updateWhiteboardScene = internalMutation({
 			appState: args.appState,
 			lastEditedBy: args.userId,
 			updatedAt: Date.now(),
+		});
+	},
+});
+
+// ── 7b. updateProject ───────────────────────────────────────────────────
+
+export const updateProject = internalMutation({
+	args: {
+		userId: v.id("users"),
+		projectId: v.id("projects"),
+		name: v.optional(v.string()),
+		description: v.optional(v.string()),
+		status: v.optional(v.string()),
+		priority: v.optional(v.string()),
+		leadId: v.optional(v.id("users")),
+		startDate: v.optional(v.number()),
+		endDate: v.optional(v.number()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+
+		await requireMembership(ctx, project.workspaceId, args.userId);
+
+		const patch: Record<string, unknown> = { updatedAt: Date.now() };
+		if (args.name !== undefined) patch.name = args.name;
+		if (args.description !== undefined) patch.description = args.description;
+		if (args.status !== undefined) patch.status = args.status;
+		if (args.priority !== undefined) patch.priority = args.priority;
+		if (args.leadId !== undefined) patch.leadId = args.leadId;
+		if (args.startDate !== undefined) patch.startDate = args.startDate;
+		if (args.endDate !== undefined) patch.endDate = args.endDate;
+
+		await ctx.db.patch(args.projectId, patch);
+
+		await logActivity(ctx, {
+			workspaceId: project.workspaceId,
+			entityType: "project",
+			entityId: args.projectId,
+			action: "updated",
+			actorId: args.userId,
+			description: `Updated project "${args.name ?? project.name}"`,
+			projectId: args.projectId,
 		});
 	},
 });

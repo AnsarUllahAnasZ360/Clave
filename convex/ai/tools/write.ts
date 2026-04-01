@@ -1038,6 +1038,71 @@ export const createDocument = createTool({
 	},
 });
 
+// ── 6b. updateDocument ───────────────────────────────────────────────────
+
+interface UpdateDocumentResult {
+	documentId: string;
+	updatedFields: string[];
+	message: string;
+}
+
+export const updateDocument = createTool({
+	description:
+		"Update an existing document's title or content. Use this when the user asks to rename, edit, or rewrite a document. Provide the document ID.",
+	inputSchema: z.object({
+		documentId: z.string().describe("Document ID (Convex document ID)"),
+		title: z.string().optional().describe("New document title"),
+		content: z
+			.string()
+			.optional()
+			.describe(
+				"New document content in markdown format. Use proper markdown: # headings, **bold**, *italic*, - bullet lists, 1. numbered lists, ```code blocks```, > blockquotes, and | markdown tables |.",
+			),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<UpdateDocumentResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		if (!args.title && !args.content) {
+			return {
+				error: "Provide at least one field to update (title or content).",
+			};
+		}
+
+		const document = await ctx.runQuery(
+			internal.ai.toolQueries.getDocumentById,
+			{ documentId: args.documentId as Id<"documents"> },
+		);
+		if (!document || document.workspaceId !== workspaceId) {
+			return { error: "Document not found." };
+		}
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.updateDocument, {
+				userId,
+				documentId: args.documentId as Id<"documents">,
+				title: args.title,
+				content: args.content,
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateDocument",
+		);
+
+		const updatedFields = [
+			...(args.title !== undefined ? ["title"] : []),
+			...(args.content !== undefined ? ["content"] : []),
+		];
+		return {
+			documentId: args.documentId,
+			updatedFields,
+			message: `Updated document "${args.title ?? document.title}": ${updatedFields.join(", ")}`,
+		};
+	},
+});
+
 // ── 7. createProject ──────────────────────────────────────────────────────
 
 export const createProject = createTool({
@@ -1103,6 +1168,96 @@ export const createProject = createTool({
 			description,
 			toolCallId: options.toolCallId,
 			message: `⚠️ This action requires your approval: ${description}. Use the Approve or Reject buttons shown in the chat.`,
+		};
+	},
+});
+
+// ── 7b. updateProject ────────────────────────────────────────────────────
+
+interface UpdateProjectResult {
+	projectId: string;
+	updatedFields: string[];
+	message: string;
+}
+
+export const updateProject = createTool({
+	description:
+		"Update an existing project's fields. Use this when the user asks to change a project's name, description, status, priority, lead, or dates. Provide the project ID or use getProjectDetails to find it first.",
+	inputSchema: z.object({
+		projectId: z.string().describe("Project ID (Convex document ID)"),
+		name: z.string().optional().describe("New project name"),
+		description: z.string().optional().describe("New project description"),
+		status: z
+			.enum(["backlog", "planned", "active", "completed", "cancelled"])
+			.optional()
+			.describe("New project status"),
+		priority: z
+			.enum(["urgent", "high", "medium", "low", "no_priority"])
+			.optional()
+			.describe("New project priority"),
+		leadId: z.string().optional().describe("New project lead user ID"),
+		startDate: z
+			.number()
+			.optional()
+			.describe("New start date as Unix timestamp (ms)"),
+		endDate: z
+			.number()
+			.optional()
+			.describe("New end date as Unix timestamp (ms)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<UpdateProjectResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		const updates: Record<string, unknown> = {};
+		if (args.name !== undefined) updates.name = args.name;
+		if (args.description !== undefined) updates.description = args.description;
+		if (args.status !== undefined) updates.status = args.status;
+		if (args.priority !== undefined) updates.priority = args.priority;
+		if (args.leadId !== undefined) updates.leadId = args.leadId;
+		if (args.startDate !== undefined) updates.startDate = args.startDate;
+		if (args.endDate !== undefined) updates.endDate = args.endDate;
+
+		if (Object.keys(updates).length === 0) {
+			return { error: "No fields to update." };
+		}
+
+		const project = await ctx.runQuery(internal.ai.toolQueries.getProjectById, {
+			projectId: args.projectId as Id<"projects">,
+			userId,
+		});
+		if (!project || project.workspaceId !== workspaceId) {
+			return { error: "Project not found." };
+		}
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.updateProject, {
+				userId,
+				projectId: args.projectId as Id<"projects">,
+				...(args.name !== undefined && { name: args.name }),
+				...(args.description !== undefined && {
+					description: args.description,
+				}),
+				...(args.status !== undefined && { status: args.status }),
+				...(args.priority !== undefined && { priority: args.priority }),
+				...(args.leadId !== undefined && {
+					leadId: args.leadId as Id<"users">,
+				}),
+				...(args.startDate !== undefined && { startDate: args.startDate }),
+				...(args.endDate !== undefined && { endDate: args.endDate }),
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateProject",
+		);
+
+		const updatedFields = Object.keys(updates);
+		return {
+			projectId: args.projectId,
+			updatedFields,
+			message: `Updated project "${args.name ?? project.name}": ${updatedFields.join(", ")}`,
 		};
 	},
 });
@@ -1580,7 +1735,9 @@ export const writeTools = {
 	assignIssue,
 	batchUpdateIssues,
 	createDocument,
+	updateDocument,
 	createProject,
+	updateProject,
 	createLabel,
 	generateWhiteboardDiagram,
 	approvePendingAction,
