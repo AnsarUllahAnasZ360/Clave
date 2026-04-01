@@ -69,6 +69,44 @@ describe("invite codes (integration)", () => {
 		expect(result?.workspaceSlug).toBe("test-ws");
 	});
 
+	it("stores role on invite code and validates it", async () => {
+		const t = createBackend();
+
+		const { code } = await t.run(async (ctx) => {
+			const ownerId = await ctx.db.insert("users", { name: "Owner" });
+
+			const workspaceId = await ctx.db.insert("workspaces", {
+				name: "Role WS",
+				slug: "role-ws",
+				ownerId,
+			});
+
+			await ctx.db.insert("inviteCodes", {
+				code: "ADMROL",
+				workspaceId,
+				createdBy: ownerId,
+				role: "admin",
+				expiresAt: Date.now() + 86400000,
+				maxUses: 5,
+				useCount: 0,
+			});
+
+			return { code: "ADMROL" };
+		});
+
+		const result = await t.query(validateRef, { code });
+		expect(result?.valid).toBe(true);
+
+		// Verify the role was stored correctly
+		await t.run(async (ctx) => {
+			const invite = await ctx.db
+				.query("inviteCodes")
+				.withIndex("by_code", (q) => q.eq("code", "ADMROL"))
+				.unique();
+			expect(invite?.role).toBe("admin");
+		});
+	});
+
 	it("returns invalid for expired code", async () => {
 		const t = createBackend();
 
