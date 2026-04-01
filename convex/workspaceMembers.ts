@@ -136,11 +136,11 @@ export const joinWithCode = mutation({
 			return inviteCode.workspaceId;
 		}
 
-		// Add user as member
+		// Add user with the role specified on the invite code
 		await ctx.db.insert("workspaceMembers", {
 			workspaceId: inviteCode.workspaceId,
 			userId,
-			role: "member",
+			role: inviteCode.role ?? "member",
 			joinedAt: Date.now(),
 		});
 

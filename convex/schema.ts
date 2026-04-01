@@ -217,6 +217,7 @@ export default defineSchema({
 		code: v.string(),
 		workspaceId: v.id("workspaces"),
 		createdBy: v.id("users"),
+		role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
 		expiresAt: v.optional(v.number()),
 		maxUses: v.optional(v.number()),
 		useCount: v.number(),

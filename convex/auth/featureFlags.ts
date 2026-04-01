@@ -12,12 +12,12 @@ function hasConfiguredValue(value: string | undefined) {
 export function getEmailAuthProviderCapabilities(
 	env: AuthEnv = process.env,
 ): EmailAuthProviderCapabilities {
-	const resendConfigured = hasConfiguredValue(env.AUTH_RESEND_KEY);
+	const plunkConfigured = hasConfiguredValue(env.PLUNK_SECRET_KEY);
 	const isDevDeployment =
 		env.CONVEX_DEPLOYMENT?.startsWith("dev:") ||
 		env.AUTH_SKIP_EMAIL_VERIFICATION === "true";
 	return {
-		passwordResetEnabled: resendConfigured,
-		emailVerificationEnabled: resendConfigured && !isDevDeployment,
+		passwordResetEnabled: plunkConfigured,
+		emailVerificationEnabled: plunkConfigured && !isDevDeployment,
 	};
 }

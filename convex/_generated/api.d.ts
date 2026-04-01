@@ -82,7 +82,7 @@ import type * as ai_workflows_timeoutEnforcer from "../ai/workflows/timeoutEnfor
 import type * as analytics from "../analytics.js";
 import type * as audioRecordings from "../audioRecordings.js";
 import type * as auth from "../auth.js";
-import type * as auth_ResendOTP from "../auth/ResendOTP.js";
+import type * as auth_PlunkOTP from "../auth/PlunkOTP.js";
 import type * as auth_featureFlags from "../auth/featureFlags.js";
 import type * as billing from "../billing.js";
 import type * as bugReports from "../bugReports.js";
@@ -112,6 +112,7 @@ import type * as devSeed from "../devSeed.js";
 import type * as documentComments from "../documentComments.js";
 import type * as documentPresence from "../documentPresence.js";
 import type * as documents from "../documents.js";
+import type * as email from "../email.js";
 import type * as favorites from "../favorites.js";
 import type * as files from "../files.js";
 import type * as github from "../github.js";
@@ -242,7 +243,7 @@ declare const fullApi: ApiFromModules<{
   analytics: typeof analytics;
   audioRecordings: typeof audioRecordings;
   auth: typeof auth;
-  "auth/ResendOTP": typeof auth_ResendOTP;
+  "auth/PlunkOTP": typeof auth_PlunkOTP;
   "auth/featureFlags": typeof auth_featureFlags;
   billing: typeof billing;
   bugReports: typeof bugReports;
@@ -272,6 +273,7 @@ declare const fullApi: ApiFromModules<{
   documentComments: typeof documentComments;
   documentPresence: typeof documentPresence;
   documents: typeof documents;
+  email: typeof email;
   favorites: typeof favorites;
   files: typeof files;
   github: typeof github;

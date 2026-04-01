@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
+import { sendEmail } from "./email";
 import { requireWorkspaceAdmin } from "./lib/auth";
 
 // Characters for invite codes (no ambiguous chars: 0/O, 1/I/l)
@@ -17,6 +18,7 @@ function generateCode(length: number = 6): string {
 export const generate = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
+		role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
 		maxUses: v.optional(v.number()),
 		expiresInHours: v.optional(v.number()),
 	},
@@ -49,6 +51,7 @@ export const generate = mutation({
 			code,
 			workspaceId: args.workspaceId,
 			createdBy: userId,
+			role: args.role ?? "member",
 			expiresAt,
 			maxUses: args.maxUses,
 			useCount: 0,
@@ -139,5 +142,40 @@ export const listByWorkspace = query({
 			maxUses: code.maxUses,
 			useCount: code.useCount,
 		}));
+	},
+});
+
+/** Send a workspace invite email via Plunk */
+export const sendInviteEmail = action({
+	args: {
+		email: v.string(),
+		inviteCode: v.string(),
+		workspaceName: v.string(),
+		inviterName: v.string(),
+		role: v.union(v.literal("admin"), v.literal("member")),
+	},
+	returns: v.null(),
+	handler: async (_ctx, args) => {
+		const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://clave.z360.biz";
+		const inviteLink = `${appUrl}/join?invite=${args.inviteCode}`;
+		const roleLabel = args.role === "admin" ? "an Admin" : "a Member";
+
+		await sendEmail({
+			to: args.email,
+			subject: `You're invited to join ${args.workspaceName} on Clave`,
+			body: [
+				`<div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">`,
+				`<h2 style="color: #C26A3A;">Join ${args.workspaceName} on Clave</h2>`,
+				`<p>${args.inviterName} has invited you to join <strong>${args.workspaceName}</strong> as ${roleLabel}.</p>`,
+				`<p>Use the invite code below or click the link to join:</p>`,
+				`<div style="background: #1a1a1a; border-radius: 8px; padding: 16px; text-align: center; margin: 24px 0;">`,
+				`<code style="font-size: 24px; letter-spacing: 4px; color: #fafafa;">${args.inviteCode}</code>`,
+				`</div>`,
+				`<a href="${inviteLink}" style="display: inline-block; background: #C26A3A; color: #fafafa; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">Join workspace</a>`,
+				`<p style="color: #888; font-size: 13px; margin-top: 24px;">If you didn't expect this invitation, you can safely ignore this email.</p>`,
+				`</div>`,
+			].join("\n"),
+		});
+		return null;
 	},
 });

@@ -3,10 +3,11 @@
 import {
 	CircleNotch,
 	CopySimple,
+	EnvelopeSimple,
 	Plus,
 	TrashSimple,
 } from "@phosphor-icons/react/dist/ssr";
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
@@ -16,6 +17,7 @@ import {
 } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
 	Select,
 	SelectContent,
@@ -32,11 +34,15 @@ export function TeammatesSettingsPane() {
 	const members = useWorkspaceMembers();
 	const currentUser = useCurrentUser();
 	const generateInviteCode = useMutation(api.inviteCodes.generate);
+	const sendInviteEmailAction = useAction(api.inviteCodes.sendInviteEmail);
 	const removeMember = useMutation(api.workspaceMembers.remove);
 	const updateRole = useMutation(api.workspaceMembers.updateRole);
 
 	const [inviteCode, setInviteCode] = useState<string | null>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [inviteEmail, setInviteEmail] = useState("");
+	const [inviteRole, setInviteRole] = useState<"admin" | "member">("member");
+	const [isSendingEmail, setIsSendingEmail] = useState(false);
 	const [removingUserId, setRemovingUserId] = useState<string | null>(null);
 	const [changingRoleUserId, setChangingRoleUserId] = useState<string | null>(
 		null,
@@ -94,6 +100,34 @@ export function TeammatesSettingsPane() {
 			toast.error("Failed to copy invite link");
 		}
 	}, [inviteCode]);
+
+	const handleSendInviteEmail = useCallback(async () => {
+		if (!workspace || !inviteEmail.trim()) return;
+		setIsSendingEmail(true);
+		try {
+			const code = await generateInviteCode({
+				workspaceId: workspace.workspaceId,
+				role: inviteRole,
+				expiresInHours: 7 * 24,
+			});
+			await sendInviteEmailAction({
+				email: inviteEmail.trim(),
+				inviteCode: code,
+				workspaceName: workspace.workspaceName ?? "Workspace",
+				inviterName: currentUser?.name ?? "A teammate",
+				role: inviteRole,
+			});
+			setInviteEmail("");
+			setInviteRole("member");
+			toast.success(`Invite sent to ${inviteEmail.trim()}`);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : "Failed to send invite email",
+			);
+		} finally {
+			setIsSendingEmail(false);
+		}
+	}, [workspace, inviteEmail, inviteRole, currentUser, generateInviteCode, sendInviteEmailAction]);
 
 	const handleRemoveMember = useCallback(
 		async (userId: string) => {
@@ -207,6 +241,49 @@ export function TeammatesSettingsPane() {
 							</p>
 						</div>
 					)}
+
+					<Separator />
+
+					<div className="flex flex-col gap-2">
+						<p className="text-sm font-medium">Invite by email</p>
+						<div className="flex gap-2">
+							<Input
+								type="email"
+								placeholder="teammate@company.com"
+								value={inviteEmail}
+								onChange={(e) => setInviteEmail(e.target.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") handleSendInviteEmail();
+								}}
+								className="flex-1"
+							/>
+							<Select
+								value={inviteRole}
+								onValueChange={(val: string) =>
+									setInviteRole(val as "admin" | "member")
+								}
+							>
+								<SelectTrigger className="w-28">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="member">Member</SelectItem>
+									<SelectItem value="admin">Admin</SelectItem>
+								</SelectContent>
+							</Select>
+							<Button
+								onClick={handleSendInviteEmail}
+								disabled={isSendingEmail || !inviteEmail.trim()}
+							>
+								{isSendingEmail ? (
+									<CircleNotch className="mr-1 h-4 w-4 animate-spin" />
+								) : (
+									<EnvelopeSimple className="mr-1 h-4 w-4" />
+								)}
+								Send invite
+							</Button>
+						</div>
+					</div>
 				</div>
 			)}
 

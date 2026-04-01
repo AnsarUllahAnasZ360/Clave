@@ -6,7 +6,7 @@ type LimitKey = "maxMembers";
 
 /** Default free plan limits used when no plan record exists */
 const FREE_PLAN_DEFAULTS = {
-	maxMembers: 5,
+	maxMembers: 25,
 } as const;
 
 /**

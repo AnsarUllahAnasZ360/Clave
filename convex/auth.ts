@@ -4,7 +4,7 @@ import { convexAuth } from "@convex-dev/auth/server";
 import { type Value, v } from "convex/values";
 import { query } from "./_generated/server";
 import { getEmailAuthProviderCapabilities } from "./auth/featureFlags";
-import { ResendOTP, ResendOTPPasswordReset } from "./auth/ResendOTP";
+import { PlunkOTP, PlunkOTPPasswordReset } from "./auth/PlunkOTP";
 
 const emailAuthProviderCapabilities = getEmailAuthProviderCapabilities();
 
@@ -19,10 +19,10 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 				};
 			},
 			...(emailAuthProviderCapabilities.passwordResetEnabled
-				? { reset: ResendOTPPasswordReset }
+				? { reset: PlunkOTPPasswordReset }
 				: {}),
 			...(emailAuthProviderCapabilities.emailVerificationEnabled
-				? { verify: ResendOTP }
+				? { verify: PlunkOTP }
 				: {}),
 		}),
 	],
