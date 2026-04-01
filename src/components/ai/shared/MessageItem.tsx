@@ -439,8 +439,7 @@ export const AssistantMessage = memo(
 		const hasToolParts = parts.some((p) => isToolPart(p as { type: string }));
 		const hasReasoningParts = parts.some(
 			(p) =>
-				isReasoningPart(p as { type: string }) &&
-				!!(p as ReasoningPart).text,
+				isReasoningPart(p as { type: string }) && !!(p as ReasoningPart).text,
 		);
 
 		// Collect source parts for the Sources section (memoized to prevent SourcesList re-renders)

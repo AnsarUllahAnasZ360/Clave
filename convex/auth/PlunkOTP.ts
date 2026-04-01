@@ -1,8 +1,5 @@
 import Resend from "@auth/core/providers/resend";
-import {
-	generateRandomString,
-	type RandomReader,
-} from "@oslojs/crypto/random";
+import { generateRandomString, type RandomReader } from "@oslojs/crypto/random";
 import { sendEmail } from "../email";
 
 // Official Convex Auth pattern for OTP generation.

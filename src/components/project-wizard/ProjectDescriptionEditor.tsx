@@ -339,7 +339,9 @@ export function ProjectDescriptionEditor({
 				<div
 					className={cn(
 						"flex grow relative w-full overflow-y-auto",
-						isFocused || isExpanded ? "items-start min-h-16" : "items-center min-h-8",
+						isFocused || isExpanded
+							? "items-start min-h-16"
+							: "items-center min-h-8",
 					)}
 				>
 					<div className="w-full [&_.ProseMirror]:text-foreground [&_.ProseMirror]:min-h-6 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child::before]:opacity-60">
@@ -377,10 +379,7 @@ export function ProjectDescriptionEditor({
 								{aiLoading ? (
 									<div className="size-3.5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
 								) : (
-									<StarFour
-										weight="fill"
-										className="size-3.5 text-primary"
-									/>
+									<StarFour weight="fill" className="size-3.5 text-primary" />
 								)}
 							</div>
 							<span className="font-medium text-foreground text-xs tracking-wide">

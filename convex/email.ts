@@ -52,7 +52,10 @@ export async function sendEmail(opts: {
 	});
 
 	if (!success) {
-		console.error("Plunk email failed:", { to: opts.to, subject: opts.subject });
+		console.error("Plunk email failed:", {
+			to: opts.to,
+			subject: opts.subject,
+		});
 		throw new Error("Could not send email");
 	}
 }

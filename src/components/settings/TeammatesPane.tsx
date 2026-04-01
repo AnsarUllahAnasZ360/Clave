@@ -127,7 +127,14 @@ export function TeammatesSettingsPane() {
 		} finally {
 			setIsSendingEmail(false);
 		}
-	}, [workspace, inviteEmail, inviteRole, currentUser, generateInviteCode, sendInviteEmailAction]);
+	}, [
+		workspace,
+		inviteEmail,
+		inviteRole,
+		currentUser,
+		generateInviteCode,
+		sendInviteEmailAction,
+	]);
 
 	const handleRemoveMember = useCallback(
 		async (userId: string) => {
