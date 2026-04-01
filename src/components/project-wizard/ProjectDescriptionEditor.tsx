@@ -85,10 +85,11 @@ export function ProjectDescriptionEditor({
 		editorProps: {
 			attributes: {
 				class:
-					"tiptap-editor h-full w-full outline-none prose prose-sm max-w-none text-foreground",
+					"tiptap-editor h-full w-full outline-none prose prose-sm prose-invert dark:prose-invert max-w-none text-foreground [&_p]:text-foreground [&_*]:text-foreground",
 			},
 		},
 		content: value,
+		editable: true,
 		immediatelyRender: false,
 		onFocus: () => setIsFocused(true),
 		onUpdate: ({ editor }: { editor: any }) => {
@@ -133,8 +134,10 @@ export function ProjectDescriptionEditor({
 		}
 	}, [editor, workspace, aiLoading, callEmbeddedAI]);
 
-	// Handle click outside to reset focus
+	// Handle click outside to reset focus — use "click" not "mousedown"
+	// to avoid racing with the editor's own click-to-focus behavior
 	useEffect(() => {
+		if (!isFocused) return;
 		const handleClickOutside = (event: MouseEvent) => {
 			if (
 				containerRef.current &&
@@ -143,13 +146,13 @@ export function ProjectDescriptionEditor({
 				setIsFocused(false);
 			}
 		};
-
-		if (isFocused) {
-			document.addEventListener("mousedown", handleClickOutside);
-		}
-
+		// Use a small delay so the editor's internal click handler fires first
+		const timer = setTimeout(() => {
+			document.addEventListener("click", handleClickOutside);
+		}, 0);
 		return () => {
-			document.removeEventListener("mousedown", handleClickOutside);
+			clearTimeout(timer);
+			document.removeEventListener("click", handleClickOutside);
 		};
 	}, [isFocused]);
 
@@ -310,7 +313,7 @@ export function ProjectDescriptionEditor({
 					? "flex-1 min-h-0"
 					: isFocused
 						? "h-70 shrink-0"
-						: "h-30 shrink-0",
+						: "shrink-0",
 				className,
 			)}
 		>
@@ -332,14 +335,15 @@ export function ProjectDescriptionEditor({
 					}
 				}}
 			>
+				{/* Editor content area */}
 				<div
 					className={cn(
 						"flex grow relative w-full overflow-y-auto",
-						isFocused || isExpanded ? "items-start" : "h-full items-center",
+						isFocused || isExpanded ? "items-start min-h-16" : "items-center min-h-8",
 					)}
 				>
-					<div className="w-full h-full">
-						<EditorContent editor={editor} className="h-full" />
+					<div className="w-full [&_.ProseMirror]:text-foreground [&_.ProseMirror]:min-h-6 [&_.ProseMirror_p.is-editor-empty:first-child::before]:text-muted-foreground [&_.ProseMirror_p.is-editor-empty:first-child::before]:opacity-60">
+						<EditorContent editor={editor} />
 					</div>
 
 					{(isFocused || isExpanded) && (
@@ -357,6 +361,36 @@ export function ProjectDescriptionEditor({
 					)}
 				</div>
 
+				{/* Write with AI button — always visible as separate row */}
+				{!isFocused && !isExpanded && (
+					<div className="flex justify-end px-2 pb-2 shrink-0">
+						<button
+							type="button"
+							className="bg-muted-foreground/8 flex gap-1.5 h-7 items-center px-3 py-0.5 rounded-full hover:bg-muted-foreground/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleAIWrite();
+							}}
+							disabled={aiLoading || !workspace}
+						>
+							<div className="size-3.5">
+								{aiLoading ? (
+									<div className="size-3.5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+								) : (
+									<StarFour
+										weight="fill"
+										className="size-3.5 text-primary"
+									/>
+								)}
+							</div>
+							<span className="font-medium text-foreground text-xs tracking-wide">
+								{aiLoading ? "Writing..." : "Write with AI"}
+							</span>
+						</button>
+					</div>
+				)}
+
+				{/* Full toolbar when focused */}
 				{(isFocused || isExpanded) && (
 					<div className="w-full overflow-hidden shrink-0 animate-in fade-in zoom-in-95 duration-200">
 						<div className="h-px w-full bg-border my-2" />

@@ -994,7 +994,7 @@ export const createDocument = createTool({
 			.string()
 			.optional()
 			.describe(
-				"Initial document content as plain text. Leave empty for the user to edit later.",
+				"Initial document content in markdown format. Use proper markdown: # headings, **bold**, *italic*, - bullet lists, 1. numbered lists, ```code blocks```, > blockquotes, and | markdown tables | with header and separator rows. The editor will convert markdown to rich text automatically.",
 			),
 	}),
 	execute: async (

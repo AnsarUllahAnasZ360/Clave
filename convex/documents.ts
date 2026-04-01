@@ -261,6 +261,7 @@ export const create = mutation({
 		workspaceId: v.id("workspaces"),
 		projectId: v.optional(v.id("projects")),
 		title: v.string(),
+		content: v.optional(v.string()),
 	},
 	returns: v.id("documents"),
 	handler: async (ctx, args) => {
@@ -285,6 +286,7 @@ export const create = mutation({
 			workspaceId: args.workspaceId,
 			projectId: args.projectId,
 			title: args.title,
+			content: args.content,
 			icon: getRandomEmoji(),
 			sortOrder: Date.now(),
 			createdBy: userId,

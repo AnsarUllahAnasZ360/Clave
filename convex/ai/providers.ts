@@ -682,7 +682,7 @@ const REASONING_EFFORT_BY_MODEL: Partial<
  */
 export function getReasoningProviderOptions(
 	modelId: ChatModelId,
-): Record<string, Record<string, string>> | undefined {
+): Record<string, Record<string, string | boolean>> | undefined {
 	// Chat Completions deployments can emit unsupported warnings for reasoning
 	// options. Only send reasoning options on the Responses API variant.
 	if (getModelApiVariant(modelId) !== "responses") return undefined;
@@ -692,7 +692,13 @@ export function getReasoningProviderOptions(
 	const providerKey = "azure";
 
 	return {
-		[providerKey]: { reasoningEffort },
+		[providerKey]: {
+			reasoningEffort,
+			reasoningSummary: "concise",
+			// Ensure the SDK treats this as a reasoning model even if the Azure
+			// deployment name doesn't match known prefixes (e.g. "gpt-5*").
+			forceReasoning: true,
+		},
 	};
 }
 

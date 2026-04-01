@@ -249,13 +249,14 @@ export function createTextElement(
 	const normalizedText = config.text.replace(/\r/g, "");
 	const lines = normalizedText.split("\n");
 	const longestLineLength = Math.max(...lines.map((line) => line.length), 1);
-	const estimatedWidth = longestLineLength * fontSize * 0.6;
+	// Virgil (fontFamily 1) glyphs are wider than standard fonts — use 0.65
+	const estimatedWidth = longestLineLength * fontSize * 0.65;
 	const estimatedHeight = lines.length * fontSize * 1.25;
 	const width = config.width ?? estimatedWidth;
 	// Guard against multi-line labels being persisted with a too-small fixed
 	// height (causes clipped text until Excalidraw recomputes dimensions).
 	const height = Math.max(config.height ?? estimatedHeight, estimatedHeight);
-	return {
+	const el: ExcalidrawElementLike = {
 		...baseElement("text", config.x, config.y, width, height, index),
 		text: config.text,
 		fontSize,
@@ -268,6 +269,13 @@ export function createTextElement(
 		lineHeight: 1.25,
 		roundness: null,
 	};
+	// Bound text sits on a light-colored shape bg → dark text is fine.
+	// Standalone text renders directly on the canvas — use a light color
+	// so it is visible on Excalidraw's dark theme (Clave is dark-mode first).
+	if (!config.containerId) {
+		el.strokeColor = "#f5f5f5";
+	}
+	return el;
 }
 
 export function createArrowElement(
@@ -464,12 +472,10 @@ export function parseAIElementsToExcalidraw(
 		// Create text label inside the shape
 		const textEl = createTextElement(
 			{
-				x: x + 10,
-				y: y + (NODE_HEIGHT - 20) / 2,
+				x: x + NODE_WIDTH / 2,
+				y: y + NODE_HEIGHT / 2,
 				text: node.label,
-				width: NODE_WIDTH - 20,
-				height: 20,
-				fontSize: 14,
+				fontSize: 16,
 				containerId: shapeEl.id,
 			},
 			generateIndex(indexCounter++),
@@ -798,14 +804,13 @@ function convertDirectElements(
 				elements.push(el);
 				const labelText = raw.text ?? raw.label?.text;
 				if (labelText) {
+					const labelFontSize = raw.label?.fontSize ?? 16;
 					const textEl = createTextElement(
 						{
-							x: x + 10,
-							y: y + (height - 20) / 2,
+							x: x + width / 2,
+							y: y + height / 2,
 							text: labelText,
-							width: width - 20,
-							height: 20,
-							fontSize: raw.label?.fontSize ?? 14,
+							fontSize: labelFontSize,
 							containerId: el.id,
 						},
 						generateIndex(indexCounter++),
@@ -827,14 +832,13 @@ function convertDirectElements(
 				elements.push(el);
 				const labelText = raw.text ?? raw.label?.text;
 				if (labelText) {
+					const labelFontSize = raw.label?.fontSize ?? 16;
 					const textEl = createTextElement(
 						{
-							x: x + 10,
-							y: y + (height - 20) / 2,
+							x: x + width / 2,
+							y: y + height / 2,
 							text: labelText,
-							width: width - 20,
-							height: 20,
-							fontSize: raw.label?.fontSize ?? 14,
+							fontSize: labelFontSize,
 							containerId: el.id,
 						},
 						generateIndex(indexCounter++),
@@ -856,14 +860,13 @@ function convertDirectElements(
 				elements.push(el);
 				const labelText = raw.text ?? raw.label?.text;
 				if (labelText) {
+					const labelFontSize = raw.label?.fontSize ?? 16;
 					const textEl = createTextElement(
 						{
-							x: x + 10,
-							y: y + (height - 20) / 2,
+							x: x + width / 2,
+							y: y + height / 2,
 							text: labelText,
-							width: width - 20,
-							height: 20,
-							fontSize: raw.label?.fontSize ?? 14,
+							fontSize: labelFontSize,
 							containerId: el.id,
 						},
 						generateIndex(indexCounter++),

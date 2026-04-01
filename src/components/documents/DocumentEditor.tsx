@@ -265,12 +265,23 @@ export default function DocumentEditor({
 		!document?.syncVersion || document.syncVersion === "v1";
 	const needsSyncUpgrade = document?.syncVersion !== "v3";
 	const initialValue = useMemo(() => {
-		const convertedContent =
-			legacyContentFormat && document?.content
-				? parseAnyContentToSlate(document.content)
-				: undefined;
+		// For legacy (v1) or new docs with pre-filled content (e.g. from AI chat),
+		// parse the content field into Slate nodes as the initial editor value.
+		let rawContent = document?.content;
+		if (rawContent && rawContent.trim().length > 0) {
+			// Strip chat-only blocks but keep their inner content for todo-lists
+			rawContent = rawContent
+				.replace(/:::mode-suggest\s*[\s\S]*?:::/g, "") // remove mode-suggest entirely
+				.replace(/:::todo-list\s*/g, "") // remove opening :::todo-list tag
+				.replace(/:::/g, "") // remove closing ::: tags
+				.trim();
+		}
+		const hasContent = rawContent && rawContent.length > 0;
+		const convertedContent = hasContent
+			? parseAnyContentToSlate(rawContent)
+			: undefined;
 		return normalizeSlateValue(convertedContent ?? DEFAULT_SLATE_VALUE);
-	}, [document?.content, legacyContentFormat]);
+	}, [document?.content]);
 
 	// Note: mounted gate removed — this component is "use client" and loaded
 	// via next/dynamic with ssr: false, so it never SSRs. Removing the
