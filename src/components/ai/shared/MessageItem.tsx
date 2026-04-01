@@ -437,8 +437,10 @@ export const AssistantMessage = memo(
 		const workspaceSlug = workspace?.workspaceSlug ?? "";
 
 		const hasToolParts = parts.some((p) => isToolPart(p as { type: string }));
-		const hasReasoningParts = parts.some((p) =>
-			isReasoningPart(p as { type: string }),
+		const hasReasoningParts = parts.some(
+			(p) =>
+				isReasoningPart(p as { type: string }) &&
+				!!(p as ReasoningPart).text,
 		);
 
 		// Collect source parts for the Sources section (memoized to prevent SourcesList re-renders)
@@ -598,6 +600,11 @@ export const AssistantMessage = memo(
 			// ── Reasoning part ───────────────────────────────────────────
 			if (isReasoningPart(part as { type: string })) {
 				const rp = part as ReasoningPart;
+				// Skip empty reasoning parts (API returned reasoning tokens
+				// but no summary text, e.g. during tool-call steps)
+				if (!rp.text && !isReasoningStreaming) {
+					continue;
+				}
 				flushToolGroup();
 				if (textBuffer) {
 					renderTextContent(textBuffer, `text-${i}`, false);
