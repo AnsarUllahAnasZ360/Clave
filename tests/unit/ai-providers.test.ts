@@ -95,6 +95,8 @@ describe("ai/providers", () => {
 			expect(result).toEqual({
 				azure: {
 					reasoningEffort: "medium",
+					reasoningSummary: "concise",
+					forceReasoning: true,
 				},
 			});
 		});
