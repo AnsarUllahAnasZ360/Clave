@@ -732,7 +732,6 @@ export const moveIssueToSprint = internalMutation({
 			}
 		}
 
-		const oldSprintId = issue.sprintId;
 		await ctx.db.patch(args.issueId, {
 			sprintId: args.sprintId,
 			listId: undefined, // Sprint and list are mutually exclusive

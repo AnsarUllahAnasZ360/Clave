@@ -1656,11 +1656,11 @@ describe("parseAnyContentToSlate", () => {
 		const md = "# Title\n\n- Item 1\n- Item 2";
 		const result = parseAnyContentToSlate(md);
 		expect(result).toBeDefined();
-		expect(result![0]).toEqual({
+		expect(result?.[0]).toEqual({
 			type: "h1",
 			children: [{ text: "Title" }],
 		});
-		expect(result![1]).toMatchObject({
+		expect(result?.[1]).toMatchObject({
 			type: "p",
 			indent: 1,
 			listStyleType: "disc",
