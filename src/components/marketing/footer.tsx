@@ -15,6 +15,11 @@ const FOOTER_LINKS = {
 			href: "https://github.com/AnsarUllahAnasZ360/Clave",
 		},
 	],
+	Legal: [
+		{ label: "Privacy Policy", href: "/privacy" },
+		{ label: "Terms of Service", href: "/terms" },
+		{ label: "Support", href: "/support" },
+	],
 };
 
 export function Footer() {
