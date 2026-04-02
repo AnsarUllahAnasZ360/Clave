@@ -1164,3 +1164,138 @@ export const getWhiteboardById = internalQuery({
 		return whiteboard;
 	},
 });
+
+export const listWhiteboards = internalQuery({
+	args: {
+		workspaceId: v.id("workspaces"),
+		projectId: v.optional(v.id("projects")),
+		limit: v.optional(v.float64()),
+	},
+	handler: async (ctx, args) => {
+		const limit = args.limit ?? 25;
+
+		const boards = args.projectId
+			? (
+					await ctx.db
+						.query("whiteboards")
+						.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+						.collect()
+				).filter((b) => b.workspaceId === args.workspaceId)
+			: await ctx.db
+					.query("whiteboards")
+					.withIndex("by_workspace", (q) =>
+						q.eq("workspaceId", args.workspaceId),
+					)
+					.collect();
+
+		// Filter deleted, sort by most recent
+		const active = boards
+			.filter((b) => !b.deletedAt)
+			.sort(
+				(a, b) =>
+					(b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime),
+			)
+			.slice(0, limit);
+
+		return active.map((b) => ({
+			id: b._id,
+			title: b.title,
+			icon: b.icon ?? null,
+			projectId: b.projectId ?? null,
+			createdBy: b.createdBy,
+			updatedAt: b.updatedAt ?? b._creationTime,
+			elementCount: countSceneElements(b.sceneData),
+		}));
+	},
+});
+
+export const getWhiteboardDetails = internalQuery({
+	args: {
+		whiteboardId: v.id("whiteboards"),
+	},
+	handler: async (ctx, args) => {
+		const board = await ctx.db.get(args.whiteboardId);
+		if (!board || board.deletedAt) return null;
+
+		const creator = await ctx.db.get(board.createdBy);
+		const lastEditor = board.lastEditedBy
+			? await ctx.db.get(board.lastEditedBy)
+			: null;
+		const project = board.projectId ? await ctx.db.get(board.projectId) : null;
+
+		return {
+			id: board._id,
+			title: board.title,
+			icon: board.icon ?? null,
+			projectId: board.projectId ?? null,
+			projectName: project?.name ?? null,
+			createdBy: board.createdBy,
+			creatorName: creator?.name ?? "Unknown",
+			lastEditedBy: board.lastEditedBy ?? null,
+			lastEditorName: lastEditor?.name ?? null,
+			updatedAt: board.updatedAt ?? board._creationTime,
+			createdAt: board._creationTime,
+			elementCount: countSceneElements(board.sceneData),
+			contentSummary: summarizeSceneForTool(board.sceneData),
+			visibility: board.visibility ?? "workspace",
+			isPinned: board.isPinned ?? false,
+		};
+	},
+});
+
+/** Count non-deleted elements in Excalidraw scene JSON. */
+function countSceneElements(sceneData?: string | null): number {
+	if (!sceneData) return 0;
+	try {
+		const parsed = JSON.parse(sceneData);
+		if (!Array.isArray(parsed)) return 0;
+		return parsed.filter((el: { isDeleted?: boolean }) => el && !el.isDeleted)
+			.length;
+	} catch {
+		return 0;
+	}
+}
+
+/** Produce a short summary of board elements for AI tools. */
+function summarizeSceneForTool(sceneData?: string | null): string | null {
+	if (!sceneData) return null;
+	try {
+		const parsed = JSON.parse(sceneData);
+		if (!Array.isArray(parsed)) return null;
+		type El = {
+			type: string;
+			text?: string;
+			isDeleted?: boolean;
+			containerId?: string;
+			boundElements?: Array<{ id: string; type: string }>;
+			label?: { text?: string };
+		};
+		const elements = (parsed as El[]).filter((el) => el && !el.isDeleted);
+		if (elements.length === 0) return "Empty canvas";
+
+		const typeCounts: Record<string, number> = {};
+		const labels: string[] = [];
+		for (const el of elements) {
+			typeCounts[el.type] = (typeCounts[el.type] || 0) + 1;
+			const labelText =
+				el.label?.text ??
+				(el.type === "text" && !el.containerId ? el.text : null);
+			if (labelText && labels.length < 15) {
+				labels.push(
+					labelText.length > 40 ? `${labelText.slice(0, 37)}...` : labelText,
+				);
+			}
+		}
+
+		const parts = Object.entries(typeCounts)
+			.map(([type, count]) => `${count} ${type}${count > 1 ? "s" : ""}`)
+			.join(", ");
+		const summary = `${elements.length} elements: ${parts}`;
+		if (labels.length > 0) {
+			return `${summary}. Labels: ${labels.join(", ")}`;
+		}
+		return summary;
+	} catch {
+		return null;
+	}
+}

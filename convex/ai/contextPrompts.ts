@@ -322,7 +322,7 @@ async function buildWhiteboardContext(
 
 	lines.push("");
 	lines.push(
-		"  You can see the full board contents above. For diagram generation requests, call the write tool `generateWhiteboardDiagram` and pass this exact whiteboard ID.",
+		`  You are viewing this board. For diagram/wireframe/flowchart requests, call \`generateWhiteboardDiagram\` with whiteboardId="${board._id}". To update board metadata, use \`updateWhiteboard\`. To read board details, use \`getWhiteboard\`.`,
 	);
 
 	return wrapContextBlock(lines.join("\n"));

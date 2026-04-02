@@ -1331,11 +1331,129 @@ export const createLabel = createTool({
 	},
 });
 
-// ── 9. generateWhiteboardDiagram ─────────────────────────────────────────
+// ── 9a. createWhiteboard ─────────────────────────────────────────────────
+
+interface CreateWhiteboardResult {
+	whiteboardId: string;
+	title: string;
+	message: string;
+}
+
+export const createWhiteboard = createTool({
+	description:
+		"Create a new whiteboard/board in the workspace. Use this when the user asks to create a board, or when they request a diagram/wireframe/flowchart and no suitable board exists yet. After creating the board, use generateWhiteboardDiagram to add content to it.",
+	inputSchema: z.object({
+		title: z.string().describe("Whiteboard title"),
+		projectId: z
+			.string()
+			.optional()
+			.describe("Project ID to associate the board with"),
+		icon: z.string().optional().describe("Emoji icon for the board"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<CreateWhiteboardResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		const whiteboardId = await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.createWhiteboard, {
+				userId,
+				workspaceId,
+				projectId: args.projectId
+					? (args.projectId as Id<"projects">)
+					: undefined,
+				title: args.title,
+				icon: args.icon,
+			}),
+			TOOL_TIMEOUT_MS,
+			"createWhiteboard",
+		);
+
+		return {
+			whiteboardId,
+			title: args.title,
+			message: `Created whiteboard "${args.title}" (${whiteboardId}). You can now use generateWhiteboardDiagram to add diagrams to this board.`,
+		};
+	},
+});
+
+// ── 9b. updateWhiteboard ─────────────────────────────────────────────────
+
+interface UpdateWhiteboardResult {
+	whiteboardId: string;
+	updatedFields: string[];
+	message: string;
+}
+
+export const updateWhiteboard = createTool({
+	description:
+		"Update a whiteboard's metadata (title, icon, project association). Use this when the user asks to rename a board, change its icon, or move it to a different project.",
+	inputSchema: z.object({
+		whiteboardId: z.string().describe("The whiteboard ID to update"),
+		title: z.string().optional().describe("New board title"),
+		icon: z.string().optional().describe("New emoji icon"),
+		projectId: z
+			.string()
+			.optional()
+			.describe("New project ID to associate with"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<UpdateWhiteboardResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		const board = await withTimeout(
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardById, {
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateWhiteboard:getById",
+		);
+
+		if (!board) {
+			return { error: "Whiteboard not found or has been deleted." };
+		}
+		if (board.workspaceId !== workspaceId) {
+			return { error: "Whiteboard belongs to a different workspace." };
+		}
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.updateWhiteboard, {
+				userId,
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+				title: args.title,
+				icon: args.icon,
+				projectId: args.projectId
+					? (args.projectId as Id<"projects">)
+					: undefined,
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateWhiteboard",
+		);
+
+		const updatedFields = [
+			args.title ? "title" : null,
+			args.icon ? "icon" : null,
+			args.projectId ? "projectId" : null,
+		].filter(Boolean) as string[];
+
+		return {
+			whiteboardId: args.whiteboardId,
+			updatedFields,
+			message: `Updated whiteboard: ${updatedFields.join(", ")}`,
+		};
+	},
+});
+
+// ── 9c. generateWhiteboardDiagram ────────────────────────────────────────
 
 export const generateWhiteboardDiagram = createTool({
 	description:
-		"Generate a diagram on a whiteboard and persist it directly to the board scene. Use this when the user asks in chat to create a wireframe/flowchart/architecture diagram on the current whiteboard.",
+		"Generate a diagram on a whiteboard and persist it directly to the board scene. Use this when the user asks to create a wireframe, flowchart, or architecture diagram. If no whiteboardId is available, first create a board with createWhiteboard, then pass its ID here.",
 	inputSchema: z.object({
 		prompt: z
 			.string()
@@ -1344,7 +1462,7 @@ export const generateWhiteboardDiagram = createTool({
 			.string()
 			.optional()
 			.describe(
-				"Target whiteboard ID. Use the ID from page context when on a board page.",
+				"Target whiteboard ID. Use the ID from page context when on a board page, or the ID returned by createWhiteboard.",
 			),
 		mode: z
 			.enum(["wireframe", "flowchart", "architecture"])
@@ -1360,7 +1478,7 @@ export const generateWhiteboardDiagram = createTool({
 		if (!args.whiteboardId) {
 			return {
 				error:
-					"whiteboardId is required. Use the active board ID from page context.",
+					"whiteboardId is required. Use the board ID from page context, or create a board first with createWhiteboard and pass its ID.",
 			};
 		}
 
@@ -1766,6 +1884,8 @@ export const writeTools = {
 	createProject,
 	updateProject,
 	createLabel,
+	createWhiteboard,
+	updateWhiteboard,
 	generateWhiteboardDiagram,
 	approvePendingAction,
 	createSprint,

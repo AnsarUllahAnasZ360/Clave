@@ -155,7 +155,7 @@ export const dispatchMention = internalAction({
 			userId: args.actorUserId,
 			messages: promptMessages,
 		});
-		const promptMessageId =
+		let promptMessageId =
 			savedPrompt.messages[savedPrompt.messages.length - 1]?._id;
 		if (!promptMessageId) {
 			throw new ConvexError(
@@ -186,26 +186,62 @@ export const dispatchMention = internalAction({
 			}
 		}
 
-		const result = await getClaveAgent().streamText(
-			ctx,
-			{ threadId: resolvedThreadId, userId: args.actorUserId },
-			{
-				promptMessageId,
-				system: baseSystemPrompt + contextSuffix,
-				model,
-				maxOutputTokens: 16384,
-			},
-			{
-				saveStreamDeltas: {
-					chunking: "word",
-					throttleMs: 40,
-				},
-				contextOptions: {
-					recentMessages: 20,
-				},
-			},
-		);
-		await result.consumeStream();
+		// Retry loop for transient errors (rate limits, 429s)
+		const MAX_RETRIES = 3;
+		// biome-ignore lint/suspicious/noExplicitAny: streamText return type varies by agent config
+		let result: any;
+		for (let attempt = 0; ; attempt++) {
+			try {
+				result = await getClaveAgent().streamText(
+					ctx,
+					{ threadId: resolvedThreadId, userId: args.actorUserId },
+					{
+						promptMessageId,
+						system: baseSystemPrompt + contextSuffix,
+						model,
+						maxOutputTokens: 16384,
+					},
+					{
+						saveStreamDeltas: {
+							chunking: "word",
+							throttleMs: 40,
+						},
+						contextOptions: {
+							recentMessages: 20,
+						},
+					},
+				);
+				await result.consumeStream();
+				break;
+			} catch (error) {
+				const msg =
+					error instanceof Error
+						? error.message.toLowerCase()
+						: String(error).toLowerCase();
+				const isRetryable =
+					msg.includes("too_many_requests") ||
+					msg.includes("too many requests") ||
+					msg.includes("429") ||
+					msg.includes("rate") ||
+					msg.includes("throttl");
+				if (!isRetryable || attempt >= MAX_RETRIES) throw error;
+
+				const delaySec = Math.min(15 * 2 ** attempt, 60);
+				console.warn(
+					`[googleChatAssistant] Rate limited, retrying in ${delaySec}s (attempt ${attempt + 1}/${MAX_RETRIES})`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, delaySec * 1000));
+
+				// Re-save prompt so the agent library creates a fresh message
+				const reSaved = await getClaveAgent().saveMessages(ctx, {
+					threadId: resolvedThreadId,
+					userId: args.actorUserId,
+					messages: promptMessages,
+				});
+				promptMessageId =
+					reSaved.messages[reSaved.messages.length - 1]?._id ?? promptMessageId;
+			}
+		}
 
 		await ctx.runMutation(touchThreadRef, {
 			threadId: resolvedThreadId,

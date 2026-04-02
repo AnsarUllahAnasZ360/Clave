@@ -100,8 +100,19 @@ export function CreateWorkspaceDialog({
 				e.data.kind === "plan_limit"
 			) {
 				setPlanLimitInfo(e.data as PlanLimitInfo);
+			} else if (e instanceof ConvexError) {
+				const msg =
+					typeof e.data === "string" ? e.data : "Failed to create workspace";
+				setError(msg);
+			} else if (
+				e instanceof Error &&
+				e.message.includes("slug already exists")
+			) {
+				setError(
+					"A workspace with this URL already exists. Please choose a different name.",
+				);
 			} else {
-				setError(e instanceof Error ? e.message : "Failed to create workspace");
+				setError("Failed to create workspace");
 			}
 		} finally {
 			setLoading(false);

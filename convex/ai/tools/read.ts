@@ -1502,6 +1502,117 @@ export const searchCode = createTool({
 	},
 });
 
+// ── 16. listWhiteboards ──────────────────────────────────────────────────
+
+interface WhiteboardListItem {
+	id: string;
+	title: string;
+	icon: string | null;
+	projectId: string | null;
+	updatedAt: number;
+	elementCount: number;
+}
+
+export const listWhiteboards = createTool({
+	description:
+		"List whiteboards/boards in the workspace. Optionally filter by project. Use this to discover existing boards before creating new ones, or when the user asks about boards.",
+	inputSchema: z.object({
+		projectId: z.string().optional().describe("Filter boards by project ID"),
+		limit: z.number().optional().describe("Max boards to return (default 25)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<WhiteboardListItem[] | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+
+		const boards = await withTimeout(
+			ctx.runQuery(internal.ai.toolQueries.listWhiteboards, {
+				workspaceId,
+				projectId: args.projectId
+					? (args.projectId as Id<"projects">)
+					: undefined,
+				limit: args.limit,
+			}),
+			TOOL_TIMEOUT_MS,
+			"listWhiteboards",
+		);
+
+		return boards.map((b) => ({
+			id: b.id,
+			title: b.title,
+			icon: b.icon,
+			projectId: b.projectId,
+			updatedAt: b.updatedAt,
+			elementCount: b.elementCount,
+		}));
+	},
+});
+
+// ── 17. getWhiteboard ────────────────────────────────────────────────────
+
+interface WhiteboardDetailResult {
+	id: string;
+	title: string;
+	icon: string | null;
+	projectId: string | null;
+	projectName: string | null;
+	creatorName: string;
+	lastEditorName: string | null;
+	updatedAt: number;
+	createdAt: number;
+	elementCount: number;
+	contentSummary: string | null;
+	visibility: string;
+	isPinned: boolean;
+}
+
+export const getWhiteboard = createTool({
+	description:
+		"Get details of a specific whiteboard/board including element count and content summary. Use this to understand what's on a board before generating diagrams or making updates.",
+	inputSchema: z.object({
+		whiteboardId: z.string().describe("The whiteboard/board ID to retrieve"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<WhiteboardDetailResult | ErrorResult> => {
+		const _workspaceId = await resolveWorkspaceId(ctx);
+
+		const board = await withTimeout(
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardDetails, {
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+			}),
+			TOOL_TIMEOUT_MS,
+			"getWhiteboard",
+		);
+
+		if (!board) {
+			return { error: "Whiteboard not found or has been deleted." };
+		}
+
+		if (board.id !== args.whiteboardId) {
+			// Sanity check — shouldn't happen
+		}
+
+		return {
+			id: board.id,
+			title: board.title,
+			icon: board.icon,
+			projectId: board.projectId,
+			projectName: board.projectName,
+			creatorName: board.creatorName,
+			lastEditorName: board.lastEditorName,
+			updatedAt: board.updatedAt,
+			createdAt: board.createdAt,
+			elementCount: board.elementCount,
+			contentSummary: board.contentSummary,
+			visibility: board.visibility,
+			isPinned: board.isPinned,
+		};
+	},
+});
+
 // ── Export all read tools as a named toolset ─────────────────────────────
 
 export const readTools = {
@@ -1519,4 +1630,6 @@ export const readTools = {
 	getNotifications,
 	searchProjectKnowledge,
 	searchCode,
+	listWhiteboards,
+	getWhiteboard,
 };

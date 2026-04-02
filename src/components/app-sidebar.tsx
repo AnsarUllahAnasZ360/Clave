@@ -19,6 +19,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import type { Route } from "next";
 import Link, { type LinkProps } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -389,7 +390,18 @@ export function AppSidebar() {
 											tooltip={item.label}
 											className="h-9 rounded-lg px-3 font-normal text-muted-foreground"
 										>
-											<Link href={href} prefetch={false}>
+											<Link
+												href={href}
+												prefetch={false}
+												onClick={
+													item.id === "chat" && active
+														? (e) => {
+																e.preventDefault();
+																router.push(`/${workspaceSlug}/chat` as Route);
+															}
+														: undefined
+												}
+											>
 												{(() => {
 													const Icon = navItemIcons[item.id];
 													return Icon ? (

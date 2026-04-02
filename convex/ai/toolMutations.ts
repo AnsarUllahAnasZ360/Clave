@@ -759,7 +759,97 @@ export const updateWhiteboardScene = internalMutation({
 	},
 });
 
-// ── 7b. updateProject ───────────────────────────────────────────────────
+// ── 7b. createWhiteboard ─────────────────────────────────────────────────
+
+export const createWhiteboard = internalMutation({
+	args: {
+		userId: v.id("users"),
+		workspaceId: v.id("workspaces"),
+		projectId: v.optional(v.id("projects")),
+		title: v.string(),
+		icon: v.optional(v.string()),
+	},
+	returns: v.id("whiteboards"),
+	handler: async (ctx, args) => {
+		const member = await requireMembership(ctx, args.workspaceId, args.userId);
+
+		if (member.role !== "admin" && args.projectId) {
+			const hasAccess = await canAccessProject(
+				ctx,
+				args.projectId,
+				args.userId,
+				member.role as "admin" | "member",
+			);
+			if (!hasAccess)
+				throw new ConvexError("You don't have access to this project");
+		}
+
+		const whiteboardId = await ctx.db.insert("whiteboards", {
+			workspaceId: args.workspaceId,
+			projectId: args.projectId,
+			title: args.title,
+			icon: args.icon ?? getRandomEmoji(),
+			sceneData: "[]",
+			appState: "{}",
+			sortOrder: Date.now(),
+			createdBy: args.userId,
+			lastEditedBy: args.userId,
+			updatedAt: Date.now(),
+		});
+
+		await logActivity(ctx, {
+			workspaceId: args.workspaceId,
+			entityType: "whiteboard",
+			entityId: whiteboardId,
+			action: "created",
+			actorId: args.userId,
+			description: `Created whiteboard "${args.title}"`,
+			projectId: args.projectId,
+		});
+
+		return whiteboardId;
+	},
+});
+
+// ── 7c. updateWhiteboard ────────────────────────────────────────────────
+
+export const updateWhiteboard = internalMutation({
+	args: {
+		userId: v.id("users"),
+		whiteboardId: v.id("whiteboards"),
+		title: v.optional(v.string()),
+		icon: v.optional(v.string()),
+		projectId: v.optional(v.id("projects")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const whiteboard = await ctx.db.get(args.whiteboardId);
+		if (!whiteboard || whiteboard.deletedAt) {
+			throw new ConvexError("Whiteboard not found");
+		}
+
+		await requireMembership(ctx, whiteboard.workspaceId, args.userId);
+
+		const patch: Record<string, unknown> = { updatedAt: Date.now() };
+		if (args.title !== undefined) patch.title = args.title;
+		if (args.icon !== undefined) patch.icon = args.icon;
+		if (args.projectId !== undefined) patch.projectId = args.projectId;
+
+		await ctx.db.patch(args.whiteboardId, patch);
+
+		await logActivity(ctx, {
+			workspaceId: whiteboard.workspaceId,
+			entityType: "whiteboard",
+			entityId: args.whiteboardId,
+			action: "updated",
+			actorId: args.userId,
+			description: `Updated whiteboard "${args.title ?? whiteboard.title}"`,
+			projectId: whiteboard.projectId,
+		});
+	},
+});
+
+// ── 7d. updateProject ───────────────────────────────────────────────────
 
 export const updateProject = internalMutation({
 	args: {

@@ -23,6 +23,8 @@ describe("AI update tools", () => {
 				"createProject",
 				"updateProject",
 				"createLabel",
+				"createWhiteboard",
+				"updateWhiteboard",
 				"generateWhiteboardDiagram",
 				"approvePendingAction",
 				"createSprint",

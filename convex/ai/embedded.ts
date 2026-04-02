@@ -46,7 +46,6 @@ import { chatModel, getReasoningProviderOptions } from "./providers";
 import { getProjectNamespace, getRag } from "./rag";
 import {
 	extractElementsPayload,
-	fallbackElementsForMode,
 	inferGenerationMode,
 	sanitizeDrawableElements,
 	validateGeneratedElements,
@@ -773,67 +772,70 @@ export const embeddedAction = action({
 						generation: args.whiteboard?.generation,
 					});
 
-					try {
-						const generatedText = await callAI(generationPrompt, {
-							maxOutputTokens: 4096,
-							timeoutMs: AI_GENERATION_TIMEOUT_MS,
-						});
-						const parsed = parseJsonResponse(generatedText);
-						const elements = sanitizeDrawableElements(
-							extractElementsPayload(parsed),
-						);
-						const quality = validateGeneratedElements(elements, mode);
+					// Attempt generation with retry on failure.
+					const MAX_GENERATION_TOKENS = 8192;
+					let lastError: string | null = null;
 
-						if (elements.length > 0) {
-							return {
-								type: args.type,
-								text: `Generated ${mode} diagram`,
-								data: { mode, elements, quality },
-							};
-						}
+					for (let attempt = 0; attempt < 2; attempt++) {
+						try {
+							const generatedText = await callAI(
+								attempt === 0
+									? generationPrompt
+									: `${generationPrompt}\n\nIMPORTANT: Previous attempt failed. Return a SIMPLER diagram with fewer elements (max 15 shapes). Ensure valid JSON with an "elements" array.`,
+								{
+									maxOutputTokens: MAX_GENERATION_TOKENS,
+									timeoutMs: AI_GENERATION_TIMEOUT_MS,
+								},
+							);
+							const parsed = parseJsonResponse(generatedText);
+							const elements = sanitizeDrawableElements(
+								extractElementsPayload(parsed),
+							);
+							const quality = validateGeneratedElements(elements, mode);
 
-						// Last resort: check for nodes/edges format
-						if (parsed && typeof parsed === "object") {
-							const parsedRecord = parsed as Record<string, unknown>;
-							if (
-								Array.isArray(parsedRecord.elements) ||
-								Array.isArray(parsedRecord.nodes) ||
-								Array.isArray(parsedRecord.edges)
-							) {
+							if (elements.length > 0) {
 								return {
 									type: args.type,
 									text: `Generated ${mode} diagram`,
-									data: { mode, ...parsedRecord },
+									data: { mode, elements, quality },
 								};
 							}
-						}
 
-						if (quality.issues.length > 0) {
-							return {
-								type: args.type,
-								text: "",
-								error: `Generation quality issues: ${quality.issues.join("; ")}. Try a more specific prompt.`,
-							};
+							// Last resort: check for nodes/edges format
+							if (parsed && typeof parsed === "object") {
+								const parsedRecord = parsed as Record<string, unknown>;
+								if (
+									Array.isArray(parsedRecord.elements) ||
+									Array.isArray(parsedRecord.nodes) ||
+									Array.isArray(parsedRecord.edges)
+								) {
+									return {
+										type: args.type,
+										text: `Generated ${mode} diagram`,
+										data: { mode, ...parsedRecord },
+									};
+								}
+							}
+
+							lastError =
+								quality.issues.length > 0
+									? `Quality issues: ${quality.issues.join("; ")}`
+									: "No valid elements in AI response";
+						} catch (error) {
+							lastError =
+								error instanceof Error ? error.message : "Generation failed";
+							console.warn(
+								`[embedded:whiteboard_generate_diagram] attempt ${attempt + 1} failed:`,
+								lastError,
+							);
 						}
-					} catch (error) {
-						const message =
-							error instanceof Error ? error.message : "Generation failed";
-						console.warn(
-							"[embedded:whiteboard_generate_diagram] falling back to deterministic layout:",
-							message,
-						);
 					}
 
-					const fallback = fallbackElementsForMode(mode);
+					// Both attempts failed — return a clear error instead of silent fallback
 					return {
 						type: args.type,
-						text: `Generated ${mode} diagram (fallback layout)`,
-						data: {
-							mode,
-							elements: fallback,
-							quality: validateGeneratedElements(fallback, mode),
-							fallback: true,
-						},
+						text: "",
+						error: `Diagram generation failed after 2 attempts: ${lastError ?? "unknown error"}. Try a simpler prompt or fewer elements.`,
 					};
 				}
 

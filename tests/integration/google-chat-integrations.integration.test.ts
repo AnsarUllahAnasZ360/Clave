@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+// Covers: connect/disconnect, BYOSA duplicate guard, identity links, workspace resolution, welcome messages
 
 import { makeFunctionReference } from "convex/server";
 import { convexTest } from "convex-test";

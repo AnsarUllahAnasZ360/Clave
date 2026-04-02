@@ -193,11 +193,48 @@ export function sanitizeDrawableElements(
 				candidate[field] = value;
 			}
 		}
-		for (const field of ["text", "strokeColor", "backgroundColor"] as const) {
+		for (const field of [
+			"text",
+			"strokeColor",
+			"backgroundColor",
+			"fillStyle",
+		] as const) {
 			const value = raw[field];
 			if (typeof value === "string" && value.length > 0) {
 				candidate[field] = value;
 			}
+		}
+		// Preserve roundness for rounded corners
+		if (raw.roundness && typeof raw.roundness === "object") {
+			const rt = (raw.roundness as { type?: unknown }).type;
+			if (typeof rt === "number") {
+				candidate.roundness = { type: rt };
+			}
+		}
+		// Preserve opacity if explicitly set
+		if (
+			typeof raw.opacity === "number" &&
+			Number.isFinite(raw.opacity) &&
+			raw.opacity >= 0 &&
+			raw.opacity <= 100
+		) {
+			candidate.opacity = raw.opacity;
+		}
+		// Preserve strokeWidth
+		if (
+			typeof raw.strokeWidth === "number" &&
+			Number.isFinite(raw.strokeWidth) &&
+			raw.strokeWidth > 0
+		) {
+			candidate.strokeWidth = raw.strokeWidth;
+		}
+		// Preserve fontSize for standalone text elements
+		if (
+			typeof raw.fontSize === "number" &&
+			Number.isFinite(raw.fontSize) &&
+			raw.fontSize > 0
+		) {
+			candidate.fontSize = raw.fontSize;
 		}
 		if (Array.isArray(raw.points)) {
 			const points = raw.points
@@ -235,9 +272,25 @@ export function sanitizeDrawableElements(
 		for (const bindingKey of ["startBinding", "endBinding"] as const) {
 			const binding = raw[bindingKey];
 			if (binding && typeof binding === "object") {
-				const elementId = (binding as { elementId?: unknown }).elementId;
+				const b = binding as {
+					elementId?: unknown;
+					fixedPoint?: unknown;
+				};
+				const elementId = b.elementId;
 				if (typeof elementId === "string" && elementId.trim()) {
-					candidate[bindingKey] = { elementId: elementId.trim() };
+					const sanitizedBinding: Record<string, unknown> = {
+						elementId: elementId.trim(),
+					};
+					// Preserve fixedPoint for arrow snap positions
+					if (
+						Array.isArray(b.fixedPoint) &&
+						b.fixedPoint.length === 2 &&
+						typeof b.fixedPoint[0] === "number" &&
+						typeof b.fixedPoint[1] === "number"
+					) {
+						sanitizedBinding.fixedPoint = [b.fixedPoint[0], b.fixedPoint[1]];
+					}
+					candidate[bindingKey] = sanitizedBinding;
 				}
 			}
 		}

@@ -1,8 +1,15 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { HELP_TEXT } from "../../app/api/webhooks/google-chat/route";
+import {
+	HELP_TEXT,
+	WELCOME_DM,
+	WELCOME_SPACE,
+} from "../../app/api/webhooks/google-chat/route";
 import { getBot } from "./bot";
+
+/** Track spaces/DMs where we've already sent a welcome message (per process). */
+const welcomedSpaces = new Set<string>();
 
 // ---------------------------------------------------------------------------
 // Convex client — used to call Convex queries/actions from Next.js handlers
@@ -505,6 +512,27 @@ bot.onNewMention(async (thread, message) => {
 		thread.channelId,
 		chatUserId || undefined,
 	);
+
+	// ── Welcome message on first interaction ────────────────────
+	// ADDED_TO_SPACE is unreliable in the Add-ons format, so we send the
+	// welcome on the first @mention/DM per space instead.
+	if (workspaceId && !welcomedSpaces.has(spaceName)) {
+		welcomedSpaces.add(spaceName);
+		const isDM = thread.isDM ?? false;
+		const welcomeText = isDM ? WELCOME_DM : WELCOME_SPACE;
+		try {
+			await convex
+				.action(postMessageRef, {
+					workspaceId,
+					spaceName,
+					text: welcomeText,
+				})
+				.catch(() => thread.post(welcomeText));
+		} catch {
+			// Best-effort — don't block the actual response
+		}
+	}
+
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let sent: any;
 	const postResult = workspaceId
@@ -554,6 +582,23 @@ bot.onNewMessage(/[\s\S]*/, async (thread, message) => {
 		thread.channelId,
 		chatUserId || undefined,
 	);
+
+	// ── Welcome message on first DM interaction ─────────────────
+	if (workspaceId && !welcomedSpaces.has(spaceName)) {
+		welcomedSpaces.add(spaceName);
+		try {
+			await convex
+				.action(postMessageRef, {
+					workspaceId,
+					spaceName,
+					text: WELCOME_DM,
+				})
+				.catch(() => thread.post(WELCOME_DM));
+		} catch {
+			// Best-effort
+		}
+	}
+
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let sent: any;
 	const postResult = workspaceId
