@@ -11,7 +11,12 @@ const { mockWebhookHandler } = vi.hoisted(() => ({
 vi.mock("chat", () => {
 	// Return a constructor function (not arrow) so `new Chat(...)` works
 	function MockChat() {
-		return { webhooks: { gchat: mockWebhookHandler } };
+		return {
+			webhooks: { gchat: mockWebhookHandler },
+			getAdapter: () => ({
+				postMessage: vi.fn().mockResolvedValue(undefined),
+			}),
+		};
 	}
 	return { Chat: MockChat };
 });
@@ -29,7 +34,7 @@ vi.mock("next/server", () => ({
 }));
 
 describe("google chat webhook route (SDK delegation)", () => {
-	it("delegates POST to bot.webhooks.gchat", async () => {
+	it("delegates POST to bot.webhooks.gchat for regular messages", async () => {
 		const sdkResponse = new Response(JSON.stringify({ ok: true }), {
 			status: 200,
 		});
@@ -48,10 +53,7 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const response = await POST(request);
 
 		expect(mockWebhookHandler).toHaveBeenCalledTimes(1);
-		const [passedReq, passedOpts] = mockWebhookHandler.mock.calls[0];
-		// Route reconstructs the request after reading the body for inspection
-		expect(passedReq.url).toBe(request.url);
-		expect(passedReq.method).toBe(request.method);
+		const [, passedOpts] = mockWebhookHandler.mock.calls[0];
 		expect(passedOpts).toHaveProperty("waitUntil");
 		expect(typeof passedOpts.waitUntil).toBe("function");
 		expect(response).toBe(sdkResponse);
@@ -80,14 +82,12 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const passedRequest = mockWebhookHandler.mock.calls[0][0];
 		expect(passedRequest.url).toBe(request.url);
 		expect(passedRequest.method).toBe("POST");
-		expect(passedRequest.headers.get("authorization")).toBe(
-			"Bearer test-token",
-		);
+		expect(passedRequest.headers.get("authorization")).toBe("Bearer test-token");
 		const passedBody = await passedRequest.text();
 		expect(passedBody).toBe(body);
 	});
 
-	it("returns welcome message for ADDED_TO_SPACE in DM", async () => {
+	it("returns empty JSON for ADDED_TO_SPACE in DM (posts welcome async)", async () => {
 		mockWebhookHandler.mockReset();
 
 		const { POST } = await import(
@@ -109,12 +109,11 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const response = await POST(request);
 		const data = await response.json();
 
-		expect(data.text).toContain("Hello! I'm Clave");
-		expect(data.text).toContain("Just type a message");
-		expect(mockWebhookHandler).not.toHaveBeenCalled();
+		// Sync response is empty — welcome posted asynchronously
+		expect(data).toEqual({});
 	});
 
-	it("returns welcome message for ADDED_TO_SPACE in space", async () => {
+	it("returns empty JSON for ADDED_TO_SPACE in space (posts welcome async)", async () => {
 		mockWebhookHandler.mockReset();
 
 		const { POST } = await import(
@@ -136,12 +135,10 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const response = await POST(request);
 		const data = await response.json();
 
-		expect(data.text).toContain("Hello! I'm Clave");
-		expect(data.text).toContain("@Clave");
-		expect(mockWebhookHandler).not.toHaveBeenCalled();
+		expect(data).toEqual({});
 	});
 
-	it("returns help text for slash commands", async () => {
+	it("returns empty JSON for /help slash command via appCommandPayload (posts help async)", async () => {
 		mockWebhookHandler.mockReset();
 
 		const { POST } = await import(
@@ -151,11 +148,15 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const request = new Request("http://localhost/api/webhooks/google-chat", {
 			method: "POST",
 			body: JSON.stringify({
-				commonEventObject: { invokedFunction: "1" },
+				commonEventObject: {},
 				chat: {
-					messagePayload: {
-						message: { slashCommand: { commandId: 1 } },
-						space: { name: "spaces/abc" },
+					user: { name: "users/123" },
+					appCommandPayload: {
+						appCommandMetadata: {
+							appCommandId: 1,
+							appCommandType: "SLASH_COMMAND",
+						},
+						space: { name: "spaces/abc", type: "DM" },
 					},
 				},
 			}),
@@ -165,9 +166,38 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const response = await POST(request);
 		const data = await response.json();
 
-		expect(data.text).toContain("Clave");
-		expect(data.text).toContain("Ask questions");
+		expect(data).toEqual({});
 		expect(mockWebhookHandler).not.toHaveBeenCalled();
+	});
+
+	it("delegates '@Clave help' to SDK for async help via handlers", async () => {
+		mockWebhookHandler.mockReset();
+		mockWebhookHandler.mockResolvedValue(new Response("{}", { status: 200 }));
+
+		const { POST } = await import(
+			"../../src/app/api/webhooks/google-chat/route"
+		);
+
+		const request = new Request("http://localhost/api/webhooks/google-chat", {
+			method: "POST",
+			body: JSON.stringify({
+				chat: {
+					messagePayload: {
+						message: {
+							text: "@Clave help",
+							argumentText: " help",
+						},
+						space: { name: "spaces/abc" },
+					},
+				},
+			}),
+			headers: { "content-type": "application/json" },
+		});
+
+		await POST(request);
+
+		// @Clave help goes through the SDK → handlers.ts detects "help" and posts HELP_TEXT
+		expect(mockWebhookHandler).toHaveBeenCalled();
 	});
 
 	it("propagates SDK errors to the caller", async () => {

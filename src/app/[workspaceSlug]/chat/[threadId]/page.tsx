@@ -63,13 +63,13 @@ export default function ChatThreadPage() {
 	const messageRetry = useMessageRetry(chat.retry);
 	const messageQueue = useMessageQueue(chat.sendMessage, isOnline);
 
-	// Auto-record failures for retry logic
+	// Auto-record failures for retry logic (skip rate limits — handled by RateLimitBanner countdown)
 	useEffect(() => {
-		if (chat.error && !chat.isSending) {
+		if (chat.error && !chat.isSending && chat.errorInfo?.type !== "rate_limit") {
 			messageRetry.recordFailure();
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [chat.error, chat.isSending, messageRetry.recordFailure]);
+	}, [chat.error, chat.isSending, chat.errorInfo?.type, messageRetry.recordFailure]);
 
 	// Reset retry state on successful send
 	useEffect(() => {
@@ -165,12 +165,9 @@ export default function ChatThreadPage() {
 		}
 	}, [chat.createIncognitoThread, workspaceSlug, router]);
 
-	const handleNewChat = useCallback(async () => {
-		const newThreadId = await chat.createNewThread();
-		if (newThreadId) {
-			router.push(`/${workspaceSlug}/chat/${newThreadId}` as Route);
-		}
-	}, [chat.createNewThread, workspaceSlug, router]);
+	const handleNewChat = useCallback(() => {
+		router.push(`/${workspaceSlug}/chat` as Route);
+	}, [workspaceSlug, router]);
 
 	// Keyboard shortcuts: Cmd+K (thread browser), Cmd+N (new thread), Cmd+/ (focus input)
 	useEffect(() => {

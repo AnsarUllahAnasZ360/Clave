@@ -177,12 +177,11 @@ export default function ChatPage() {
 
 	const handleClearContext = useCallback(() => setContextCleared(true), []);
 
-	const handleNewChat = useCallback(async () => {
-		const newThreadId = await chat.createNewThread();
-		if (newThreadId) {
-			router.push(`/${workspaceSlug}/chat/${newThreadId}` as Route);
-		}
-	}, [chat.createNewThread, workspaceSlug, router]);
+	const handleNewChat = useCallback(() => {
+		chat.setActiveThreadId(null);
+		hasUpdatedUrlRef.current = false;
+		router.push(`/${workspaceSlug}/chat` as Route);
+	}, [chat.setActiveThreadId, workspaceSlug, router]);
 
 	// Keyboard shortcuts: Cmd+K (thread browser), Cmd+N (new thread), Cmd+/ (focus input)
 	useEffect(() => {
@@ -309,34 +308,28 @@ export default function ChatPage() {
 			   DOM tree swap that caused the persistent flickering. */}
 			<div
 				className={cn(
-					"flex flex-1 flex-col items-center gap-6 px-6",
+					"flex flex-1 flex-col items-center px-6 min-h-0",
 					showConversation && "hidden",
 				)}
 			>
-				{/* Spacer to push content to visual center */}
-				<div className="flex-1" />
+				{/* Centered welcome + input group */}
+				<div className="flex flex-1 flex-col items-center justify-center gap-6 w-full max-w-3xl">
+					<ChatWelcomeScreen />
 
-				<ChatWelcomeScreen />
+					{chat.modelWarning && (
+						<div className="w-full">
+							<p className="rounded border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200">
+								{chat.modelWarning}
+							</p>
+						</div>
+					)}
 
-				{chat.modelWarning && (
-					<div className="w-full max-w-3xl">
-						<p className="rounded border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200">
-							{chat.modelWarning}
-						</p>
+					<div className="w-full">
+						<MentionAutocomplete {...inputProps} />
 					</div>
-				)}
 
-				<div className="w-full max-w-3xl">
-					<MentionAutocomplete {...inputProps} />
+					<DeferredSuggestions onSelect={handleSuggestionClick} />
 				</div>
-
-				<DeferredSuggestions
-					onSelect={handleSuggestionClick}
-					className="max-w-3xl"
-				/>
-
-				{/* Spacer below — slightly larger to push input above true center */}
-				<div className="flex-[1.5]" />
 			</div>
 
 			{/* Conversation — hidden until active, then stays visible.

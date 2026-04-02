@@ -88,7 +88,7 @@ export function Footer() {
 						{new Date().getFullYear()} Clave. All rights reserved.
 					</p>
 					<p className="text-xs text-[#A3A3A3] dark:text-[#404040]">
-						goclave.app
+						clave.z360.biz
 					</p>
 				</div>
 			</div>

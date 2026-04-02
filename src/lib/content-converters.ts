@@ -550,7 +550,7 @@ function applyBlockColors(
  */
 export function detectContentFormat(
 	content: string,
-): "slate" | "prosemirror" | "blocknote" | "markdown" | "plain" {
+): "slate" | "prosemirror" | "blocknote" | "markdown" | "html" | "plain" {
 	try {
 		const parsed = JSON.parse(content);
 
@@ -571,7 +571,8 @@ export function detectContentFormat(
 
 		return "plain";
 	} catch {
-		// Not JSON — check if it looks like markdown before falling back to plain
+		// Not JSON — check if it looks like HTML, markdown, or plain text
+		if (looksLikeHtml(content)) return "html";
 		return looksLikeMarkdown(content) ? "markdown" : "plain";
 	}
 }
@@ -925,6 +926,35 @@ function applyBnBlockColors(
  * Checks for common markdown syntax patterns. Needs at least 2 signals
  * to avoid false positives on plain text that happens to contain `*` etc.
  */
+export function looksLikeHtml(text: string): boolean {
+	return /<(?:p|div|h[1-6]|ul|ol|li|br|span|strong|em|a|blockquote|pre|code|table|tr|td|th)\b[^>]*>/i.test(
+		text,
+	);
+}
+
+/**
+ * Convert HTML string to Slate JSON by stripping tags and wrapping in paragraphs.
+ */
+export function htmlToSlate(html: string): SlateNode[] {
+	// Split on block-level tags into paragraphs, strip all tags
+	const blocks = html
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<\/(?:p|div|h[1-6]|li|tr|blockquote)>/gi, "\n")
+		.replace(/<[^>]*>/g, "")
+		.split(/\n+/)
+		.map((line) => line.trim())
+		.filter(Boolean);
+
+	if (blocks.length === 0) {
+		return [{ type: "p", children: [{ text: "" }] }];
+	}
+
+	return blocks.map((text) => ({
+		type: "p" as const,
+		children: [{ text }],
+	}));
+}
+
 export function looksLikeMarkdown(text: string): boolean {
 	const lines = text.split("\n");
 	let signals = 0;
@@ -1238,6 +1268,10 @@ export function parseAnyContentToSlate(
 			} catch {
 				return undefined;
 			}
+		}
+
+		case "html": {
+			return htmlToSlate(content);
 		}
 
 		case "markdown": {

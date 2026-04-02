@@ -42,6 +42,12 @@ const projectDocValidator = v.object({
 	),
 	typeLabel: v.optional(v.string()),
 	tags: v.optional(v.array(v.string())),
+	customStatuses: v.optional(
+		v.array(v.object({ key: v.string(), name: v.string(), color: v.string() })),
+	),
+	customTypes: v.optional(
+		v.array(v.object({ key: v.string(), name: v.string(), color: v.string() })),
+	),
 	sortOrder: v.number(),
 	createdBy: v.id("users"),
 	updatedAt: v.optional(v.number()),
@@ -645,6 +651,7 @@ export const create = mutation({
 		workspaceId: v.id("workspaces"),
 		name: v.string(),
 		description: v.optional(v.string()),
+		richDescription: v.optional(v.string()),
 		summary: v.optional(v.string()),
 		icon: v.optional(v.string()),
 		color: v.optional(v.string()),
@@ -728,11 +735,15 @@ export const create = mutation({
 			.first();
 		const sortOrder = lastProject ? lastProject.sortOrder + 1.0 : 1.0;
 
+		// Strip HTML tags for plain text description fallback
+		const plainDescription = args.description?.replace(/<[^>]*>/g, "").trim();
+
 		const projectId = await ctx.db.insert("projects", {
 			workspaceId: args.workspaceId,
 			name: args.name,
 			slug,
-			description: args.description,
+			description: plainDescription || undefined,
+			richDescription: args.richDescription ?? args.description,
 			summary: args.summary,
 			icon: args.icon,
 			color: args.color,

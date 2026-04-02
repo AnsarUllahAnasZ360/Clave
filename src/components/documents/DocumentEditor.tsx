@@ -298,6 +298,7 @@ export default function DocumentEditor({
 
 	return (
 		<DocumentEditorInner
+			key={`${documentId}-${document?.syncVersion ?? "loading"}`}
 			documentId={documentId}
 			onEditorReady={onEditorReady}
 			shareMode={shareMode}

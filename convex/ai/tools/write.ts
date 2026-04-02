@@ -1072,24 +1072,51 @@ export const updateDocument = createTool({
 			};
 		}
 
+		const docId = args.documentId as Id<"documents">;
 		const document = await ctx.runQuery(
 			internal.ai.toolQueries.getDocumentById,
-			{ documentId: args.documentId as Id<"documents"> },
+			{ documentId: docId },
 		);
 		if (!document || document.workspaceId !== workspaceId) {
 			return { error: "Document not found." };
 		}
 
-		await withTimeout(
-			ctx.runMutation(internal.ai.toolMutations.updateDocument, {
-				userId,
-				documentId: args.documentId as Id<"documents">,
-				title: args.title,
-				content: args.content,
-			}),
-			TOOL_TIMEOUT_MS,
-			"updateDocument",
-		);
+		// Update title and content via separate mutations — mirrors
+		// the createDocument flow where content is written through
+		// the dedicated updateDocumentContent path.
+		if (args.title !== undefined) {
+			await withTimeout(
+				ctx.runMutation(internal.ai.toolMutations.updateDocumentTitle, {
+					userId,
+					documentId: docId,
+					title: args.title,
+				}),
+				TOOL_TIMEOUT_MS,
+				"updateDocument:title",
+			);
+		}
+
+		if (args.content !== undefined) {
+			await withTimeout(
+				ctx.runMutation(internal.ai.toolMutations.updateDocumentContent, {
+					userId,
+					documentId: docId,
+					content: args.content,
+				}),
+				TOOL_TIMEOUT_MS,
+				"updateDocument:content",
+			);
+
+			// Reset Yjs state so the editor re-bootstraps from the
+			// updated content field instead of stale Yjs snapshots.
+			await withTimeout(
+				ctx.runMutation(internal.ai.toolMutations.resetDocumentYjsState, {
+					documentId: docId,
+				}),
+				TOOL_TIMEOUT_MS,
+				"updateDocument:resetYjs",
+			);
+		}
 
 		const updatedFields = [
 			...(args.title !== undefined ? ["title"] : []),

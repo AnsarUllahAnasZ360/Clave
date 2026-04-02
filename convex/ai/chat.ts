@@ -127,7 +127,13 @@ function classifyStreamError(error: unknown): ClassifiedError {
 	const msg = error.message.toLowerCase();
 
 	// Rate limiting
-	if (msg.includes("rate") || msg.includes("429") || msg.includes("throttl")) {
+	if (
+		msg.includes("rate") ||
+		msg.includes("429") ||
+		msg.includes("throttl") ||
+		msg.includes("too_many_requests") ||
+		msg.includes("too many requests")
+	) {
 		// Try to extract retry-after seconds from the error message
 		const retryMatch = msg.match(/retry.after[:\s]*(\d+)/i);
 		const retryAfter = retryMatch ? Number.parseInt(retryMatch[1], 10) : 15;

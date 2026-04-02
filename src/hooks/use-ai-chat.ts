@@ -1139,6 +1139,7 @@ export function useAIChat(
 	const retry = useCallback(async () => {
 		if (!lastFailedPayload) return;
 		setError(null);
+		setErrorInfo(null);
 		setLastFailedPayload(null);
 		await sendMessage(
 			lastFailedPayload.prompt,

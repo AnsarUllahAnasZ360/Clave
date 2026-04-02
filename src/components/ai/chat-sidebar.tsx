@@ -153,13 +153,13 @@ function AIChatPanelContent({ onClose }: { onClose: () => void }) {
 	const messageRetry = useMessageRetry(retry);
 	const messageQueue = useMessageQueue(sendMessage, isOnline);
 
-	// Auto-record failures for retry logic
+	// Auto-record failures for retry logic (skip rate limits — handled by RateLimitBanner countdown)
 	useEffect(() => {
-		if (error && !isSending) {
+		if (error && !isSending && errorInfo?.type !== "rate_limit") {
 			messageRetry.recordFailure();
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- only trigger on new errors
-	}, [error, isSending, messageRetry.recordFailure]);
+	}, [error, isSending, errorInfo?.type, messageRetry.recordFailure]);
 
 	// Reset retry state on successful send
 	useEffect(() => {

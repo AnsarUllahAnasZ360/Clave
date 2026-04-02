@@ -590,12 +590,11 @@ export const updateDocumentContent = internalMutation({
 
 // ── 5b. updateDocument ──────────────────────────────────────────────────
 
-export const updateDocument = internalMutation({
+export const updateDocumentTitle = internalMutation({
 	args: {
 		userId: v.id("users"),
 		documentId: v.id("documents"),
-		title: v.optional(v.string()),
-		content: v.optional(v.string()),
+		title: v.string(),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -607,24 +606,17 @@ export const updateDocument = internalMutation({
 		await requireMembership(ctx, document.workspaceId, args.userId);
 
 		const now = Date.now();
-		const patch: Record<string, unknown> = {
+		await ctx.db.patch(args.documentId, {
+			title: args.title,
 			updatedAt: now,
 			lastEditedBy: args.userId,
-		};
-		if (args.title !== undefined) patch.title = args.title;
-		if (args.content !== undefined) patch.content = args.content;
+		});
 
-		await ctx.db.patch(args.documentId, patch);
-
-		// Re-index if title or content changed
-		const shouldIndex = args.title !== undefined || args.content !== undefined;
-		if (shouldIndex) {
-			await ctx.scheduler.runAfter(
-				0,
-				internal.ai.indexing.documentIndexer.indexDocument,
-				{ documentId: args.documentId },
-			);
-		}
+		await ctx.scheduler.runAfter(
+			0,
+			internal.ai.indexing.documentIndexer.indexDocument,
+			{ documentId: args.documentId },
+		);
 
 		await logActivity(ctx, {
 			workspaceId: document.workspaceId,
@@ -632,10 +624,64 @@ export const updateDocument = internalMutation({
 			entityId: args.documentId,
 			action: "updated",
 			actorId: args.userId,
-			description: `Updated document "${args.title ?? document.title}"`,
+			description: `Renamed document to "${args.title}"`,
 			projectId: document.projectId,
 			documentId: args.documentId,
 		});
+	},
+});
+
+// ── 5c. resetDocumentYjsState ───────────────────────────────────────────
+// After an AI tool writes new content to `documents.content`, the Yjs
+// snapshot and pending updates must be cleared so the next editor open
+// re-bootstraps from the updated content field via bootstrapSnapshotFromLegacy.
+
+export const resetDocumentYjsState = internalMutation({
+	args: {
+		documentId: v.id("documents"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		// Delete existing v3 snapshot so bootstrapSnapshotFromLegacy
+		// will create a fresh empty one on next editor open.
+		const snapshot = await ctx.db
+			.query("yjsSnapshotsV3")
+			.withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+			.unique();
+		if (snapshot) {
+			await ctx.db.delete(snapshot._id);
+		}
+
+		// Delete all pending v3 updates
+		const updates = await ctx.db
+			.query("yjsUpdatesV3")
+			.withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+			.collect();
+		for (const update of updates) {
+			await ctx.db.delete(update._id);
+		}
+
+		// Also clear any legacy yjsDocuments entries to prevent
+		// bootstrapSnapshotFromLegacy from restoring stale content.
+		const legacyDocs = await ctx.db
+			.query("yjsDocuments")
+			.withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+			.collect();
+		for (const legacyDoc of legacyDocs) {
+			await ctx.db.delete(legacyDoc._id);
+		}
+
+		// Set syncVersion to "v1" so the editor treats this as a legacy
+		// document requiring migration. On next open, ensureDocument will
+		// run bootstrapSnapshotFromLegacy (creating an empty v3 snapshot)
+		// and the editor will bootstrap from documents.content.
+		const document = await ctx.db.get(args.documentId);
+		if (document && !document.deletedAt) {
+			await ctx.db.patch(args.documentId, {
+				syncVersion: "v1",
+				updatedAt: Date.now(),
+			});
+		}
 	},
 });
 

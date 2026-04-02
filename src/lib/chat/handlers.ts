@@ -1,6 +1,7 @@
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { HELP_TEXT } from "../../app/api/webhooks/google-chat/route";
 import { getBot } from "./bot";
 
 // ---------------------------------------------------------------------------
@@ -403,6 +404,21 @@ async function handleMessage(
 		} catch {
 			// consumeCode failed — fall through
 		}
+	}
+
+	// ── "@Clave help" / "help" intercept ────────────────────────
+	// Return the standard help text instead of sending to the AI.
+	// The @mention may be normalized to @bot, @clave, or similar.
+	const HELP_RE = /^\s*(@\S+\s+)?help\s*$/i;
+	if (HELP_RE.test(messageText)) {
+		await editViaConvex(
+			convex,
+			workspaceId,
+			sentMessageName,
+			HELP_TEXT,
+			sent,
+		);
+		return;
 	}
 
 	// ── AI mention handling ──────────────────────────────────────
