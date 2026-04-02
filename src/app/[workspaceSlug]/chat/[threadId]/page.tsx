@@ -65,11 +65,20 @@ export default function ChatThreadPage() {
 
 	// Auto-record failures for retry logic (skip rate limits — handled by RateLimitBanner countdown)
 	useEffect(() => {
-		if (chat.error && !chat.isSending && chat.errorInfo?.type !== "rate_limit") {
+		if (
+			chat.error &&
+			!chat.isSending &&
+			chat.errorInfo?.type !== "rate_limit"
+		) {
 			messageRetry.recordFailure();
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [chat.error, chat.isSending, chat.errorInfo?.type, messageRetry.recordFailure]);
+	}, [
+		chat.error,
+		chat.isSending,
+		chat.errorInfo?.type,
+		messageRetry.recordFailure,
+	]);
 
 	// Reset retry state on successful send
 	useEffect(() => {

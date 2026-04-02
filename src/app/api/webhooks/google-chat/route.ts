@@ -155,15 +155,11 @@ export const POST = async (req: Request) => {
 			const space = addedPayload.space;
 			const spaceName: string | undefined = space?.name;
 			const isDM =
-				space?.type === "DM" ||
-				space?.spaceType === "DIRECT_MESSAGE";
+				space?.type === "DM" || space?.spaceType === "DIRECT_MESSAGE";
 
 			// Post welcome message via Convex (uses BYOSA credentials)
 			if (spaceName) {
-				await postAsync(
-					spaceName,
-					isDM ? WELCOME_DM : WELCOME_SPACE,
-				);
+				await postAsync(spaceName, isDM ? WELCOME_DM : WELCOME_SPACE);
 			}
 
 			// Process the accompanying message (first DM) if present
@@ -175,8 +171,7 @@ export const POST = async (req: Request) => {
 					body: bodyText,
 				});
 				await getBot().webhooks.gchat(bgReq, {
-					waitUntil: (task: Promise<unknown>) =>
-						after(() => task),
+					waitUntil: (task: Promise<unknown>) => after(() => task),
 				});
 			}
 		});

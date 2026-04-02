@@ -411,13 +411,7 @@ async function handleMessage(
 	// The @mention may be normalized to @bot, @clave, or similar.
 	const HELP_RE = /^\s*(@\S+\s+)?help\s*$/i;
 	if (HELP_RE.test(messageText)) {
-		await editViaConvex(
-			convex,
-			workspaceId,
-			sentMessageName,
-			HELP_TEXT,
-			sent,
-		);
+		await editViaConvex(convex, workspaceId, sentMessageName, HELP_TEXT, sent);
 		return;
 	}
 

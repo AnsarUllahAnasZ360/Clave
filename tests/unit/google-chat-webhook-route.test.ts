@@ -82,7 +82,9 @@ describe("google chat webhook route (SDK delegation)", () => {
 		const passedRequest = mockWebhookHandler.mock.calls[0][0];
 		expect(passedRequest.url).toBe(request.url);
 		expect(passedRequest.method).toBe("POST");
-		expect(passedRequest.headers.get("authorization")).toBe("Bearer test-token");
+		expect(passedRequest.headers.get("authorization")).toBe(
+			"Bearer test-token",
+		);
 		const passedBody = await passedRequest.text();
 		expect(passedBody).toBe(body);
 	});
