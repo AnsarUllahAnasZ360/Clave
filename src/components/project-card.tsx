@@ -149,9 +149,7 @@ export function ProjectCard({
 
 	return (
 		<div
-			role="button"
-			tabIndex={0}
-			aria-label={`Open project ${project.name}`}
+			role="presentation"
 			onClick={() => {
 				if (isBoard && draggingRef.current) {
 					draggingRef.current = false;
@@ -159,7 +157,6 @@ export function ProjectCard({
 				}
 				goToDetails();
 			}}
-			onKeyDown={onKeyNavigate}
 			onMouseDown={onMouseDown}
 			onMouseMove={onMouseMove}
 			onMouseUp={onMouseUp}
@@ -200,9 +197,9 @@ export function ProjectCard({
 						)}
 						{actions ? (
 							<div
+								role="presentation"
 								className="shrink-0"
 								onClick={(e) => e.stopPropagation()}
-								onKeyDown={(e) => e.stopPropagation()}
 							>
 								{actions}
 							</div>

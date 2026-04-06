@@ -22,6 +22,7 @@ import {
 	PanelRight,
 	PanelRightClose,
 	Paperclip,
+	Plus,
 	SignalHigh,
 	Tag,
 	User,
@@ -34,7 +35,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { IssueDevelopmentSection } from "@/components/github/IssueDevelopmentSection";
 import { EstimateInput } from "@/components/issues/EstimateInput";
-import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -117,7 +117,7 @@ const TYPE_CONFIG = TYPE_ITEMS;
 
 // ── Estimate options ──────────────────────────────────────────────────────
 
-const ESTIMATE_OPTIONS = [
+const _ESTIMATE_OPTIONS = [
 	{ id: "0", label: "No estimate" },
 	{ id: "0.5", label: "0.5h" },
 	{ id: "1", label: "1h" },
@@ -161,17 +161,53 @@ function PriorityIcon({
 
 // ── Labels multi-select picker ───────────────────────────────────────────
 
+const LABEL_COLORS = [
+	"#C26A3A",
+	"#E5484D",
+	"#E54666",
+	"#8E4EC6",
+	"#3E63DD",
+	"#0090FF",
+	"#12A594",
+	"#30A46C",
+	"#F5D90A",
+	"#F76B15",
+];
+
 function LabelsPicker({
 	allLabels,
 	selectedIds,
 	onToggle,
+	workspaceId,
 }: {
 	allLabels: { _id: Id<"labels">; name: string; color: string }[];
 	selectedIds: Id<"labels">[];
 	onToggle: (labelId: Id<"labels">) => void;
+	workspaceId: Id<"workspaces">;
 }) {
 	const [open, setOpen] = useState(false);
+	const [creating, setCreating] = useState(false);
+	const [newName, setNewName] = useState("");
+	const [newColor, setNewColor] = useState(LABEL_COLORS[0]);
+	const createLabel = useMutation(api.labels.create);
 	const selectedLabels = allLabels.filter((l) => selectedIds.includes(l._id));
+
+	const handleCreate = async () => {
+		const trimmed = newName.trim();
+		if (!trimmed) return;
+		try {
+			const labelId = await createLabel({
+				workspaceId,
+				name: trimmed,
+				color: newColor,
+			});
+			onToggle(labelId);
+			setNewName("");
+			setCreating(false);
+		} catch {
+			toast.error("Failed to create label");
+		}
+	};
 
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
@@ -230,6 +266,65 @@ function LabelsPicker({
 									</CommandItem>
 								);
 							})}
+						</CommandGroup>
+						<div className="border-t border-border" />
+						<CommandGroup>
+							{creating ? (
+								<div className="p-2 space-y-2">
+									<input
+										type="text"
+										value={newName}
+										onChange={(e) => setNewName(e.target.value)}
+										onKeyDown={(e) => {
+											if (e.key === "Enter") handleCreate();
+											if (e.key === "Escape") setCreating(false);
+										}}
+										placeholder="Label name"
+										className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+									/>
+									<div className="flex gap-1">
+										{LABEL_COLORS.map((c) => (
+											<button
+												key={c}
+												type="button"
+												onClick={() => setNewColor(c)}
+												className={`h-5 w-5 rounded-full border-2 ${
+													newColor === c
+														? "border-foreground"
+														: "border-transparent"
+												}`}
+												style={{ backgroundColor: c }}
+											/>
+										))}
+									</div>
+									<div className="flex gap-1">
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-7 text-xs flex-1"
+											onClick={() => setCreating(false)}
+										>
+											Cancel
+										</Button>
+										<Button
+											size="sm"
+											className="h-7 text-xs flex-1"
+											onClick={handleCreate}
+											disabled={!newName.trim()}
+										>
+											Create
+										</Button>
+									</div>
+								</div>
+							) : (
+								<CommandItem
+									onSelect={() => setCreating(true)}
+									className="cursor-pointer"
+								>
+									<Plus className="h-4 w-4 mr-2" />
+									Create label
+								</CommandItem>
+							)}
 						</CommandGroup>
 					</CommandList>
 				</Command>
@@ -507,7 +602,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 		[issueId, issue, updateIssue],
 	);
 
-	const handleEstimateChange = useCallback(
+	const _handleEstimateChange = useCallback(
 		async (option: { id: string }) => {
 			try {
 				const value = Number.parseFloat(option.id);
@@ -971,6 +1066,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 										allLabels={labels}
 										selectedIds={(issue.labelIds as Id<"labels">[]) ?? []}
 										onToggle={handleLabelToggle}
+										workspaceId={workspaceId}
 									/>
 								)}
 							</PropertyRow>

@@ -61,21 +61,15 @@ export function VoiceButton({
 		}
 	}, [disabled]);
 
+	// Only respond to explicitly AI-chat-targeted dictation events.
+	// Global Ctrl+Space is handled by GlobalDictationProvider (clipboard-only).
 	useEffect(() => {
 		function onToggleEvent(event: Event) {
 			const dictationEvent = event as CustomEvent<{
 				source?: string;
 				surface?: "ai-chat" | "document";
 			}>;
-			if (dictationEvent.detail?.surface === "document") return;
-
-			if (dictationEvent.detail?.surface !== "ai-chat") {
-				const active = document.activeElement;
-				const isInChatInput =
-					active?.closest("[data-ai-chat-input='true']") != null;
-				const isInEditor = active?.closest("[data-slate-editor]") != null;
-				if (!isInChatInput && isInEditor) return;
-			}
+			if (dictationEvent.detail?.surface !== "ai-chat") return;
 
 			toggleRecording();
 		}

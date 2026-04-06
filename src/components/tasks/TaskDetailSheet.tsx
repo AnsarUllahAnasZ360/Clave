@@ -90,6 +90,18 @@ const TYPE_OPTIONS = [
 	{ id: "chore" as const, label: "Chore" },
 ];
 
+const ESTIMATE_OPTIONS = [
+	{ id: "0", label: "No estimate" },
+	{ id: "0.5", label: "0.5h" },
+	{ id: "1", label: "1h" },
+	{ id: "2", label: "2h" },
+	{ id: "4", label: "4h" },
+	{ id: "8", label: "8h" },
+	{ id: "16", label: "16h" },
+	{ id: "24", label: "24h" },
+	{ id: "40", label: "40h" },
+] as const;
+
 export function TaskDetailSheet({
 	taskId,
 	open,
@@ -497,6 +509,61 @@ export function TaskDetailSheet({
 										{task.dueDate
 											? format(new Date(task.dueDate), "MMM d, yyyy")
 											: "No due date"}
+									</span>
+								</button>
+							}
+						/>
+
+						{/* Start date */}
+						<span className="text-muted-foreground flex items-center gap-2">
+							<CalendarBlank className="h-4 w-4" />
+							Start date
+						</span>
+						<DatePicker
+							date={task.startDate ? new Date(task.startDate) : undefined}
+							onSelect={(date) => {
+								updateTask({
+									taskId: task._id,
+									startDate: date ? date.getTime() : undefined,
+								}).catch(() => toast.error("Failed to update start date"));
+							}}
+							trigger={
+								<button
+									type="button"
+									className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+								>
+									<span>
+										{task.startDate
+											? format(new Date(task.startDate), "MMM d, yyyy")
+											: "No start date"}
+									</span>
+								</button>
+							}
+						/>
+
+						{/* Estimate */}
+						<span className="text-muted-foreground flex items-center gap-2">
+							<CircleNotch className="h-4 w-4" />
+							Estimate
+						</span>
+						<GenericPicker
+							items={[...ESTIMATE_OPTIONS]}
+							onSelect={(item) => {
+								updateTask({
+									taskId: task._id,
+									estimate: Number(item.id),
+								}).catch(() => toast.error("Failed to update estimate"));
+							}}
+							selectedId={task.estimate != null ? String(task.estimate) : "0"}
+							placeholder="Set estimate..."
+							renderItem={(item) => <span>{item.label}</span>}
+							trigger={
+								<button
+									type="button"
+									className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+								>
+									<span>
+										{task.estimate ? `${task.estimate}h` : "No estimate"}
 									</span>
 								</button>
 							}

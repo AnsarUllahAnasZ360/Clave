@@ -123,7 +123,12 @@ export function TableArtifact({ artifact }: { artifact: ArtifactData }) {
 		} finally {
 			setSaving(false);
 		}
-	}, [workspace?.workspaceId, createDocument, artifact.title]);
+	}, [
+		workspace?.workspaceId,
+		createDocument,
+		artifact.title,
+		artifact.content,
+	]);
 
 	if (!headers.length) {
 		return (

@@ -77,11 +77,29 @@ export type IssueBoardViewProps = {
 	projectId?: Id<"projects">;
 	displayProperties?: DisplayProperties;
 	swimlaneBy?: SwimlaneSetting;
+	/**
+	 * When viewing a sprint-scoped board, pass the sprint so inline create attaches
+	 * the issue to that sprint (required for listBySprint and correct column placement).
+	 */
+	boardSprintId?: Id<"sprints">;
 	/** Pre-fetched issues to use instead of internal queries (e.g., from My Issues) */
 	externalIssues?: IssueCardData[];
 	/** When provided, clicking a card calls this instead of navigating to issue page */
 	onIssueClick?: (issueId: string) => void;
 };
+
+/** Resolves which sprint id to set when creating from a swimlane cell or sprint-scoped board. */
+export function resolveSprintIdForBoardCreate(
+	swimlaneBy: SwimlaneSetting,
+	swimlaneKey: string,
+	boardSprintId?: Id<"sprints">,
+): Id<"sprints"> | undefined {
+	if (swimlaneBy === "sprint" || swimlaneBy === "milestone") {
+		if (swimlaneKey === "__no_sprint__") return undefined;
+		return swimlaneKey as Id<"sprints">;
+	}
+	return boardSprintId;
+}
 
 // ── Fractional index helpers ──────────────────────────────────────────────
 
@@ -119,6 +137,7 @@ export function IssueBoardView({
 	projectId,
 	displayProperties,
 	swimlaneBy = "none",
+	boardSprintId,
 	externalIssues,
 	onIssueClick: externalOnIssueClick,
 }: IssueBoardViewProps) {
@@ -527,7 +546,7 @@ export function IssueBoardView({
 	const [scrollThumbLeft, setScrollThumbLeft] = useState(0);
 	const [scrollThumbWidth, setScrollThumbWidth] = useState(0);
 	const [canHScroll, setCanHScroll] = useState(false);
-	const trackRef = useRef<HTMLDivElement>(null);
+	const trackRef = useRef<HTMLButtonElement>(null);
 	const isDraggingThumb = useRef(false);
 	const dragStartX = useRef(0);
 	const dragStartScrollLeft = useRef(0);
@@ -618,7 +637,7 @@ export function IssueBoardView({
 
 	// Click on track to jump to position
 	const handleTrackClick = useCallback(
-		(e: React.MouseEvent<HTMLDivElement>) => {
+		(e: React.MouseEvent<HTMLButtonElement>) => {
 			const el = scrollRef.current;
 			const track = trackRef.current;
 			if (!el || !track || e.target !== track) return;
@@ -787,6 +806,9 @@ export function IssueBoardView({
 										memberLookup={memberLookup}
 										labelLookup={labelLookup}
 										displayProperties={displayProperties}
+										projectId={projectId}
+										swimlaneBy={swimlaneBy}
+										boardSprintId={boardSprintId}
 										onCardClick={onCardClick}
 									/>
 								))}
@@ -805,6 +827,7 @@ export function IssueBoardView({
 											labelLookup={labelLookup}
 											displayProperties={displayProperties}
 											projectId={projectId}
+											sprintId={boardSprintId}
 											onCardClick={onCardClick}
 										/>
 									);
@@ -815,22 +838,27 @@ export function IssueBoardView({
 				</div>
 
 				{/* Custom horizontal scrollbar — always visible */}
-				<div
+				<button
+					type="button"
 					ref={trackRef}
 					className="shrink-0 h-4 mx-4 mb-2 mt-1 rounded-full bg-muted cursor-pointer relative"
 					onClick={handleTrackClick}
+					aria-label="Horizontal scrollbar"
 				>
 					{canHScroll && (
-						<div
+						<button
+							type="button"
 							className="absolute top-1 bottom-1 rounded-full bg-foreground/40 hover:bg-foreground/60 active:bg-foreground/70 cursor-grab active:cursor-grabbing transition-colors"
 							style={{
 								left: scrollThumbLeft,
 								width: scrollThumbWidth,
 							}}
 							onMouseDown={handleThumbMouseDown}
+							aria-label="Scrollbar thumb"
+							tabIndex={-1}
 						/>
 					)}
-				</div>
+				</button>
 			</div>
 
 			{/* Drag overlay */}
@@ -882,6 +910,7 @@ function BoardColumn({
 	labelLookup,
 	displayProperties,
 	projectId,
+	sprintId,
 	onCardClick,
 }: {
 	column: StatusColumnConfig;
@@ -890,6 +919,7 @@ function BoardColumn({
 	labelLookup: Map<string, { _id: Id<"labels">; name: string; color: string }>;
 	displayProperties?: DisplayProperties;
 	projectId?: Id<"projects">;
+	sprintId?: Id<"sprints">;
 	onCardClick: (identifier: string) => void;
 }) {
 	const { isOver, setNodeRef } = useDroppable({ id: column.id });
@@ -931,7 +961,11 @@ function BoardColumn({
 			{/* Quick add at bottom -- only shown when a project context exists */}
 			{projectId && (
 				<div className="px-1.5 pb-2 mt-auto shrink-0">
-					<IssueInlineCreate status={column.id} projectId={projectId} />
+					<IssueInlineCreate
+						status={column.id}
+						projectId={projectId}
+						sprintId={sprintId}
+					/>
 				</div>
 			)}
 		</div>
@@ -947,6 +981,9 @@ function SwimlaneRow({
 	memberLookup,
 	labelLookup,
 	displayProperties,
+	projectId,
+	swimlaneBy,
+	boardSprintId,
 	onCardClick,
 }: {
 	swimlane: SwimlaneGroup;
@@ -955,8 +992,16 @@ function SwimlaneRow({
 	memberLookup: Map<string, { name: string; avatarUrl?: string }>;
 	labelLookup: Map<string, { _id: Id<"labels">; name: string; color: string }>;
 	displayProperties?: DisplayProperties;
+	projectId?: Id<"projects">;
+	swimlaneBy: SwimlaneSetting;
+	boardSprintId?: Id<"sprints">;
 	onCardClick: (identifier: string) => void;
 }) {
+	const sprintIdForCreate = resolveSprintIdForBoardCreate(
+		swimlaneBy,
+		swimlane.key,
+		boardSprintId,
+	);
 	const [collapsed, setCollapsed] = useState(false);
 
 	const totalIssues = useMemo(() => {
@@ -997,6 +1042,8 @@ function SwimlaneRow({
 								memberLookup={memberLookup}
 								labelLookup={labelLookup}
 								displayProperties={displayProperties}
+								projectId={projectId}
+								sprintId={sprintIdForCreate}
 								onCardClick={onCardClick}
 							/>
 						);
@@ -1016,6 +1063,8 @@ function SwimlaneCell({
 	memberLookup,
 	labelLookup,
 	displayProperties,
+	projectId,
+	sprintId,
 	onCardClick,
 }: {
 	columnId: IssueStatus;
@@ -1024,6 +1073,8 @@ function SwimlaneCell({
 	memberLookup: Map<string, { name: string; avatarUrl?: string }>;
 	labelLookup: Map<string, { _id: Id<"labels">; name: string; color: string }>;
 	displayProperties?: DisplayProperties;
+	projectId?: Id<"projects">;
+	sprintId?: Id<"sprints">;
 	onCardClick: (identifier: string) => void;
 }) {
 	const droppableId = makeSwimlaneDroppableId(columnId, swimlaneKey);
@@ -1034,28 +1085,37 @@ function SwimlaneCell({
 		<div
 			ref={setNodeRef}
 			className={cn(
-				"w-[272px] shrink-0 min-h-[80px] p-1.5 space-y-1.5 transition-colors border-r border-border/20 last:border-r-0",
+				"w-[272px] shrink-0 min-h-[80px] p-1.5 flex flex-col transition-colors border-r border-border/20 last:border-r-0",
 				isOver && "bg-primary/5",
 			)}
 		>
 			<SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-				{items.length === 0 ? (
-					<div className="flex items-center justify-center h-16 text-xs text-muted-foreground">
-						No issues
-					</div>
-				) : (
-					items.map((item) => (
-						<SortableCard
-							key={item._id}
-							issue={item}
-							memberLookup={memberLookup}
-							labelLookup={labelLookup}
-							displayProperties={displayProperties}
-							onCardClick={onCardClick}
-						/>
-					))
-				)}
+				<div className="space-y-1.5 flex-1 min-h-[48px]">
+					{items.length === 0 ? (
+						<EmptyColumnState />
+					) : (
+						items.map((item) => (
+							<SortableCard
+								key={item._id}
+								issue={item}
+								memberLookup={memberLookup}
+								labelLookup={labelLookup}
+								displayProperties={displayProperties}
+								onCardClick={onCardClick}
+							/>
+						))
+					)}
+				</div>
 			</SortableContext>
+			{projectId ? (
+				<div className="mt-auto shrink-0 pt-1">
+					<IssueInlineCreate
+						status={columnId}
+						projectId={projectId}
+						sprintId={sprintId}
+					/>
+				</div>
+			) : null}
 		</div>
 	);
 }

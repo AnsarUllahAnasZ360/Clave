@@ -429,13 +429,13 @@ export function DocsContent() {
 						{sorted.map((doc) => (
 							<ContextMenu key={doc._id}>
 								<ContextMenuTrigger asChild>
-									<div
+									<button
+										type="button"
 										className="group relative flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted/50 cursor-pointer"
 										onClick={() => handleDocClick(doc._id)}
 										onKeyDown={(e) =>
 											e.key === "Enter" && handleDocClick(doc._id)
 										}
-										role="button"
 										tabIndex={0}
 									>
 										<div className="flex items-start justify-between gap-2">
@@ -513,7 +513,7 @@ export function DocsContent() {
 												</AvatarFallback>
 											</Avatar>
 										</div>
-									</div>
+									</button>
 								</ContextMenuTrigger>
 								<ContextMenuContent>
 									{renderMenuItems(doc._id, doc.title, "context")}

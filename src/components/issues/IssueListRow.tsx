@@ -1,10 +1,11 @@
 "use client";
 
 import { format } from "date-fns";
-import { Calendar, Check, Clock, Flag } from "lucide-react";
+import { Calendar, Check, Flag } from "lucide-react";
 import { memo, useCallback, useState } from "react";
 import { EstimateInput } from "@/components/issues/EstimateInput";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Command,
 	CommandEmpty,
@@ -145,6 +146,11 @@ export type IssueListRowProps = {
 	onDueDateChange: (issueId: Id<"issues">, dueDate: number | undefined) => void;
 	onProjectChange: (issueId: Id<"issues">, projectId: string) => void;
 	onClick?: () => void;
+	/** Bulk selection (list view): checkbox column; shift-click for range handled by parent. */
+	bulkSelect?: {
+		selected: boolean;
+		onToggle: (shiftKey: boolean) => void;
+	};
 };
 
 // ── Inline labels picker ──────────────────────────────────────────────────
@@ -249,6 +255,7 @@ export const IssueListRow = memo(function IssueListRow({
 	onDueDateChange,
 	onProjectChange,
 	onClick,
+	bulkSelect,
 }: IssueListRowProps) {
 	const statusConfig = STATUS_CONFIG.find((s) => s.id === issue.status);
 	const priorityConfig = PRIORITY_CONFIG.find((p) => p.id === issue.priority);
@@ -289,7 +296,7 @@ export const IssueListRow = memo(function IssueListRow({
 		[issue._id, onMilestoneChange],
 	);
 
-	const handleEstimateSelect = useCallback(
+	const _handleEstimateSelect = useCallback(
 		(item: { id: string }) => {
 			const val = Number.parseFloat(item.id);
 			onEstimateChange(issue._id, val === 0 ? undefined : val);
@@ -331,6 +338,24 @@ export const IssueListRow = memo(function IssueListRow({
 				if (e.key === "Enter") onClick?.();
 			}}
 		>
+			{bulkSelect ? (
+				<button
+					type="button"
+					data-issue-select=""
+					className="w-[36px] shrink-0 flex items-center justify-center pl-1"
+					onClick={(e) => {
+						e.stopPropagation();
+						bulkSelect.onToggle(e.shiftKey);
+					}}
+					aria-label="Select issue"
+				>
+					<Checkbox
+						checked={bulkSelect.selected}
+						className="pointer-events-none"
+						aria-label="Select issue"
+					/>
+				</button>
+			) : null}
 			{columns.map((col) => {
 				switch (col) {
 					case "identifier":

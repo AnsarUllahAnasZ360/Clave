@@ -12,6 +12,13 @@ function createBackend() {
 	return convexTest(schema, modules);
 }
 
+function requireFixtureRow<T>(value: T | null, label: string): T {
+	if (value === null) {
+		throw new Error(`fixture: expected ${label}`);
+	}
+	return value;
+}
+
 type AuthFixture = {
 	ownerId: Id<"users">;
 	adminId: Id<"users">;
@@ -323,7 +330,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const doc = await ctx.db.get(fx.documentPublicId);
-				return await checkDocumentReadAccess(ctx, doc!);
+				return await checkDocumentReadAccess(
+					ctx,
+					requireFixtureRow(doc, "document"),
+				);
 			});
 
 			expect(result.canRead).toBe(true);
@@ -335,7 +345,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const doc = await ctx.db.get(fx.documentPrivateId);
-				return await checkDocumentReadAccess(ctx, doc!);
+				return await checkDocumentReadAccess(
+					ctx,
+					requireFixtureRow(doc, "document"),
+				);
 			});
 
 			expect(result.canRead).toBe(false);
@@ -348,7 +361,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const doc = await ctx.db.get(fx.documentDeletedId);
-				return await checkDocumentReadAccess(ctx, doc!);
+				return await checkDocumentReadAccess(
+					ctx,
+					requireFixtureRow(doc, "document"),
+				);
 			});
 
 			expect(result.canRead).toBe(false);
@@ -392,7 +408,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const doc = await ctx.db.get(fx.documentPublicEditId);
-				return await checkDocumentWriteAccess(ctx, doc!);
+				return await checkDocumentWriteAccess(
+					ctx,
+					requireFixtureRow(doc, "document"),
+				);
 			});
 
 			expect(result.canWrite).toBe(true);
@@ -405,7 +424,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const doc = await ctx.db.get(fx.documentPublicId);
-				return await checkDocumentWriteAccess(ctx, doc!);
+				return await checkDocumentWriteAccess(
+					ctx,
+					requireFixtureRow(doc, "document"),
+				);
 			});
 
 			expect(result.canWrite).toBe(false);
@@ -417,7 +439,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const doc = await ctx.db.get(fx.documentDeletedId);
-				return await checkDocumentWriteAccess(ctx, doc!);
+				return await checkDocumentWriteAccess(
+					ctx,
+					requireFixtureRow(doc, "document"),
+				);
 			});
 
 			expect(result.canWrite).toBe(false);
@@ -433,7 +458,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const board = await ctx.db.get(fx.whiteboardPublicId);
-				return await checkWhiteboardReadAccess(ctx, board!);
+				return await checkWhiteboardReadAccess(
+					ctx,
+					requireFixtureRow(board, "whiteboard"),
+				);
 			});
 
 			expect(result.canRead).toBe(true);
@@ -445,7 +473,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const board = await ctx.db.get(fx.whiteboardPrivateId);
-				return await checkWhiteboardReadAccess(ctx, board!);
+				return await checkWhiteboardReadAccess(
+					ctx,
+					requireFixtureRow(board, "whiteboard"),
+				);
 			});
 
 			expect(result.canRead).toBe(false);
@@ -457,7 +488,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const board = await ctx.db.get(fx.whiteboardDeletedId);
-				return await checkWhiteboardReadAccess(ctx, board!);
+				return await checkWhiteboardReadAccess(
+					ctx,
+					requireFixtureRow(board, "whiteboard"),
+				);
 			});
 
 			expect(result.canRead).toBe(false);
@@ -499,7 +533,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const board = await ctx.db.get(fx.whiteboardPublicEditId);
-				return await checkWhiteboardWriteAccess(ctx, board!);
+				return await checkWhiteboardWriteAccess(
+					ctx,
+					requireFixtureRow(board, "whiteboard"),
+				);
 			});
 
 			expect(result.canWrite).toBe(true);
@@ -512,7 +549,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const board = await ctx.db.get(fx.whiteboardPublicId);
-				return await checkWhiteboardWriteAccess(ctx, board!);
+				return await checkWhiteboardWriteAccess(
+					ctx,
+					requireFixtureRow(board, "whiteboard"),
+				);
 			});
 
 			expect(result.canWrite).toBe(false);
@@ -524,7 +564,10 @@ describe("auth helpers", () => {
 
 			const result = await t.run(async (ctx) => {
 				const board = await ctx.db.get(fx.whiteboardDeletedId);
-				return await checkWhiteboardWriteAccess(ctx, board!);
+				return await checkWhiteboardWriteAccess(
+					ctx,
+					requireFixtureRow(board, "whiteboard"),
+				);
 			});
 
 			expect(result.canWrite).toBe(false);

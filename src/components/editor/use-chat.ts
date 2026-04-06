@@ -45,7 +45,7 @@ export type MessageDataPart = {
 
 export type Chat = UseChatHelpers<ChatMessage>;
 
-export type ChatMessage = UIMessage<{}, MessageDataPart>;
+export type ChatMessage = UIMessage<Record<string, never>, MessageDataPart>;
 
 export const useChat = () => {
 	const editor = useEditorRef();
@@ -87,7 +87,9 @@ export const useChat = () => {
 						const body = JSON.parse(init?.body as string);
 						const content = body.messages
 							.at(-1)
-							.parts.find((p: any) => p.type === "text")?.text;
+							.parts.find(
+								(p: { type?: string; text?: string }) => p.type === "text",
+							)?.text;
 
 						if (content.includes("Generate a markdown sample")) {
 							sample = "markdown";
@@ -175,7 +177,8 @@ export const useChat = () => {
 					return;
 				}
 
-				const cellUpdate = tableData.cellUpdate!;
+				const cellUpdate = tableData.cellUpdate;
+				if (!cellUpdate) return;
 
 				withAIBatch(editor, () => {
 					applyTableCellSuggestion(editor, cellUpdate);
@@ -191,7 +194,8 @@ export const useChat = () => {
 					return;
 				}
 
-				const aiComment = commentData.comment!;
+				const aiComment = commentData.comment;
+				if (!aiComment) return;
 				const range = aiCommentToRange(editor, aiComment);
 
 				if (!range) return console.warn("No range found for AI comment");

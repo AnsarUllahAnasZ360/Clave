@@ -116,6 +116,7 @@ function FilterCheckItem({
 						stroke="currentColor"
 						strokeWidth={3}
 					>
+						<title>Selected</title>
 						<path
 							strokeLinecap="round"
 							strokeLinejoin="round"

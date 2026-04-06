@@ -10,6 +10,7 @@ import {
 	Clock,
 	Flag,
 	FolderOpen,
+	GitBranch,
 	type LucideIcon,
 	Maximize2,
 	SignalHigh,
@@ -19,7 +20,8 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-import { formatEstimate } from "@/components/issues/IssueListRow";
+import { CreateBranchDialog } from "@/components/github/CreateBranchDialog";
+import { EstimateInput } from "@/components/issues/EstimateInput";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -34,25 +36,17 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DatePicker, GenericPicker } from "@/components/ui/pickers";
 import { Separator } from "@/components/ui/separator";
 import { extractTextFromContent } from "@/lib/content-converters";
 import {
 	DEFAULT_ISSUE_TYPES,
 	DEFAULT_PRIORITIES,
 	DEFAULT_STATUSES,
-	PRIORITY_RECORD,
-	STATUS_RECORD,
-	TYPE_RECORD,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-
-// ── Status / Priority / Type configs (from centralized module) ───────────
-
-const STATUS_CONFIG = STATUS_RECORD;
-const PRIORITY_CONFIG = PRIORITY_RECORD;
-const TYPE_CONFIG = TYPE_RECORD;
 
 // ── Property row ────────────────────────────────────────────────────────────
 
@@ -151,6 +145,7 @@ export function IssuePreviewSidebar({
 	const { workspaceSlug } = useWorkspace();
 	const router = useRouter();
 	const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+	const [createBranchOpen, setCreateBranchOpen] = useState(false);
 	const updateIssue = useMutation(api.issues.update);
 
 	const handleUpdate = useCallback(
@@ -206,6 +201,26 @@ export function IssuePreviewSidebar({
 		return map;
 	}, [sprints]);
 
+	// Labels (hooks must run before any early returns)
+	const allLabelOptions = useMemo(() => {
+		return (labels ?? []).map((l) => ({
+			_id: l._id,
+			name: l.name,
+			color: l.color,
+		}));
+	}, [labels]);
+
+	const toggleLabel = useCallback(
+		(labelId: Id<"labels">) => {
+			const current = issue?.labelIds ?? [];
+			const next = current.includes(labelId)
+				? current.filter((id: Id<"labels">) => id !== labelId)
+				: [...current, labelId];
+			handleUpdate("labelIds", next);
+		},
+		[issue?.labelIds, handleUpdate],
+	);
+
 	// Loading state
 	if (issue === undefined) {
 		return (
@@ -246,10 +261,6 @@ export function IssuePreviewSidebar({
 		);
 	}
 
-	// Resolve lookups
-	const statusConfig = STATUS_CONFIG[issue.status];
-	const priorityConfig = PRIORITY_CONFIG[issue.priority];
-	const typeConfig = issue.type ? TYPE_CONFIG[issue.type] : undefined;
 	const assignee = issue.assigneeId
 		? memberMap.get(issue.assigneeId)
 		: undefined;
@@ -455,33 +466,113 @@ export function IssuePreviewSidebar({
 
 						{/* Labels */}
 						<PropertyRow icon={Tag} label="Labels">
-							{issueLabels.length > 0 ? (
-								<span className="flex flex-wrap gap-1">
-									{issueLabels.map((label) => (
-										<span
-											key={label._id}
-											className="inline-flex items-center gap-1 text-[11px]"
-										>
-											<span
-												className="h-2 w-2 rounded-full shrink-0"
-												style={{ backgroundColor: label.color }}
-											/>
-											{label.name}
-										</span>
-									))}
-								</span>
-							) : (
-								<span className="text-muted-foreground">None</span>
-							)}
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										className="flex items-center gap-2 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors min-w-0"
+									>
+										{issueLabels.length > 0 ? (
+											<span className="flex flex-wrap gap-1 min-w-0">
+												{issueLabels.slice(0, 2).map((label) => (
+													<span
+														key={label._id}
+														className="inline-flex items-center gap-1 text-[11px] text-muted-foreground truncate"
+													>
+														<span
+															className="h-2 w-2 rounded-full shrink-0"
+															style={{ backgroundColor: label.color }}
+														/>
+														<span className="truncate max-w-[72px]">
+															{label.name}
+														</span>
+													</span>
+												))}
+												{issueLabels.length > 2 && (
+													<span className="text-[10px] text-muted-foreground">
+														+{issueLabels.length - 2}
+													</span>
+												)}
+											</span>
+										) : (
+											<span className="text-muted-foreground">None</span>
+										)}
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent
+									align="start"
+									className="w-64 max-h-72 overflow-y-auto"
+								>
+									{allLabelOptions.length === 0 ? (
+										<DropdownMenuItem disabled className="text-xs">
+											No labels
+										</DropdownMenuItem>
+									) : (
+										allLabelOptions.map((l) => {
+											const selected = (issue.labelIds ?? []).includes(l._id);
+											return (
+												<DropdownMenuItem
+													key={l._id}
+													onClick={() => toggleLabel(l._id)}
+													className={cn(
+														"gap-2 text-xs",
+														selected && "bg-accent",
+													)}
+												>
+													<span
+														className="h-2.5 w-2.5 rounded-full shrink-0"
+														style={{ backgroundColor: l.color }}
+													/>
+													<span className="flex-1 truncate">{l.name}</span>
+													{selected ? (
+														<span className="text-[10px] text-muted-foreground">
+															Selected
+														</span>
+													) : null}
+												</DropdownMenuItem>
+											);
+										})
+									)}
+								</DropdownMenuContent>
+							</DropdownMenu>
 						</PropertyRow>
 
 						<Separator className="my-2 bg-border/40" />
 
 						{/* Project */}
 						<PropertyRow icon={FolderOpen} label="Project">
-							<span className={cn(!projectName && "text-muted-foreground")}>
-								{projectName ?? "No project"}
-							</span>
+							<GenericPicker
+								items={(projects ?? []).map((p) => ({
+									id: p._id as string,
+									label: p.name,
+								}))}
+								selectedId={issue.projectId ?? undefined}
+								onSelect={(item) => handleUpdate("projectId", item.id)}
+								placeholder="Search projects..."
+								renderItem={(item, isSelected) => (
+									<div className="flex items-center gap-2 w-full">
+										<FolderOpen className="h-4 w-4 text-muted-foreground" />
+										<span className="flex-1 truncate">{item.label}</span>
+										{isSelected ? (
+											<span className="text-[10px] text-muted-foreground">
+												Selected
+											</span>
+										) : null}
+									</div>
+								)}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors min-w-0"
+									>
+										<span
+											className={cn(!projectName && "text-muted-foreground")}
+										>
+											{projectName ?? "No project"}
+										</span>
+									</button>
+								}
+							/>
 						</PropertyRow>
 
 						{/* Sprint (editable) */}
@@ -550,23 +641,80 @@ export function IssuePreviewSidebar({
 
 						{/* Estimate */}
 						<PropertyRow icon={Clock} label="Estimate">
-							<span className={cn(!issue.estimate && "text-muted-foreground")}>
-								{issue.estimate
-									? formatEstimate(issue.estimate)
-									: "No estimate"}
-							</span>
+							<EstimateInput
+								value={issue.estimate ?? undefined}
+								onChange={(hours) =>
+									handleUpdate("estimate", hours === 0 ? undefined : hours)
+								}
+								compact
+								className="h-7 px-2"
+							/>
 						</PropertyRow>
 
 						{/* Due date */}
 						<PropertyRow icon={Calendar} label="Due date">
-							<span className={cn(!issue.dueDate && "text-muted-foreground")}>
-								{issue.dueDate
-									? format(new Date(issue.dueDate), "MMM d, yyyy")
-									: "No due date"}
-							</span>
+							<DatePicker
+								date={issue.dueDate ? new Date(issue.dueDate) : undefined}
+								onSelect={(d) => handleUpdate("dueDate", d?.getTime())}
+								trigger={
+									<button
+										type="button"
+										className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors"
+									>
+										<span
+											className={cn(!issue.dueDate && "text-muted-foreground")}
+										>
+											{issue.dueDate
+												? format(new Date(issue.dueDate), "MMM d, yyyy")
+												: "No due date"}
+										</span>
+									</button>
+								}
+							/>
 						</PropertyRow>
 
 						<Separator className="my-2 bg-border/40" />
+
+						{/* GitHub / Development */}
+						{issue.projectId ? (
+							<div className="space-y-0.5">
+								<h3 className="text-[11px] font-medium text-muted-foreground/70 mb-2 mt-1">
+									Development
+								</h3>
+								<PropertyRow icon={GitBranch} label="Branch">
+									<div className="flex items-center gap-2">
+										<span
+											className={cn(
+												"text-xs font-mono",
+												!issue.gitBranchName && "text-muted-foreground",
+											)}
+										>
+											{issue.gitBranchName ?? "No branch"}
+										</span>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											className="h-7 text-xs ml-auto"
+											onClick={() => setCreateBranchOpen(true)}
+										>
+											Create branch
+										</Button>
+									</div>
+								</PropertyRow>
+							</div>
+						) : null}
+
+						{issue.projectId ? (
+							<CreateBranchDialog
+								open={createBranchOpen}
+								onOpenChange={setCreateBranchOpen}
+								projectId={issue.projectId}
+								issueId={issue._id}
+								identifier={issue.identifier}
+								title={issue.title}
+							/>
+						) : null}
 
 						{/* Timestamps */}
 						<div className="space-y-1 pt-1 text-[11px] text-muted-foreground/60">

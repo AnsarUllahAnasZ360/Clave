@@ -176,7 +176,7 @@ export function IssueTimelineView({
 	}, [issues]);
 
 	// All issues merged — scheduled first, then unscheduled, for the sidebar
-	const allIssuesSorted = useMemo(() => {
+	const _allIssuesSorted = useMemo(() => {
 		if (!issues) return [];
 		return [...issues].sort((a, b) => {
 			const aHasDates = a.startDate != null && a.dueDate != null ? 0 : 1;
@@ -707,8 +707,9 @@ export function IssueTimelineView({
 										// If no dates, show as a pill at a calculated position
 										if (!mStart && !mEnd) return null;
 
-										const barStart = mStart ?? mEnd!;
-										const barEnd = mEnd ?? mStart!;
+										const barStart = mStart ?? mEnd;
+										const barEnd = mEnd ?? mStart;
+										if (!barStart || !barEnd) return null;
 										const offsetStart = differenceInCalendarDays(
 											barStart,
 											dates[0],

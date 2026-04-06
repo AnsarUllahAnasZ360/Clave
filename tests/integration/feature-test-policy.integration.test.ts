@@ -10,7 +10,10 @@ import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 const projectRoot = resolve(__dirname, "../..");
-const policyScriptPath = resolve(projectRoot, "scripts/check-feature-tests.sh");
+const policyScriptPath = resolve(
+	projectRoot,
+	"scripts/check-feature-tests.mjs",
+);
 const tempRepos: string[] = [];
 
 type CommandResult = SpawnSyncReturns<string>;
@@ -124,61 +127,82 @@ function commitFeatureChange(
 }
 
 function runPolicy(repoDir: string, baseRef: string): CommandResult {
-	return run("bash", [policyScriptPath], repoDir, { BASE_REF: baseRef });
+	return run(process.execPath, [policyScriptPath], repoDir, {
+		BASE_REF: baseRef,
+	});
 }
 
 afterEach(() => {
 	for (const repoDir of tempRepos.splice(0)) {
-		rmSync(repoDir, { force: true, recursive: true });
+		rmSync(repoDir, {
+			force: true,
+			maxRetries: 5,
+			recursive: true,
+		});
 	}
 });
 
-describe("scripts/check-feature-tests.sh", () => {
-	it("fails when feature changes are missing unit updates", () => {
-		const { baseRef, repoDir } = createFixtureRepo();
-		commitFeatureChange(repoDir, {
-			updateIntegration: true,
-			updateUnit: false,
-		});
+// Git + temp IO on Windows can exceed the default 5s test timeout under load.
+const POLICY_TEST_TIMEOUT_MS = 30_000;
 
-		const result = runPolicy(repoDir, baseRef);
-		const output = `${result.stdout}\n${result.stderr}`;
+describe("scripts/check-feature-tests.mjs", () => {
+	it(
+		"fails when feature changes are missing unit updates",
+		() => {
+			const { baseRef, repoDir } = createFixtureRepo();
+			commitFeatureChange(repoDir, {
+				updateIntegration: true,
+				updateUnit: false,
+			});
 
-		expect(result.status).toBe(1);
-		expect(output).toContain(
-			"[policy] FAIL: feature changes require unit test updates.",
-		);
-	});
+			const result = runPolicy(repoDir, baseRef);
+			const output = `${result.stdout}\n${result.stderr}`;
 
-	it("fails when feature changes are missing integration updates", () => {
-		const { baseRef, repoDir } = createFixtureRepo();
-		commitFeatureChange(repoDir, {
-			updateIntegration: false,
-			updateUnit: true,
-		});
+			expect(result.status).toBe(1);
+			expect(output).toContain(
+				"[policy] FAIL: feature changes require unit test updates.",
+			);
+		},
+		POLICY_TEST_TIMEOUT_MS,
+	);
 
-		const result = runPolicy(repoDir, baseRef);
-		const output = `${result.stdout}\n${result.stderr}`;
+	it(
+		"fails when feature changes are missing integration updates",
+		() => {
+			const { baseRef, repoDir } = createFixtureRepo();
+			commitFeatureChange(repoDir, {
+				updateIntegration: false,
+				updateUnit: true,
+			});
 
-		expect(result.status).toBe(1);
-		expect(output).toContain(
-			"[policy] FAIL: feature changes require integration test updates.",
-		);
-	});
+			const result = runPolicy(repoDir, baseRef);
+			const output = `${result.stdout}\n${result.stderr}`;
 
-	it("passes when feature changes include unit and integration updates", () => {
-		const { baseRef, repoDir } = createFixtureRepo();
-		commitFeatureChange(repoDir, {
-			updateIntegration: true,
-			updateUnit: true,
-		});
+			expect(result.status).toBe(1);
+			expect(output).toContain(
+				"[policy] FAIL: feature changes require integration test updates.",
+			);
+		},
+		POLICY_TEST_TIMEOUT_MS,
+	);
 
-		const result = runPolicy(repoDir, baseRef);
-		const output = `${result.stdout}\n${result.stderr}`;
+	it(
+		"passes when feature changes include unit and integration updates",
+		() => {
+			const { baseRef, repoDir } = createFixtureRepo();
+			commitFeatureChange(repoDir, {
+				updateIntegration: true,
+				updateUnit: true,
+			});
 
-		expect(result.status).toBe(0);
-		expect(output).toContain(
-			"[policy] PASS: feature changes include required test updates (unit + integration).",
-		);
-	});
+			const result = runPolicy(repoDir, baseRef);
+			const output = `${result.stdout}\n${result.stderr}`;
+
+			expect(result.status).toBe(0);
+			expect(output).toContain(
+				"[policy] PASS: feature changes include required test updates (unit + integration).",
+			);
+		},
+		POLICY_TEST_TIMEOUT_MS,
+	);
 });

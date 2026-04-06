@@ -59,10 +59,8 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 		filters,
 		setFilter,
 		clearAll: clearAllFilters,
-		activeFilterCount,
 		applyFilters,
 	} = useIssueFilters();
-	const [showFilters, setShowFilters] = useState(false);
 	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(
 		null,
 	);
@@ -134,14 +132,6 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			updatedAt: issue.updatedAt ?? undefined,
 		}));
 	}, [backlogIssues, applyFilters]);
-
-	const labelMap = useMemo(() => {
-		const map = new Map<string, { name: string; color: string }>();
-		if (labels) {
-			for (const l of labels) map.set(l._id, { name: l.name, color: l.color });
-		}
-		return map;
-	}, [labels]);
 
 	const memberMap = useMemo(() => {
 		const map = new Map<string, string>();

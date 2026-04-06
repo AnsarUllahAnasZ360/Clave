@@ -61,7 +61,7 @@ type EmbeddedResult = {
 };
 
 const AI_GENERATION_TIMEOUT_MS = 120_000;
-const MAX_SCENE_ELEMENTS_IN_PROMPT = 80;
+const MAX_SCENE_ELEMENTS_IN_PROMPT = 30;
 const MAX_CONTINUE_CONTEXT_CHARS = 8_000;
 const MAX_SUMMARY_CONTEXT_CHARS = 12_000;
 const EMBEDDED_REASONING_OPTIONS = getReasoningProviderOptions(
@@ -95,8 +95,11 @@ async function callAI(
 		maxOutputTokens?: number;
 		timeoutMs?: number;
 		maxRetries?: number;
+		/** Skip reasoning for structured output tasks (JSON generation). */
+		skipReasoning?: boolean;
 	},
 ): Promise<string> {
+	const useReasoning = !options?.skipReasoning && EMBEDDED_REASONING_OPTIONS;
 	const result = await generateText({
 		model: chatModel(),
 		prompt: systemPrompt,
@@ -104,9 +107,7 @@ async function callAI(
 		timeout: options?.timeoutMs ?? AI_GENERATION_TIMEOUT_MS,
 		// Keep retries low to preserve responsiveness for embedded actions.
 		maxRetries: options?.maxRetries ?? 1,
-		...(EMBEDDED_REASONING_OPTIONS
-			? { providerOptions: EMBEDDED_REASONING_OPTIONS }
-			: {}),
+		...(useReasoning ? { providerOptions: EMBEDDED_REASONING_OPTIONS } : {}),
 	});
 	return result.text ?? "";
 }
@@ -761,32 +762,44 @@ export const embeddedAction = action({
 						args.whiteboard?.generation?.mode ??
 						inferGenerationMode(args.prompt);
 
-					// The prompt includes the vendored official Excalidraw MCP element
-					// reference, but we keep board context compact to avoid generation
-					// timeouts on large canvases.
-					const generationPrompt = whiteboardGenerateDiagramPrompt({
-						title: wb?.title ?? "Untitled board",
+					// Build prompt — include existing elements on first attempt,
+					// drop them on retry to keep prompt small and avoid timeouts.
+					const boardTitle = wb?.title ?? "Untitled board";
+					const compactedScene = compactWhiteboardScene(wb?.sceneData);
+
+					const fullPrompt = whiteboardGenerateDiagramPrompt({
+						title: boardTitle,
 						prompt: args.prompt,
-						existingElements: compactWhiteboardScene(wb?.sceneData),
+						existingElements: compactedScene,
+						mode,
+						generation: args.whiteboard?.generation,
+					});
+					const litePrompt = whiteboardGenerateDiagramPrompt({
+						title: boardTitle,
+						prompt: args.prompt,
+						existingElements: undefined,
 						mode,
 						generation: args.whiteboard?.generation,
 					});
 
-					// Attempt generation with retry on failure.
 					const MAX_GENERATION_TOKENS = 8192;
 					let lastError: string | null = null;
 
 					for (let attempt = 0; attempt < 2; attempt++) {
 						try {
-							const generatedText = await callAI(
+							// On retry: use lighter prompt (no existing elements) and
+							// request a simpler diagram to avoid timeout.
+							const prompt =
 								attempt === 0
-									? generationPrompt
-									: `${generationPrompt}\n\nIMPORTANT: Previous attempt failed. Return a SIMPLER diagram with fewer elements (max 15 shapes). Ensure valid JSON with an "elements" array.`,
-								{
-									maxOutputTokens: MAX_GENERATION_TOKENS,
-									timeoutMs: AI_GENERATION_TIMEOUT_MS,
-								},
-							);
+									? fullPrompt
+									: `${litePrompt}\n\nIMPORTANT: Previous attempt failed. Return a SIMPLER diagram with fewer elements (max 15 shapes). Ensure valid JSON with an "elements" array.`;
+							const generatedText = await callAI(prompt, {
+								maxOutputTokens: MAX_GENERATION_TOKENS,
+								timeoutMs: AI_GENERATION_TIMEOUT_MS,
+								// Structured JSON output — reasoning adds latency
+								// without improving quality for element generation.
+								skipReasoning: true,
+							});
 							const parsed = parseJsonResponse(generatedText);
 							const elements = sanitizeDrawableElements(
 								extractElementsPayload(parsed),

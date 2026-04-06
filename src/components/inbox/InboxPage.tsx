@@ -332,7 +332,7 @@ function NotificationListItem({
 
 function IssuePreviewPanel({
 	notification,
-	workspaceId,
+	workspaceId: _workspaceId,
 	workspaceSlug,
 }: {
 	notification: NotificationItem;

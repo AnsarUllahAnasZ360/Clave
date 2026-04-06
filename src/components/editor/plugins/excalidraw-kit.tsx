@@ -2,6 +2,7 @@
 
 import { ExcalidrawPlugin } from "@platejs/excalidraw/react";
 import dynamic from "next/dynamic";
+import type React from "react";
 
 // Lazy-load the Excalidraw render component (~1MB+ bundle).
 // The plugin schema stays registered eagerly for serialization/deserialization.
@@ -19,5 +20,7 @@ const LazyExcalidrawElement = dynamic(
 );
 
 export const ExcalidrawKit = [
-	ExcalidrawPlugin.withComponent(LazyExcalidrawElement as any),
+	ExcalidrawPlugin.withComponent(
+		LazyExcalidrawElement as unknown as React.FC<Record<string, unknown>>,
+	),
 ];

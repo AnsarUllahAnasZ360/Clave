@@ -200,11 +200,13 @@ describe("google chat integrations (integration)", () => {
 
 		// Create a second workspace under the same org
 		const workspace2Id = await t.run(async (ctx) => {
+			const ws1 = await ctx.db.get(fx.workspaceId);
+			if (!ws1) throw new Error("Workspace fixture missing");
 			const ws2 = await ctx.db.insert("workspaces", {
 				name: "GC Workspace 2",
 				slug: "gc-workspace-2",
 				ownerId: fx.adminId,
-				organizationId: (await ctx.db.get(fx.workspaceId))!.organizationId,
+				organizationId: ws1.organizationId,
 			});
 			await ctx.db.insert("workspaceMembers", {
 				workspaceId: ws2,

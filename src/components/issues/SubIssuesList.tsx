@@ -459,7 +459,7 @@ function InlineCreateInput({
 // ── Main component ──────────────────────────────────────────────────────
 
 export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
-	const { workspaceId, workspaceSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const [isCollapsibleOpen, setIsCollapsibleOpen] = useState<
 		boolean | undefined
 	>(undefined);

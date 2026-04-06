@@ -70,8 +70,13 @@ export function ProjectDescriptionEditor({
 		extensions: [
 			StarterKit,
 			Placeholder.configure({
-				placeholder: ({ node }: { node: any }) => {
-					if (node.type.name === "heading") {
+				placeholder: ({ node }: { node: unknown }) => {
+					const name =
+						node &&
+						typeof node === "object" &&
+						"type" in node &&
+						(node as { type?: { name?: string } }).type?.name;
+					if (name === "heading") {
 						return "Whats the title?";
 					}
 					return defaultPlaceholder;
@@ -92,7 +97,11 @@ export function ProjectDescriptionEditor({
 		editable: true,
 		immediatelyRender: false,
 		onFocus: () => setIsFocused(true),
-		onUpdate: ({ editor }: { editor: any }) => {
+		onUpdate: ({
+			editor,
+		}: {
+			editor: { getText: () => string; getHTML: () => string };
+		}) => {
 			const text = editor.getText();
 			setExistingSections({
 				goal: text.includes("Goal:"),
@@ -328,10 +337,20 @@ export function ProjectDescriptionEditor({
 						? "p-3.5 gap-1 bg-background"
 						: "bg-muted/10 hover:bg-muted/20 rounded-lg cursor-text",
 				)}
+				role="presentation"
 				onClick={() => {
 					if (!isFocused) {
 						setIsFocused(true);
 						editor?.commands.focus();
+					}
+				}}
+				onKeyDown={(e) => {
+					if (e.key === "Enter" || e.key === " ") {
+						e.preventDefault();
+						if (!isFocused) {
+							setIsFocused(true);
+							editor?.commands.focus();
+						}
 					}
 				}}
 			>

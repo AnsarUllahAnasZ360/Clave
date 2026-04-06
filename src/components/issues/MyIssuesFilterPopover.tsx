@@ -15,6 +15,7 @@ import {
 	DEFAULT_STATUSES,
 	PRIORITY_LABELS,
 } from "@/lib/issue-config";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -135,6 +136,14 @@ export function useIssueFilters() {
 		activeFilterCount,
 		applyFilters,
 	};
+}
+
+/** Single selected sprint/milestone chip → use for new-issue scope on project board. */
+export function sprintIdFromSingleMilestoneFilter(
+	milestoneIds: readonly string[],
+): Id<"sprints"> | undefined {
+	if (milestoneIds.length !== 1) return undefined;
+	return milestoneIds[0] as Id<"sprints">;
 }
 
 // ── Status / Priority config (derived from centralized module) ───────────

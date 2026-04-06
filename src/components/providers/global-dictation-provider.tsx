@@ -15,6 +15,7 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 import {
 	DictationRecordingIndicator,
 	type IndicatorState,
@@ -107,64 +108,61 @@ export function GlobalDictationProvider({
 		};
 	}, []);
 
-	// Route transcript to the captured active element
+	// Smart dictation: copy to clipboard AND auto-insert into the focused field
 	const handleTranscript = useCallback(
 		(text: string) => {
 			const captured = capturedTargetRef.current;
-			const target = captured?.element;
 
-			// 1. Slate/Plate editor
+			// 1. Always copy to clipboard
+			navigator.clipboard.writeText(text).catch(() => {});
+
+			// 2. Auto-insert into the captured field
+			// Slate/Plate editor
 			if (captured?.slateEditor) {
 				window.dispatchEvent(
 					new CustomEvent("clave:dictation-transcript", {
 						detail: { text, targetEditor: captured.slateEditor },
 					}),
 				);
-				showCompleted("Inserted into document");
+				showCompleted("Inserted and copied to clipboard");
 				return;
 			}
 
-			// 2. AI chat input
+			// AI chat input
 			if (captured?.aiChatInput) {
 				const chatTextarea =
 					captured.aiChatInput.querySelector("textarea") ??
 					captured.aiChatInput.querySelector("input");
 				if (chatTextarea) {
-					chatTextarea.focus();
+					(chatTextarea as HTMLElement).focus();
 					document.execCommand("insertText", false, text);
-					showCompleted("Inserted into chat");
+					showCompleted("Inserted and copied to clipboard");
 					return;
 				}
 			}
 
-			// 3. Standard input/textarea
+			// Standard input/textarea
+			const target = captured?.element;
 			if (
 				target instanceof HTMLInputElement ||
 				target instanceof HTMLTextAreaElement
 			) {
 				target.focus();
 				document.execCommand("insertText", false, text);
-				showCompleted("Inserted into field");
+				showCompleted("Inserted and copied to clipboard");
 				return;
 			}
 
-			// 4. ContentEditable element
+			// ContentEditable element
 			if (target instanceof HTMLElement && target.isContentEditable) {
 				target.focus();
 				document.execCommand("insertText", false, text);
-				showCompleted("Text inserted");
+				showCompleted("Inserted and copied to clipboard");
 				return;
 			}
 
-			// 5. No text field — copy to clipboard
-			void navigator.clipboard
-				.writeText(text)
-				.then(() => {
-					showCompleted("Copied to clipboard");
-				})
-				.catch(() => {
-					showCompleted("Copied to clipboard");
-				});
+			// No text field — clipboard only
+			showCompleted("Copied to clipboard");
 		},
 		[showCompleted],
 	);
@@ -173,6 +171,24 @@ export function GlobalDictationProvider({
 		workspaceId: workspaceId as Id<"workspaces">,
 		onTranscript: handleTranscript,
 	});
+
+	// Restore focus to the captured element once recording starts
+	// (getUserMedia can steal focus during the permission request)
+	const prevStateRef = useRef<DictationState>("idle");
+	useEffect(() => {
+		const prev = prevStateRef.current;
+		prevStateRef.current = dictation.state;
+
+		if (prev === "requesting-permission" && dictation.state === "recording") {
+			const captured = capturedTargetRef.current;
+			if (captured?.element instanceof HTMLElement) {
+				// Delay slightly so the browser finishes the getUserMedia focus shift
+				requestAnimationFrame(() => {
+					(captured.element as HTMLElement).focus();
+				});
+			}
+		}
+	}, [dictation.state]);
 
 	// Capture active element when starting — also clear any lingering completion
 	const startDictation = useCallback(() => {
@@ -206,20 +222,43 @@ export function GlobalDictationProvider({
 		}
 	}, [dictation]);
 
-	// Listen for global toggle event
+	// Listen for global toggle event — stopImmediatePropagation prevents
+	// other listeners (e.g. VoiceButton) from also handling the same event.
 	useEffect(() => {
 		function handleToggleEvent(event: Event) {
 			const detail = (
 				event as CustomEvent<{ source?: string; surface?: string }>
 			).detail;
 			if (detail?.surface === "document") return;
+			event.stopImmediatePropagation();
 			toggleDictation();
 		}
 
-		window.addEventListener("clave:dictation-toggle", handleToggleEvent);
+		// Use capture phase to run before other listeners
+		window.addEventListener("clave:dictation-toggle", handleToggleEvent, true);
 		return () =>
-			window.removeEventListener("clave:dictation-toggle", handleToggleEvent);
+			window.removeEventListener(
+				"clave:dictation-toggle",
+				handleToggleEvent,
+				true,
+			);
 	}, [toggleDictation]);
+
+	// Escape key stops recording without stealing focus
+	useEffect(() => {
+		if (dictation.state !== "recording") return;
+
+		function handleEscape(e: KeyboardEvent) {
+			if (e.key === "Escape") {
+				e.preventDefault();
+				e.stopPropagation();
+				dictation.stopDictation();
+			}
+		}
+
+		window.addEventListener("keydown", handleEscape, true);
+		return () => window.removeEventListener("keydown", handleEscape, true);
+	}, [dictation.state, dictation.stopDictation]);
 
 	// Flush pending offline dictations on mount + reconnect
 	useEffect(() => {

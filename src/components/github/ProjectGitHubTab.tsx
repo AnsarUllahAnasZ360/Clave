@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { CommitList } from "@/components/github/CommitList";
 import { IssueSyncSettings } from "@/components/github/IssueSyncSettings";
@@ -39,6 +40,11 @@ type Connection = {
 	status: string;
 	createdAt: number;
 };
+
+type PullRequestListData = React.ComponentProps<
+	typeof PullRequestList
+>["pullRequests"];
+type CommitListData = React.ComponentProps<typeof CommitList>["commits"];
 
 type ProjectGitHubTabProps = {
 	projectId: Id<"projects">;
@@ -173,7 +179,9 @@ export function ProjectGitHubTab({
 						</div>
 					) : (
 						<div className="rounded-lg border border-border bg-card overflow-hidden">
-							<PullRequestList pullRequests={filteredPrs as any} />
+							<PullRequestList
+								pullRequests={filteredPrs as PullRequestListData}
+							/>
 						</div>
 					)}
 				</TabsContent>
@@ -187,7 +195,7 @@ export function ProjectGitHubTab({
 						</div>
 					) : (
 						<div className="rounded-lg border border-border bg-card overflow-hidden">
-							<CommitList commits={commits as any} />
+							<CommitList commits={commits as CommitListData} />
 						</div>
 					)}
 				</TabsContent>

@@ -12,16 +12,20 @@ export const TabbableKit = TabbablePlugin.configure(({ editor }) => ({
 			if (editor.api.isAt({ start: true }) || editor.api.isAt({ end: true }))
 				return false;
 
+			const tabbableTypes = [
+				KEYS.codeBlock,
+				KEYS.li,
+				KEYS.listTodoClassic,
+				KEYS.table,
+			] as const;
+
 			return !editor.api.some({
 				match: (n) =>
 					!!(
 						(n.type &&
-							[
-								KEYS.codeBlock,
-								KEYS.li,
-								KEYS.listTodoClassic,
-								KEYS.table,
-							].includes(n.type as any)) ||
+							tabbableTypes.includes(
+								n.type as (typeof tabbableTypes)[number],
+							)) ||
 						n.listStyleType
 					),
 			});

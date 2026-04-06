@@ -55,7 +55,12 @@ export function MarkdownArtifact({ artifact }: { artifact: ArtifactData }) {
 		} finally {
 			setSaving(false);
 		}
-	}, [workspace?.workspaceId, createDocument, artifact.title]);
+	}, [
+		workspace?.workspaceId,
+		createDocument,
+		artifact.title,
+		artifact.content,
+	]);
 
 	return (
 		<div className="flex h-full flex-col">

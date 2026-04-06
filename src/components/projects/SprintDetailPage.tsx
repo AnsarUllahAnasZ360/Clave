@@ -80,13 +80,14 @@ export function SprintDetailPage({
 	const options = displayOpts.options;
 
 	const handleCreateIssue = useCallback(() => {
-		if (project) {
+		if (project && sprint) {
 			openQuickCreate({
 				projectId: project._id as string,
-				sprintId: sprintId,
+				sprintId: sprint._id as string,
+				status: "todo",
 			});
 		}
-	}, [openQuickCreate, project, sprintId]);
+	}, [openQuickCreate, project, sprint]);
 
 	// Filters
 	const {
@@ -339,6 +340,7 @@ export function SprintDetailPage({
 					{options.layout === "board" && (
 						<IssueBoardView
 							projectId={project._id}
+							boardSprintId={sprint._id}
 							externalIssues={filteredBoardIssues}
 							displayProperties={boardDisplayProperties}
 							swimlaneBy={options.swimlaneBy}

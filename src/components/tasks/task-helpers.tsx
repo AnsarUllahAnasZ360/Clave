@@ -244,8 +244,29 @@ export function ProjectTasksSection({
 						/>
 					))}
 				</SortableContext>
+				<InlineTaskCreate
+					onAdd={() =>
+						onAddTask({
+							projectId: project.id,
+							workstreamName: tasks[0]?.workstreamName,
+						})
+					}
+				/>
 			</div>
 		</section>
+	);
+}
+
+function InlineTaskCreate({ onAdd }: { onAdd: () => void }) {
+	return (
+		<button
+			type="button"
+			onClick={onAdd}
+			className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
+		>
+			<Plus className="h-3.5 w-3.5" />
+			<span>Add task</span>
+		</button>
 	);
 }
 
