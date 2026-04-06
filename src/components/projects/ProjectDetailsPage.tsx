@@ -24,6 +24,7 @@ import { IssueTimelineView } from "@/components/issues/IssueTimelineView";
 import {
 	IssueFilterChips,
 	MyIssuesFilterPopover,
+	sprintIdFromSingleMilestoneFilter,
 	useIssueFilters,
 } from "@/components/issues/MyIssuesFilterPopover";
 import { CreateListDialog } from "@/components/lists/CreateListDialog";
@@ -492,10 +493,6 @@ function ProjectIssuesTab({
 		null,
 	);
 
-	const handleCreateIssue = useCallback(() => {
-		openQuickCreate({ projectId: projectId as string });
-	}, [openQuickCreate, projectId]);
-
 	// ── Filter state ─────────────────────────────────────────────────────
 	const {
 		filters,
@@ -504,6 +501,23 @@ function ProjectIssuesTab({
 		activeFilterCount,
 		applyFilters,
 	} = useIssueFilters();
+
+	const boardSprintIdFromFilter = useMemo(
+		() => sprintIdFromSingleMilestoneFilter(filters.milestoneIds),
+		[filters.milestoneIds],
+	);
+
+	const handleCreateIssue = useCallback(() => {
+		if (boardSprintIdFromFilter) {
+			openQuickCreate({
+				projectId: projectId as string,
+				sprintId: boardSprintIdFromFilter as string,
+				status: "todo",
+			});
+		} else {
+			openQuickCreate({ projectId: projectId as string });
+		}
+	}, [openQuickCreate, projectId, boardSprintIdFromFilter]);
 	const [showFilters, setShowFilters] = useState(false);
 
 	// ── Lookup data for filter popover ───────────────────────────────────
@@ -711,6 +725,7 @@ function ProjectIssuesTab({
 				{options.layout === "board" && (
 					<IssueBoardView
 						projectId={projectId}
+						boardSprintId={boardSprintIdFromFilter}
 						externalIssues={filteredBoardIssues}
 						displayProperties={boardDisplayProperties}
 						swimlaneBy={options.swimlaneBy}

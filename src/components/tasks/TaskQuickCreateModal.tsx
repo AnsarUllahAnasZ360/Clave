@@ -31,6 +31,7 @@ export type CreateTaskContext = {
 	projectId?: string;
 	workstreamId?: string;
 	workstreamName?: string;
+	status?: string;
 };
 
 interface TaskQuickCreateModalProps {
@@ -42,7 +43,7 @@ interface TaskQuickCreateModalProps {
 	onTaskUpdated?: (task: ProjectTask) => void;
 }
 
-type TaskStatusId = "todo" | "in_progress" | "done";
+type TaskStatusId = "backlog" | "todo" | "in_progress" | "in_review" | "done";
 
 type StatusOption = {
 	id: TaskStatusId;
@@ -60,10 +61,15 @@ export type TagOption = {
 };
 
 const STATUS_OPTIONS: StatusOption[] = [
+	{ id: "backlog", label: "Backlog" },
 	{ id: "todo", label: "To do" },
 	{ id: "in_progress", label: "In progress" },
+	{ id: "in_review", label: "In review" },
 	{ id: "done", label: "Done" },
 ];
+
+const DEFAULT_STATUS: StatusOption =
+	STATUS_OPTIONS.find((s) => s.id === "todo") ?? STATUS_OPTIONS[1];
 
 const PRIORITY_OPTIONS: PriorityOption[] = [
 	{ id: "none", label: "No priority" },
@@ -100,7 +106,7 @@ export function TaskQuickCreateModal({
 
 	const [projectId, setProjectId] = useState<string | undefined>(undefined);
 	const [assigneeId, setAssigneeId] = useState<string | undefined>(undefined);
-	const [status, setStatus] = useState<StatusOption>(STATUS_OPTIONS[0]);
+	const [status, setStatus] = useState<StatusOption>(DEFAULT_STATUS);
 	const [startDate, setStartDate] = useState<Date | undefined>(new Date());
 	const [targetDate, setTargetDate] = useState<Date | undefined>(undefined);
 	const [priority, setPriority] = useState<PriorityOption>(PRIORITY_OPTIONS[0]);
@@ -143,7 +149,7 @@ export function TaskQuickCreateModal({
 			const statusOption = STATUS_OPTIONS.find(
 				(s) => s.id === editingTask.status.replace("-", "_"),
 			);
-			setStatus(statusOption ?? STATUS_OPTIONS[0]);
+			setStatus(statusOption ?? DEFAULT_STATUS);
 
 			setStartDate(editingTask.startDate ?? new Date());
 			setTargetDate(undefined);
@@ -173,12 +179,15 @@ export function TaskQuickCreateModal({
 		setCreateMore(false);
 		setIsDescriptionExpanded(false);
 		setAssigneeId(undefined);
-		setStatus(STATUS_OPTIONS[0]);
+		const contextStatus = context?.status
+			? STATUS_OPTIONS.find((s) => s.id === context.status)
+			: undefined;
+		setStatus(contextStatus ?? DEFAULT_STATUS);
 		setStartDate(new Date());
 		setTargetDate(undefined);
 		setPriority(PRIORITY_OPTIONS[0]);
 		setSelectedTag(undefined);
-	}, [open, context?.projectId, editingTask]);
+	}, [open, context?.projectId, context?.status, editingTask]);
 
 	const handleSubmit = async () => {
 		if (editingTask) {
@@ -248,7 +257,7 @@ export function TaskQuickCreateModal({
 				toast.success("Task created! Ready for another.");
 				setTitle("");
 				setDescription(undefined);
-				setStatus(STATUS_OPTIONS[0]);
+				setStatus(DEFAULT_STATUS);
 				setTargetDate(undefined);
 				return;
 			}

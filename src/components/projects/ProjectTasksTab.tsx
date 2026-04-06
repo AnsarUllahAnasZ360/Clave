@@ -206,6 +206,9 @@ function filterTasksByChips(
 
 function computeTaskFilterCounts(tasks: ProjectTask[]): FilterCounts {
 	const counts: FilterCounts = {
+		status: {},
+		priority: {},
+		tags: {},
 		members: {
 			"no-member": 0,
 			current: 0,
@@ -215,13 +218,13 @@ function computeTaskFilterCounts(tasks: ProjectTask[]): FilterCounts {
 
 	for (const task of tasks) {
 		if (!task.assignee) {
-			counts.members!["no-member"] = (counts.members?.["no-member"] || 0) + 1;
+			counts.members["no-member"] = (counts.members["no-member"] || 0) + 1;
 		} else {
-			counts.members!.current = (counts.members?.current || 0) + 1;
+			counts.members.current = (counts.members.current || 0) + 1;
 
 			const name = task.assignee.name.toLowerCase();
 			if (name.includes("jason duong")) {
-				counts.members!.jason = (counts.members?.jason || 0) + 1;
+				counts.members.jason = (counts.members.jason || 0) + 1;
 			}
 		}
 	}

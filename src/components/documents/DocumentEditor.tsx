@@ -261,7 +261,7 @@ export default function DocumentEditor({
 	// Optional chaining handles the loading state (document === undefined).
 	// Memoized so DocumentEditorInner's Yjs init effect is not re-triggered
 	// on unrelated re-renders (e.g. Convex query re-deliveries).
-	const legacyContentFormat =
+	const _legacyContentFormat =
 		!document?.syncVersion || document.syncVersion === "v1";
 	const needsSyncUpgrade = document?.syncVersion !== "v3";
 	const initialValue = useMemo(() => {

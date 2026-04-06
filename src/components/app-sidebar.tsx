@@ -232,6 +232,11 @@ export function AppSidebar() {
 
 	const startInlineCreate = useCallback(
 		(type: "sprint" | "folder", projectId: string, folderId?: string) => {
+			// Ensure the target project/folder is visible when starting inline create.
+			setExpandedProjects((prev) => new Set(prev).add(projectId));
+			if (folderId) {
+				setExpandedFolders((prev) => new Set(prev).add(folderId));
+			}
 			setInlineCreate({ type, projectId, folderId });
 			setInlineName("");
 			setTimeout(() => inlineInputRef.current?.focus(), 50);
@@ -362,7 +367,7 @@ export function AppSidebar() {
 
 			<div className="mx-3 border-b border-border/40" />
 
-			<SidebarContent className="px-0 gap-0 overflow-x-hidden">
+			<SidebarContent className="min-w-0 px-0 gap-0 overflow-x-hidden">
 				<SidebarGroup>
 					<div className="relative px-0 py-0 group-data-[collapsible=icon]:hidden">
 						<MagnifyingGlass className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -428,7 +433,7 @@ export function AppSidebar() {
 				<div className="mx-3 border-b border-border/40" />
 
 				{showFavoritesSection && (
-					<>
+					<div className="group-data-[collapsible=icon]:hidden">
 						<Collapsible
 							open={sections.favorites}
 							onOpenChange={() => toggle("favorites")}
@@ -479,138 +484,142 @@ export function AppSidebar() {
 							</SidebarGroup>
 						</Collapsible>
 						<div className="mx-3 border-b border-border/40" />
-					</>
+					</div>
 				)}
 
-				{/* Projects section */}
-				<Collapsible
-					open={sections.projects}
-					onOpenChange={() => toggle("projects")}
-				>
-					<SidebarGroup>
-						<div className="flex items-center group-data-[collapsible=icon]:hidden">
-							<CollapsibleTrigger asChild>
-								<button
-									type="button"
-									className="flex flex-1 items-center px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer"
-								>
-									<CaretRight
-										className={cn(
-											"mr-1 h-3 w-3 shrink-0 transition-transform duration-200",
-											sections.projects && "rotate-90",
-										)}
-									/>
-									Projects
-								</button>
-							</CollapsibleTrigger>
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
+				{/* Projects section — hide full tree in icon mode (content overflowed past narrow rail) */}
+				<div className="group-data-[collapsible=icon]:hidden">
+					<Collapsible
+						open={sections.projects}
+						onOpenChange={() => toggle("projects")}
+					>
+						<SidebarGroup>
+							<div className="flex items-center group-data-[collapsible=icon]:hidden">
+								<CollapsibleTrigger asChild>
 									<button
 										type="button"
-										className="flex items-center justify-center w-6 h-6 mr-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+										className="flex flex-1 items-center px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer"
 									>
-										<Plus className="h-3.5 w-3.5" />
+										<CaretRight
+											className={cn(
+												"mr-1 h-3 w-3 shrink-0 transition-transform duration-200",
+												sections.projects && "rotate-90",
+											)}
+										/>
+										Projects
 									</button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent
-									align="start"
-									sideOffset={4}
-									className="w-56"
-								>
-									<div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-										Create
-									</div>
-									<DropdownMenuItem onClick={() => setShowCreateProject(true)}>
-										<Folder className="h-4 w-4 text-sienna-500" />
-										<div className="flex flex-col">
-											<span>Project</span>
-											<span className="text-xs text-muted-foreground">
-												Track milestones, sprints and more
-											</span>
+								</CollapsibleTrigger>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<button
+											type="button"
+											className="flex items-center justify-center w-6 h-6 mr-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
+										>
+											<Plus className="h-3.5 w-3.5" />
+										</button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent
+										align="start"
+										sideOffset={4}
+										className="w-56"
+									>
+										<div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+											Create
 										</div>
-									</DropdownMenuItem>
-									<DropdownMenuItem onClick={() => openQuickCreate()}>
-										<CheckSquare className="h-4 w-4 text-blue-500" />
-										<div className="flex flex-col">
-											<span>Issue</span>
-											<span className="text-xs text-muted-foreground">
-												Create a task or bug
-											</span>
-										</div>
-									</DropdownMenuItem>
-									<DropdownMenuSeparator />
-									<DropdownMenuItem onClick={() => handleCreateDoc()}>
-										<FileText className="h-4 w-4 text-yellow-500" />
-										<div className="flex flex-col">
-											<span>Document</span>
-											<span className="text-xs text-muted-foreground">
-												Rich text document
-											</span>
-										</div>
-									</DropdownMenuItem>
-									<DropdownMenuItem onClick={() => handleCreateBoard()}>
-										<PenNib className="h-4 w-4 text-purple-500" />
-										<div className="flex flex-col">
-											<span>Whiteboard</span>
-											<span className="text-xs text-muted-foreground">
-												Diagrams and sketches
-											</span>
-										</div>
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
-						</div>
-						<CollapsibleContent>
-							<SidebarGroupContent>
-								<SidebarMenu>
-									{sidebarProjects === undefined ? (
-										[1, 2, 3].map((i) => (
-											<SidebarMenuItem key={i}>
-												<div className="flex items-center gap-3 px-3 h-9">
-													<Skeleton className="h-[18px] w-[18px] rounded-full" />
-													<Skeleton className="h-3 flex-1" />
-												</div>
+										<DropdownMenuItem
+											onClick={() => setShowCreateProject(true)}
+										>
+											<Folder className="h-4 w-4 text-sienna-500" />
+											<div className="flex flex-col">
+												<span>Project</span>
+												<span className="text-xs text-muted-foreground">
+													Track milestones, sprints and more
+												</span>
+											</div>
+										</DropdownMenuItem>
+										<DropdownMenuItem onClick={() => openQuickCreate()}>
+											<CheckSquare className="h-4 w-4 text-blue-500" />
+											<div className="flex flex-col">
+												<span>Issue</span>
+												<span className="text-xs text-muted-foreground">
+													Create a task or bug
+												</span>
+											</div>
+										</DropdownMenuItem>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem onClick={() => handleCreateDoc()}>
+											<FileText className="h-4 w-4 text-yellow-500" />
+											<div className="flex flex-col">
+												<span>Document</span>
+												<span className="text-xs text-muted-foreground">
+													Rich text document
+												</span>
+											</div>
+										</DropdownMenuItem>
+										<DropdownMenuItem onClick={() => handleCreateBoard()}>
+											<PenNib className="h-4 w-4 text-purple-500" />
+											<div className="flex flex-col">
+												<span>Whiteboard</span>
+												<span className="text-xs text-muted-foreground">
+													Diagrams and sketches
+												</span>
+											</div>
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</div>
+							<CollapsibleContent>
+								<SidebarGroupContent>
+									<SidebarMenu>
+										{sidebarProjects === undefined ? (
+											[1, 2, 3].map((i) => (
+												<SidebarMenuItem key={i}>
+													<div className="flex items-center gap-3 px-3 h-9">
+														<Skeleton className="h-[18px] w-[18px] rounded-full" />
+														<Skeleton className="h-3 flex-1" />
+													</div>
+												</SidebarMenuItem>
+											))
+										) : sidebarProjects.length === 0 ? (
+											<SidebarMenuItem>
+												<span className="px-3 text-xs text-muted-foreground">
+													No active projects
+												</span>
 											</SidebarMenuItem>
-										))
-									) : sidebarProjects.length === 0 ? (
-										<SidebarMenuItem>
-											<span className="px-3 text-xs text-muted-foreground">
-												No active projects
-											</span>
-										</SidebarMenuItem>
-									) : (
-										sidebarProjects.map((project: SidebarProjectItem) => (
-											<ProjectTreeItem
-												key={project._id}
-												project={project}
-												workspaceSlug={workspaceSlug}
-												pathname={pathname}
-												isExpanded={expandedProjects.has(project._id)}
-												expandedFolders={expandedFolders}
-												onToggleProject={toggleProject}
-												onToggleFolder={toggleFolder}
-												onCreateIssue={(projectId) =>
-													openQuickCreate({
-														projectId,
-													})
-												}
-												onCreateDoc={handleCreateDoc}
-												onCreateBoard={handleCreateBoard}
-												onStartInlineCreate={startInlineCreate}
-												inlineCreate={inlineCreate}
-												inlineName={inlineName}
-												onInlineNameChange={setInlineName}
-												onInlineKeyDown={handleInlineKeyDown}
-												onInlineBlur={submitInlineCreate}
-												inlineInputRef={inlineInputRef}
-											/>
-										))
-									)}
-								</SidebarMenu>
-							</SidebarGroupContent>
-						</CollapsibleContent>
-					</SidebarGroup>
-				</Collapsible>
+										) : (
+											sidebarProjects.map((project: SidebarProjectItem) => (
+												<ProjectTreeItem
+													key={project._id}
+													project={project}
+													workspaceSlug={workspaceSlug}
+													pathname={pathname}
+													isExpanded={expandedProjects.has(project._id)}
+													expandedFolders={expandedFolders}
+													onToggleProject={toggleProject}
+													onToggleFolder={toggleFolder}
+													onCreateIssue={(projectId) =>
+														openQuickCreate({
+															projectId,
+														})
+													}
+													onCreateDoc={handleCreateDoc}
+													onCreateBoard={handleCreateBoard}
+													onStartInlineCreate={startInlineCreate}
+													inlineCreate={inlineCreate}
+													inlineName={inlineName}
+													onInlineNameChange={setInlineName}
+													onInlineKeyDown={handleInlineKeyDown}
+													onInlineBlur={submitInlineCreate}
+													inlineInputRef={inlineInputRef}
+												/>
+											))
+										)}
+									</SidebarMenu>
+								</SidebarGroupContent>
+							</CollapsibleContent>
+						</SidebarGroup>
+					</Collapsible>
+				</div>
 			</SidebarContent>
 
 			<UserFooterMenu settingsHref={`/${workspaceSlug}/settings`} />
@@ -1177,9 +1186,11 @@ function SprintFolderItem({
 						</button>
 						<button
 							type="button"
-							onClick={() =>
-								onStartInlineCreate("sprint", projectId, folder._id)
-							}
+							onClick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								onStartInlineCreate("sprint", projectId, folder._id);
+							}}
 							className="flex items-center justify-center w-5 h-5 rounded text-muted-foreground opacity-0 group-hover/folder:opacity-100 hover:text-foreground hover:bg-muted/80 transition-all cursor-pointer shrink-0"
 						>
 							<Plus className="h-2.5 w-2.5" />
@@ -1255,9 +1266,11 @@ function SprintFolderItem({
 							<SidebarMenuItem>
 								<button
 									type="button"
-									onClick={() =>
-										onStartInlineCreate("sprint", projectId, folder._id)
-									}
+									onClick={(e) => {
+										e.preventDefault();
+										e.stopPropagation();
+										onStartInlineCreate("sprint", projectId, folder._id);
+									}}
 									className="flex w-full items-center gap-1.5 h-7 px-2 text-xs text-muted-foreground/50 hover:text-muted-foreground rounded-md cursor-pointer"
 								>
 									<Plus className="h-3 w-3" />
@@ -1341,11 +1354,13 @@ function SprintNavItem({
 	return (
 		<SidebarMenu>
 			<SidebarMenuItem>
+				{/* biome-ignore lint/a11y/noStaticElementInteractions: drag/drop target for issues */}
 				<div
 					className={cn(
 						"flex items-center group/sprint min-w-0",
 						isDragOver && "ring-1 ring-primary/50 bg-primary/5 rounded-md",
 					)}
+					role="presentation"
 					onDragOver={(e) => {
 						if (e.dataTransfer.types.includes("application/clave-issue-id")) {
 							e.preventDefault();

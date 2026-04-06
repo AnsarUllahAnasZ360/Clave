@@ -83,7 +83,9 @@ export function DictationRecordingIndicator({
 						</span>
 						<button
 							type="button"
+							onMouseDown={(e) => e.preventDefault()}
 							onClick={onDone}
+							tabIndex={-1}
 							className="ml-1 rounded-full bg-red-500 p-1.5 text-white hover:bg-red-600 transition-colors"
 							aria-label="Done — stop and transcribe"
 						>

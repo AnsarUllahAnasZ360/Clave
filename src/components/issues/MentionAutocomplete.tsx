@@ -21,7 +21,7 @@ type MentionAutocompleteProps = {
 
 export function MentionAutocomplete({
 	users,
-	triggerChar = "@",
+	triggerChar: _triggerChar = "@",
 	onSelect,
 	onDismiss,
 	query,

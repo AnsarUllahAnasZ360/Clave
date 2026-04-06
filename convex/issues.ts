@@ -2067,6 +2067,223 @@ export const bulkAssign = mutation({
 	},
 });
 
+/** Bulk update priority for multiple issues */
+export const bulkUpdatePriority = mutation({
+	args: {
+		issueIds: v.array(v.id("issues")),
+		priority: issuePriorityValidator,
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		if (args.issueIds.length === 0) return;
+
+		const firstIssue = await ctx.db.get(args.issueIds[0]);
+		if (!firstIssue || firstIssue.deletedAt) {
+			throw new ConvexError("Issue not found");
+		}
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			firstIssue.workspaceId,
+		);
+		const accessibleProjectIds = await getAccessibleProjectIds(
+			ctx,
+			firstIssue.workspaceId,
+			userId,
+			member.role as "admin" | "member",
+		);
+
+		const issueDocs = await Promise.all(
+			args.issueIds.map(async (issueId) => {
+				const issue = await ctx.db.get(issueId);
+				if (!issue || issue.deletedAt) {
+					throw new ConvexError(`Issue not found: ${issueId}`);
+				}
+				if (issue.workspaceId !== firstIssue.workspaceId) {
+					throw new ConvexError(
+						"All selected issues must belong to the same workspace",
+					);
+				}
+				if (accessibleProjectIds !== null && issue.projectId) {
+					const canAccess =
+						accessibleProjectIds.has(issue.projectId) ||
+						issue.assigneeId === userId ||
+						issue.createdBy === userId;
+					if (!canAccess) {
+						throw new ConvexError(
+							`You don't have access to issue ${issue.identifier}`,
+						);
+					}
+				}
+				return issue;
+			}),
+		);
+
+		for (const issue of issueDocs) {
+			if (issue.priority === args.priority) continue;
+			const oldLabel = issue.priority.replace(/_/g, " ");
+			const newLabel = args.priority.replace(/_/g, " ");
+			await ctx.db.patch(issue._id, {
+				priority: args.priority,
+				updatedAt: Date.now(),
+			});
+			await logActivity(ctx, {
+				workspaceId: issue.workspaceId,
+				entityType: "issue",
+				entityId: issue._id,
+				action: "updated",
+				actorId: userId,
+				description: `changed priority from ${oldLabel} to ${newLabel}`,
+				issueId: issue._id,
+				projectId: issue.projectId,
+				field: "priority",
+				oldValue: issue.priority,
+				newValue: args.priority,
+			});
+		}
+	},
+});
+
+/** Set the same sprint on multiple issues, or clear sprint (null). Validates sprint vs each issue's project. */
+export const bulkSetSprint = mutation({
+	args: {
+		issueIds: v.array(v.id("issues")),
+		sprintId: v.union(v.id("sprints"), v.null()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		if (args.issueIds.length === 0) return;
+
+		const firstIssue = await ctx.db.get(args.issueIds[0]);
+		if (!firstIssue || firstIssue.deletedAt) {
+			throw new ConvexError("Issue not found");
+		}
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			firstIssue.workspaceId,
+		);
+		const accessibleProjectIds = await getAccessibleProjectIds(
+			ctx,
+			firstIssue.workspaceId,
+			userId,
+			member.role as "admin" | "member",
+		);
+
+		let sprintProjectId: Id<"projects"> | undefined;
+		if (args.sprintId !== null) {
+			const sprint = await ctx.db.get(args.sprintId);
+			if (!sprint || sprint.deletedAt) {
+				throw new ConvexError("Sprint not found");
+			}
+			const sp = await ctx.db.get(sprint.projectId);
+			if (!sp || sp.deletedAt || sp.workspaceId !== firstIssue.workspaceId) {
+				throw new ConvexError("Invalid sprint");
+			}
+			sprintProjectId = sp._id;
+		}
+
+		const issueDocs = await Promise.all(
+			args.issueIds.map(async (issueId) => {
+				const issue = await ctx.db.get(issueId);
+				if (!issue || issue.deletedAt) {
+					throw new ConvexError(`Issue not found: ${issueId}`);
+				}
+				if (issue.workspaceId !== firstIssue.workspaceId) {
+					throw new ConvexError(
+						"All selected issues must belong to the same workspace",
+					);
+				}
+				if (accessibleProjectIds !== null && issue.projectId) {
+					const canAccess =
+						accessibleProjectIds.has(issue.projectId) ||
+						issue.assigneeId === userId ||
+						issue.createdBy === userId;
+					if (!canAccess) {
+						throw new ConvexError(
+							`You don't have access to issue ${issue.identifier}`,
+						);
+					}
+				}
+				return issue;
+			}),
+		);
+
+		for (const issue of issueDocs) {
+			if (args.sprintId === null) {
+				if (!issue.sprintId && !issue.milestoneId) continue;
+				await ctx.db.patch(issue._id, {
+					sprintId: undefined,
+					milestoneId: undefined,
+					updatedAt: Date.now(),
+				});
+				await logActivity(ctx, {
+					workspaceId: issue.workspaceId,
+					entityType: "issue",
+					entityId: issue._id,
+					action: "updated",
+					actorId: userId,
+					description: `removed sprint from ${issue.identifier}`,
+					issueId: issue._id,
+					projectId: issue.projectId,
+					field: "sprintId",
+					oldValue: issue.sprintId ?? issue.milestoneId ?? undefined,
+					newValue: undefined,
+				});
+				continue;
+			}
+
+			if (!sprintProjectId) throw new ConvexError("Sprint project missing");
+
+			if (issue.projectId && issue.projectId !== sprintProjectId) {
+				throw new ConvexError(
+					`Sprint does not belong to the same project as ${issue.identifier}`,
+				);
+			}
+
+			const nextProjectId = issue.projectId ?? sprintProjectId;
+
+			if (
+				member.role !== "admin" &&
+				issue.projectId !== nextProjectId &&
+				nextProjectId
+			) {
+				const hasTarget = await canAccessProject(
+					ctx,
+					nextProjectId,
+					userId,
+					member.role as "admin" | "member",
+				);
+				if (!hasTarget) {
+					throw new ConvexError("You don't have access to the target project");
+				}
+			}
+
+			if (issue.sprintId === args.sprintId) continue;
+
+			await ctx.db.patch(issue._id, {
+				projectId: nextProjectId,
+				sprintId: args.sprintId,
+				milestoneId: undefined,
+				listId: undefined,
+				updatedAt: Date.now(),
+			});
+
+			await logActivity(ctx, {
+				workspaceId: issue.workspaceId,
+				entityType: "issue",
+				entityId: issue._id,
+				action: "updated",
+				actorId: userId,
+				description: `set sprint on ${issue.identifier}`,
+				issueId: issue._id,
+				projectId: nextProjectId,
+				field: "sprintId",
+				oldValue: issue.sprintId ?? issue.milestoneId ?? undefined,
+				newValue: args.sprintId,
+			});
+		}
+	},
+});
+
 /** Soft delete an issue and cascade to child issues */
 export const remove = mutation({
 	args: {

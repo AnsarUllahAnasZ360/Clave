@@ -1,12 +1,9 @@
 import { createTool } from "@convex-dev/agent";
 import type { ToolExecutionOptions } from "ai";
 import { z } from "zod";
-import { api, internal } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import {
-	extractElementsPayload,
-	sanitizeDrawableElements,
-} from "../whiteboardMcp";
+import { sanitizeDrawableElements } from "../whiteboardMcp";
 import {
 	buildUserNameMap,
 	resolveToolUserId,
@@ -15,120 +12,6 @@ import {
 	withTimeout,
 } from "./helpers";
 import type { ToolContext } from "./types";
-
-// ── Whiteboard scene summarizer ───────────────────────────────────────────
-
-const MAX_SUMMARY_ELEMENTS = 60;
-
-/**
- * Produce a human-readable summary of an Excalidraw scene for AI prompt
- * enrichment. Mirrors the client-side `serializeCanvasForAI` logic.
- */
-function summarizeBoardScene(sceneData?: string | null): string | null {
-	if (!sceneData) return null;
-	try {
-		const parsed = JSON.parse(sceneData) as unknown;
-		if (!Array.isArray(parsed)) return null;
-
-		type El = {
-			id: string;
-			type: string;
-			x: number;
-			y: number;
-			width: number;
-			height: number;
-			text?: string;
-			isDeleted?: boolean;
-			containerId?: string;
-			boundElements?: Array<{ id: string; type: string }>;
-			startBinding?: { elementId?: string };
-			endBinding?: { elementId?: string };
-		};
-		const elements = (parsed as El[]).filter(
-			(el) => el && typeof el === "object" && !el.isDeleted && el.type,
-		);
-		if (elements.length === 0) return null;
-
-		const elementMap = new Map(elements.map((el) => [el.id, el]));
-		function getBoundText(el: El): string | null {
-			if (el.text) return el.text;
-			const b = el.boundElements?.find((b) => b.type === "text");
-			if (!b) return null;
-			return elementMap.get(b.id)?.text ?? null;
-		}
-
-		const shapes = elements.filter(
-			(e) =>
-				e.type === "rectangle" ||
-				e.type === "ellipse" ||
-				e.type === "diamond" ||
-				e.type === "freedraw" ||
-				e.type === "image" ||
-				e.type === "frame",
-		);
-		const standaloneText = elements.filter(
-			(e) => e.type === "text" && !e.containerId,
-		);
-		const arrows = elements.filter(
-			(e) => e.type === "arrow" || e.type === "line",
-		);
-
-		const lines: string[] = [`${elements.length} elements total`];
-
-		if (shapes.length > 0) {
-			lines.push("Shapes:");
-			for (const shape of shapes.slice(0, MAX_SUMMARY_ELEMENTS)) {
-				const label = getBoundText(shape);
-				const labelStr = label
-					? ` "${label.length > 50 ? `${label.slice(0, 47)}...` : label}"`
-					: "";
-				lines.push(
-					`  - ${shape.type}${labelStr} at (${Math.round(shape.x)},${Math.round(shape.y)}) size ${Math.round(shape.width)}x${Math.round(shape.height)}`,
-				);
-			}
-			if (shapes.length > MAX_SUMMARY_ELEMENTS) {
-				lines.push(
-					`  ... and ${shapes.length - MAX_SUMMARY_ELEMENTS} more shapes`,
-				);
-			}
-		}
-
-		if (standaloneText.length > 0) {
-			lines.push("Text:");
-			for (const t of standaloneText.slice(0, 20)) {
-				const txt = t.text ?? "";
-				lines.push(
-					`  - "${txt.length > 60 ? `${txt.slice(0, 57)}...` : txt}" at (${Math.round(t.x)},${Math.round(t.y)})`,
-				);
-			}
-		}
-
-		if (arrows.length > 0) {
-			lines.push("Connections:");
-			for (const arrow of arrows.slice(0, 20)) {
-				const fromEl = arrow.startBinding?.elementId
-					? elementMap.get(arrow.startBinding.elementId)
-					: null;
-				const toEl = arrow.endBinding?.elementId
-					? elementMap.get(arrow.endBinding.elementId)
-					: null;
-				const fromLabel = fromEl ? getBoundText(fromEl) : null;
-				const toLabel = toEl ? getBoundText(toEl) : null;
-				const fromStr = fromLabel
-					? `"${fromLabel.slice(0, 30)}"`
-					: (arrow.startBinding?.elementId?.slice(0, 8) ?? "?");
-				const toStr = toLabel
-					? `"${toLabel.slice(0, 30)}"`
-					: (arrow.endBinding?.elementId?.slice(0, 8) ?? "?");
-				lines.push(`  - ${fromStr} -> ${toStr}`);
-			}
-		}
-
-		return lines.join("\n");
-	} catch {
-		return null;
-	}
-}
 
 // ── Return type interfaces ───────────────────────────────────────────────
 
@@ -179,7 +62,7 @@ interface CreateLabelResult {
 	message: string;
 }
 
-interface GenerateWhiteboardDiagramResult {
+interface AddElementsToWhiteboardResult {
 	whiteboardId: string;
 	insertedCount: number;
 	message: string;
@@ -190,9 +73,128 @@ interface ErrorResult {
 }
 
 type SceneElement = Record<string, unknown>;
-const WHITEBOARD_GENERATION_TIMEOUT_MS = 120_000;
 
-const SHAPE_TYPES = new Set(["rectangle", "ellipse", "diamond"]);
+const SHAPE_TYPES_WITH_LABELS = new Set(["rectangle", "ellipse", "diamond"]);
+
+/**
+ * Expand `label` shorthand on shapes and arrows into proper Excalidraw
+ * bound text elements. Excalidraw needs:
+ *  - Shape with `boundElements: [{ id: textId, type: "text" }]`
+ *  - Separate text element with `containerId: shapeId`
+ */
+/**
+ * Estimate the pixel width of text for centering calculations.
+ * Approximation: ~0.6 * fontSize per character, with line-break handling.
+ */
+function estimateTextSize(
+	text: string,
+	fontSize: number,
+): { width: number; height: number } {
+	const lines = text.split("\n");
+	const charWidth = fontSize * 0.6;
+	const lineHeight = fontSize * 1.35;
+	const maxLineWidth = Math.max(...lines.map((l) => l.length * charWidth));
+	return {
+		width: Math.ceil(maxLineWidth),
+		height: Math.ceil(lines.length * lineHeight),
+	};
+}
+
+function expandLabelsToTextElements(elements: SceneElement[]): SceneElement[] {
+	const result: SceneElement[] = [];
+	let textCounter = 0;
+
+	for (const el of elements) {
+		const label = el.label as { text?: string; fontSize?: number } | undefined;
+		const type = el.type as string;
+
+		// Shapes: expand label into bound text element
+		if (SHAPE_TYPES_WITH_LABELS.has(type) && label?.text) {
+			const textId = `${el.id ?? `shape-${textCounter}`}-label-${textCounter++}`;
+			const shapeX = asNumber(el.x) ?? 0;
+			const shapeY = asNumber(el.y) ?? 0;
+			const shapeW = asNumber(el.width) ?? 100;
+			const shapeH = asNumber(el.height) ?? 60;
+			const fontSize = label.fontSize ?? 20;
+			const textSize = estimateTextSize(label.text, fontSize);
+
+			// Pre-compute center position so text renders correctly on load.
+			// Excalidraw only recalculates on interaction, not initial render.
+			const textX = shapeX + (shapeW - textSize.width) / 2;
+			const textY = shapeY + (shapeH - textSize.height) / 2;
+
+			const shape = { ...el };
+			delete shape.label;
+			shape.boundElements = [{ id: textId, type: "text" }];
+			result.push(shape);
+
+			result.push({
+				type: "text",
+				id: textId,
+				x: textX,
+				y: textY,
+				width: textSize.width,
+				height: textSize.height,
+				text: label.text,
+				originalText: label.text,
+				fontSize,
+				fontFamily: 1,
+				textAlign: "center",
+				verticalAlign: "middle",
+				autoResize: true,
+				containerId: el.id,
+				strokeColor: (el.strokeColor as string) ?? "#1e1e1e",
+				backgroundColor: "transparent",
+			});
+			continue;
+		}
+
+		// Arrows: expand label into bound text element
+		if ((type === "arrow" || type === "line") && label?.text) {
+			const textId = `${el.id ?? `arrow-${textCounter}`}-label-${textCounter++}`;
+			const arrowX = asNumber(el.x) ?? 0;
+			const arrowY = asNumber(el.y) ?? 0;
+			const arrowW = asNumber(el.width) ?? 100;
+			const arrowH = asNumber(el.height) ?? 0;
+			const fontSize = label.fontSize ?? 16;
+			const textSize = estimateTextSize(label.text, fontSize);
+
+			// Position at arrow midpoint
+			const textX = arrowX + (arrowW - textSize.width) / 2;
+			const textY = arrowY + (arrowH - textSize.height) / 2;
+
+			const arrow = { ...el };
+			delete arrow.label;
+			arrow.boundElements = [{ id: textId, type: "text" }];
+			result.push(arrow);
+
+			result.push({
+				type: "text",
+				id: textId,
+				x: textX,
+				y: textY,
+				width: textSize.width,
+				height: textSize.height,
+				text: label.text,
+				originalText: label.text,
+				fontSize,
+				fontFamily: 1,
+				textAlign: "center",
+				verticalAlign: "middle",
+				autoResize: true,
+				containerId: el.id,
+				strokeColor: (el.strokeColor as string) ?? "#1e1e1e",
+				backgroundColor: "transparent",
+			});
+			continue;
+		}
+
+		// No label — pass through unchanged
+		result.push(el);
+	}
+
+	return result;
+}
 
 function asNumber(value: unknown): number | null {
 	return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -309,112 +311,6 @@ function parseSceneData(sceneData: string | undefined): SceneElement[] {
 		}
 	} catch {
 		// Ignore malformed persisted scene data and recover with empty scene.
-	}
-	return [];
-}
-
-function parseLooseJson(text: string): unknown {
-	const cleaned = text
-		.replace(/^```(?:json)?\s*/i, "")
-		.replace(/\s*```$/i, "")
-		.trim();
-	if (!cleaned) return null;
-	try {
-		return JSON.parse(cleaned);
-	} catch {
-		return null;
-	}
-}
-
-function convertNodesEdgesToElements(
-	payload: Record<string, unknown>,
-): SceneElement[] {
-	const nodes = Array.isArray(payload.nodes)
-		? payload.nodes.filter(
-				(node): node is Record<string, unknown> =>
-					Boolean(node) && typeof node === "object",
-			)
-		: [];
-	const edges = Array.isArray(payload.edges)
-		? payload.edges.filter(
-				(edge): edge is Record<string, unknown> =>
-					Boolean(edge) && typeof edge === "object",
-			)
-		: [];
-	if (nodes.length === 0) return [];
-
-	const elements: SceneElement[] = [];
-	const positions = new Map<string, { x: number; y: number }>();
-	const cols = Math.max(1, Math.ceil(Math.sqrt(nodes.length)));
-	const nodeWidth = 180;
-	const nodeHeight = 80;
-	const hSpacing = 240;
-	const vSpacing = 140;
-
-	for (const [index, node] of nodes.entries()) {
-		const nodeId =
-			typeof node.id === "string" && node.id.trim()
-				? node.id.trim()
-				: `node-${index + 1}`;
-		const nodeType =
-			typeof node.type === "string" && SHAPE_TYPES.has(node.type)
-				? node.type
-				: "rectangle";
-		const label =
-			typeof node.label === "string" && node.label.trim()
-				? node.label.trim()
-				: `Step ${index + 1}`;
-		const col = index % cols;
-		const row = Math.floor(index / cols);
-		const x = col * hSpacing;
-		const y = row * vSpacing;
-		elements.push({
-			type: nodeType,
-			id: nodeId,
-			x,
-			y,
-			width: nodeWidth,
-			height: nodeHeight,
-			label: { text: label, fontSize: 16 },
-		});
-		positions.set(nodeId, { x: x + nodeWidth / 2, y: y + nodeHeight / 2 });
-	}
-
-	let arrowCounter = 1;
-	for (const edge of edges) {
-		const fromId =
-			typeof edge.from === "string" && edge.from.trim()
-				? edge.from.trim()
-				: null;
-		const toId =
-			typeof edge.to === "string" && edge.to.trim() ? edge.to.trim() : null;
-		if (!fromId || !toId) continue;
-		const fromPos = positions.get(fromId);
-		const toPos = positions.get(toId);
-		if (!fromPos || !toPos) continue;
-		elements.push({
-			type: "arrow",
-			id: `edge-${arrowCounter++}`,
-			x: fromPos.x,
-			y: fromPos.y,
-			width: toPos.x - fromPos.x,
-			height: toPos.y - fromPos.y,
-			startBinding: { elementId: fromId },
-			endBinding: { elementId: toId },
-			endArrowhead: "arrow",
-		});
-	}
-
-	return elements;
-}
-
-function normalizeGeneratedPayload(payload: unknown): SceneElement[] {
-	const sanitized = sanitizeDrawableElements(extractElementsPayload(payload));
-	if (sanitized.length > 0) return sanitized;
-	if (payload && typeof payload === "object") {
-		return sanitizeDrawableElements(
-			convertNodesEdgesToElements(payload as Record<string, unknown>),
-		);
 	}
 	return [];
 }
@@ -1341,7 +1237,7 @@ interface CreateWhiteboardResult {
 
 export const createWhiteboard = createTool({
 	description:
-		"Create a new whiteboard/board in the workspace. Use this when the user asks to create a board, or when they request a diagram/wireframe/flowchart and no suitable board exists yet. After creating the board, use generateWhiteboardDiagram to add content to it.",
+		"Create a new whiteboard/board in the workspace. Use this when the user asks to create a board, or when they request a diagram/wireframe/flowchart and no suitable board exists yet. After creating the board, use addElementsToWhiteboard to add content to it.",
 	inputSchema: z.object({
 		title: z.string().describe("Whiteboard title"),
 		projectId: z
@@ -1374,7 +1270,7 @@ export const createWhiteboard = createTool({
 		return {
 			whiteboardId,
 			title: args.title,
-			message: `Created whiteboard "${args.title}" (${whiteboardId}). You can now use generateWhiteboardDiagram to add diagrams to this board.`,
+			message: `Created whiteboard "${args.title}" (${whiteboardId}). Use addElementsToWhiteboard with this ID to add diagrams.`,
 		};
 	},
 });
@@ -1449,38 +1345,34 @@ export const updateWhiteboard = createTool({
 	},
 });
 
-// ── 9c. generateWhiteboardDiagram ────────────────────────────────────────
+// ── 9c. addElementsToWhiteboard ──────────────────────────────────────────
 
-export const generateWhiteboardDiagram = createTool({
-	description:
-		"Generate a diagram on a whiteboard and persist it directly to the board scene. Use this when the user asks to create a wireframe, flowchart, or architecture diagram. If no whiteboardId is available, first create a board with createWhiteboard, then pass its ID here.",
+export const addElementsToWhiteboard = createTool({
+	description: `Add Excalidraw elements to a whiteboard. Use this AFTER generating elements yourself.
+
+Workflow for diagrams/wireframes/flowcharts:
+1. Call the MCP tool "read_me" first to learn the Excalidraw element format.
+2. Generate the elements JSON array yourself based on the format reference.
+3. Call this tool with the elements JSON string to persist them to the board.
+
+The elements are validated, positioned to avoid overlapping existing content, and given unique IDs automatically.`,
 	inputSchema: z.object({
-		prompt: z
-			.string()
-			.describe("The diagram request, e.g. 'Wireframe for a todo app'."),
 		whiteboardId: z
 			.string()
-			.optional()
 			.describe(
-				"Target whiteboard ID. Use the ID from page context when on a board page, or the ID returned by createWhiteboard.",
+				"Target whiteboard ID. Use the ID from page context, or from createWhiteboard.",
 			),
-		mode: z
-			.enum(["wireframe", "flowchart", "architecture"])
-			.optional()
-			.describe("Optional generation mode override."),
+		elements: z
+			.string()
+			.describe(
+				'JSON string of an Excalidraw elements array. Example: \'[{"type":"rectangle","id":"r1","x":100,"y":100,"width":200,"height":80,"backgroundColor":"#a5d8ff","fillStyle":"solid","label":{"text":"Start","fontSize":20}}]\'',
+			),
 	}),
 	execute: async (
 		ctx: ToolContext,
 		args,
-	): Promise<GenerateWhiteboardDiagramResult | ErrorResult> => {
+	): Promise<AddElementsToWhiteboardResult | ErrorResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
-
-		if (!args.whiteboardId) {
-			return {
-				error:
-					"whiteboardId is required. Use the board ID from page context, or create a board first with createWhiteboard and pass its ID.",
-			};
-		}
 
 		const whiteboardId = args.whiteboardId as Id<"whiteboards">;
 		const board = await withTimeout(
@@ -1488,78 +1380,63 @@ export const generateWhiteboardDiagram = createTool({
 				whiteboardId,
 			}),
 			TOOL_TIMEOUT_MS,
-			"generateWhiteboardDiagram:getById",
+			"addElementsToWhiteboard:getById",
 		);
 		if (!board) {
 			return { error: "Whiteboard not found or access denied." };
 		}
 		if (board.workspaceId !== workspaceId) {
+			return { error: "Whiteboard belongs to a different workspace." };
+		}
+
+		// Parse and validate the provided elements
+		let rawElements: unknown[];
+		try {
+			const parsed = JSON.parse(args.elements);
+			if (Array.isArray(parsed)) {
+				rawElements = parsed;
+			} else if (
+				parsed &&
+				typeof parsed === "object" &&
+				Array.isArray(parsed.elements)
+			) {
+				rawElements = parsed.elements;
+			} else {
+				return {
+					error:
+						'Invalid elements format. Provide a JSON array of Excalidraw elements, or an object with an "elements" array.',
+				};
+			}
+		} catch {
+			return { error: "Invalid JSON in elements parameter." };
+		}
+
+		const sanitized = sanitizeDrawableElements(rawElements);
+		if (sanitized.length === 0) {
 			return {
 				error:
-					"Target whiteboard belongs to a different workspace than the current chat.",
+					"No valid Excalidraw elements found. Each element needs at minimum: type, id, x, y, width, height. Valid types: rectangle, ellipse, diamond, text, arrow, line.",
 			};
 		}
 
-		// Build an enriched prompt with canvas context for quality parity
-		// with the toolbar's client-side generation path.
-		const canvasSummary = summarizeBoardScene(board.sceneData);
-		const enrichedPrompt = [
-			`User request:\n${args.prompt}`,
-			canvasSummary ? `Canvas snapshot:\n${canvasSummary}` : null,
-			canvasSummary
-				? "Extend or complement the existing layout where relevant."
-				: "Generate a fresh layout.",
-		]
-			.filter(Boolean)
-			.join("\n\n");
+		// Expand `label` shorthand into proper Excalidraw bound text elements.
+		// Excalidraw doesn't understand `label` as a property — it needs a
+		// separate text element with `containerId` linked via `boundElements`.
+		const expanded = expandLabelsToTextElements(sanitized);
 
-		const generationResult = await withTimeout(
-			ctx.runAction(api.ai.embedded.embeddedAction, {
-				type: "whiteboard_generate_diagram",
-				context: {
-					workspaceId,
-					whiteboardId,
-				},
-				prompt: enrichedPrompt,
-				...(args.mode
-					? {
-							whiteboard: {
-								generation: {
-									mode: args.mode,
-								},
-							},
-						}
-					: {}),
-			}),
-			WHITEBOARD_GENERATION_TIMEOUT_MS,
-			"generateWhiteboardDiagram:embeddedAction",
-		);
-
-		if (generationResult.error) {
-			return { error: generationResult.error };
-		}
-
-		let generatedElements = normalizeGeneratedPayload(generationResult.data);
-		if (
-			generatedElements.length === 0 &&
-			typeof generationResult.text === "string"
-		) {
-			generatedElements = normalizeGeneratedPayload(
-				parseLooseJson(generationResult.text),
-			);
-		}
-		if (generatedElements.length === 0) {
-			return {
-				error:
-					"Generation did not return drawable elements for this whiteboard prompt.",
-			};
-		}
+		// Add required Excalidraw metadata so the client-side reconciler
+		// can merge these elements with the live editor state.
+		const withMetadata = expanded.map((el) => ({
+			...el,
+			version: (el.version as number) || 1,
+			versionNonce: Math.floor(Math.random() * 2_000_000_000),
+			seed: Math.floor(Math.random() * 2_000_000_000),
+			isDeleted: false,
+			updated: Date.now(),
+		}));
 
 		const currentScene = parseSceneData(board.sceneData);
-		const positioned = positionGeneratedElements(
-			currentScene,
-			generatedElements,
-		);
+		const positioned = positionGeneratedElements(currentScene, withMetadata);
 		const normalized = ensureUniqueElementIds(positioned, currentScene);
 		const nextScene = [...currentScene, ...normalized];
 
@@ -1572,13 +1449,13 @@ export const generateWhiteboardDiagram = createTool({
 				appState: board.appState ?? "{}",
 			}),
 			TOOL_TIMEOUT_MS,
-			"generateWhiteboardDiagram:updateScene",
+			"addElementsToWhiteboard:updateScene",
 		);
 
 		return {
 			whiteboardId,
 			insertedCount: normalized.length,
-			message: `Generated and inserted ${normalized.length} elements on whiteboard ${whiteboardId}.`,
+			message: `Inserted ${normalized.length} elements on whiteboard "${board.title}".`,
 		};
 	},
 });
@@ -1886,7 +1763,7 @@ export const writeTools = {
 	createLabel,
 	createWhiteboard,
 	updateWhiteboard,
-	generateWhiteboardDiagram,
+	addElementsToWhiteboard,
 	approvePendingAction,
 	createSprint,
 	moveIssueToSprint,

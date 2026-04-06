@@ -1,5 +1,6 @@
 "use client";
 
+import type { EmojiMartData } from "@emoji-mart/data";
 import { EmojiInputPlugin, EmojiPlugin } from "@platejs/emoji/react";
 import * as React from "react";
 
@@ -11,7 +12,11 @@ const EmojiPluginWithLazyData = EmojiPlugin.extend({
 	useHooks: ({ editor }) => {
 		React.useEffect(() => {
 			import("@emoji-mart/data").then((m) => {
-				editor.setOption(EmojiPlugin, "data", m.default as any);
+				editor.setOption(
+					EmojiPlugin,
+					"data",
+					m.default as unknown as EmojiMartData,
+				);
 			});
 		}, [editor]);
 	},

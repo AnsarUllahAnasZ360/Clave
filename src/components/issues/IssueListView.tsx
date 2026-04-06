@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { IssueBulkActionBar } from "@/components/issues/IssueBulkActionBar";
 import {
 	type IssueListData,
 	IssueListRow,
@@ -28,6 +29,7 @@ import {
 	useWorkspaceMembers,
 	useWorkspaceProjects,
 } from "@/components/providers/workspace-data-context";
+import { Checkbox } from "@/components/ui/checkbox";
 import type {
 	DisplayPropertyId,
 	GroupByOption,
@@ -330,6 +332,8 @@ export type IssueListViewProps = {
 	hideFilter?: boolean;
 	/** Callback when an issue row is clicked (for peek sidebar). If not provided, navigates to issue page. */
 	onIssueClick?: (issueId: string) => void;
+	/** Multi-select + bulk actions on list rows (ClickUp-style). */
+	enableBulkSelect?: boolean;
 };
 
 export function IssueListView({
@@ -354,6 +358,10 @@ export function IssueListView({
 		applyFilters,
 	} = useIssueFilters();
 	const [showFilters, setShowFilters] = useState(false);
+
+	// ── Bulk selection state (ClickUp-style) ─────────────────────────────
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [lastClickedId, setLastClickedId] = useState<string | null>(null);
 
 	// ── View state (derived from props) ─────────────────────────────────
 	const groupBy = (
@@ -522,6 +530,72 @@ export function IssueListView({
 		}
 		return ids;
 	}, [groupedIssues, collapsedGroups]);
+
+	const visibleIssueIds = useMemo(
+		() => flatIssueIds.map(String),
+		[flatIssueIds],
+	);
+
+	// Keep selection in sync when visible set changes (filters/grouping/collapse)
+	useEffect(() => {
+		setSelectedIds((prev) => {
+			if (prev.size === 0) return prev;
+			const visible = new Set(visibleIssueIds);
+			const next = new Set<string>();
+			for (const id of prev) {
+				if (visible.has(id)) next.add(id);
+			}
+			return next;
+		});
+	}, [visibleIssueIds]);
+
+	const headerCheckboxState = useMemo<boolean | "indeterminate">(() => {
+		if (visibleIssueIds.length === 0) return false;
+		let selectedVisible = 0;
+		for (const id of visibleIssueIds) {
+			if (selectedIds.has(id)) selectedVisible++;
+		}
+		if (selectedVisible === 0) return false;
+		if (selectedVisible === visibleIssueIds.length) return true;
+		return "indeterminate";
+	}, [visibleIssueIds, selectedIds]);
+
+	const toggleSelectAllVisible = useCallback(() => {
+		setSelectedIds((prev) => {
+			if (visibleIssueIds.length === 0) return prev;
+			const allSelected = visibleIssueIds.every((id) => prev.has(id));
+			const next = new Set(prev);
+			if (allSelected) {
+				for (const id of visibleIssueIds) next.delete(id);
+			} else {
+				for (const id of visibleIssueIds) next.add(id);
+			}
+			return next;
+		});
+		setLastClickedId(null);
+	}, [visibleIssueIds]);
+
+	const handleSelectIssue = useCallback(
+		(issueId: string, shiftKey: boolean) => {
+			setSelectedIds((prev) => {
+				const next = new Set(prev);
+				if (shiftKey && lastClickedId) {
+					const start = visibleIssueIds.indexOf(lastClickedId);
+					const end = visibleIssueIds.indexOf(issueId);
+					if (start !== -1 && end !== -1) {
+						const [from, to] = start < end ? [start, end] : [end, start];
+						for (let i = from; i <= to; i++) next.add(visibleIssueIds[i]);
+					}
+				} else {
+					if (next.has(issueId)) next.delete(issueId);
+					else next.add(issueId);
+				}
+				return next;
+			});
+			setLastClickedId(issueId);
+		},
+		[lastClickedId, visibleIssueIds],
+	);
 
 	// Map from issue ID to identifier for URL generation
 	const idToIdentifier = useMemo(() => {
@@ -779,6 +853,13 @@ export function IssueListView({
 				role="row"
 				tabIndex={-1}
 			>
+				<div className="w-[36px] shrink-0 flex items-center justify-center pl-1">
+					<Checkbox
+						checked={headerCheckboxState}
+						onCheckedChange={() => toggleSelectAllVisible()}
+						aria-label="Select all visible issues"
+					/>
+				</div>
 				{visibleColumns.map((col) => (
 					<div
 						key={col}
@@ -796,7 +877,7 @@ export function IssueListView({
 				))}
 			</div>
 		);
-	}, [visibleColumns]);
+	}, [visibleColumns, headerCheckboxState, toggleSelectAllVisible]);
 
 	const renderGroupHeader = useCallback(
 		(group: GroupedIssues, parentKey?: string) => {
@@ -831,30 +912,46 @@ export function IssueListView({
 		(issue: IssueListData) => {
 			const idx = flatIssueIds.indexOf(issue._id);
 			const props = resolveIssueProps(issue);
+			const issueId = issue._id as string;
 
 			return (
-				<IssueListRow
+				<div
 					key={issue._id}
-					issue={issue}
-					columns={visibleColumns}
-					isHighlighted={idx === highlightedIndex}
-					memberOptions={memberOptions}
-					labelOptions={labelOptions}
-					projectOptions={projectOptions}
-					milestoneOptions={milestoneOptions}
-					assignee={props.assignee}
-					projectName={props.projectName}
-					milestoneName={props.milestoneName}
-					onStatusChange={handleStatusChange}
-					onPriorityChange={handlePriorityChange}
-					onAssigneeChange={handleAssigneeChange}
-					onLabelToggle={handleLabelToggle}
-					onMilestoneChange={handleMilestoneChange}
-					onEstimateChange={handleEstimateChange}
-					onDueDateChange={handleDueDateChange}
-					onProjectChange={handleProjectChange}
-					onClick={() => handleIssueClick(issue.identifier)}
-				/>
+					onClickCapture={(e) => {
+						// Modifier click selects (like ClickUp). Normal click opens.
+						if (e.ctrlKey || e.metaKey || e.shiftKey) {
+							e.preventDefault();
+							e.stopPropagation();
+							handleSelectIssue(issueId, e.shiftKey);
+						}
+					}}
+				>
+					<IssueListRow
+						issue={issue}
+						columns={visibleColumns}
+						isHighlighted={idx === highlightedIndex}
+						memberOptions={memberOptions}
+						labelOptions={labelOptions}
+						projectOptions={projectOptions}
+						milestoneOptions={milestoneOptions}
+						assignee={props.assignee}
+						projectName={props.projectName}
+						milestoneName={props.milestoneName}
+						onStatusChange={handleStatusChange}
+						onPriorityChange={handlePriorityChange}
+						onAssigneeChange={handleAssigneeChange}
+						onLabelToggle={handleLabelToggle}
+						onMilestoneChange={handleMilestoneChange}
+						onEstimateChange={handleEstimateChange}
+						onDueDateChange={handleDueDateChange}
+						onProjectChange={handleProjectChange}
+						bulkSelect={{
+							selected: selectedIds.has(issueId),
+							onToggle: (shiftKey) => handleSelectIssue(issueId, shiftKey),
+						}}
+						onClick={() => handleIssueClick(issue.identifier)}
+					/>
+				</div>
 			);
 		},
 		[
@@ -875,6 +972,8 @@ export function IssueListView({
 			handleDueDateChange,
 			handleProjectChange,
 			handleIssueClick,
+			selectedIds,
+			handleSelectIssue,
 		],
 	);
 
@@ -988,6 +1087,15 @@ export function IssueListView({
 					);
 				})}
 			</div>
+
+			<IssueBulkActionBar
+				selectedIds={selectedIds}
+				onClearSelection={() => setSelectedIds(new Set())}
+				sprintOptions={(allSprints ?? []).map((s) => ({
+					id: s._id as string,
+					name: s.name,
+				}))}
+			/>
 		</div>
 	);
 }

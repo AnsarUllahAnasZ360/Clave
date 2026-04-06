@@ -2,6 +2,7 @@
 
 import { EquationPlugin, InlineEquationPlugin } from "@platejs/math/react";
 import dynamic from "next/dynamic";
+import type React from "react";
 
 // Lazy-load equation render components to defer KaTeX CSS/JS loading
 // until a math block is actually present in the document.
@@ -30,6 +31,10 @@ const LazyInlineEquationElement = dynamic(
 );
 
 export const MathKit = [
-	InlineEquationPlugin.withComponent(LazyInlineEquationElement as any),
-	EquationPlugin.withComponent(LazyEquationElement as any),
+	InlineEquationPlugin.withComponent(
+		LazyInlineEquationElement as unknown as React.FC<Record<string, unknown>>,
+	),
+	EquationPlugin.withComponent(
+		LazyEquationElement as unknown as React.FC<Record<string, unknown>>,
+	),
 ];

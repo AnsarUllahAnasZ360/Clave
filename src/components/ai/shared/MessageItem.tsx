@@ -468,29 +468,36 @@ export const AssistantMessage = memo(
 					<MessageContent>
 						{message.text ? (
 							hasCustomBlocks(message.text) ? (
-								parseCustomBlocks(message.text).map((block, bi) =>
-									block.type === "mode-suggest" ? (
+								parseCustomBlocks(message.text).map((block, bi) => {
+									const stableKey =
+										"content" in block
+											? block.content
+											: block.type === "todo-list"
+												? JSON.stringify(block.items)
+												: `${block.type}:${block.mode}:${block.description}`;
+
+									return block.type === "mode-suggest" ? (
 										<ModeSuggestCardRenderer
-											key={`ms-${bi}`}
+											key={`ms-${stableKey}`}
 											mode={block.mode}
 											description={block.description}
 										/>
 									) : block.type === "todo-list" ? (
 										<TodoListCardRenderer
-											key={`tl-${bi}`}
+											key={`tl-${stableKey}`}
 											items={block.items}
 										/>
 									) : (
 										<StreamdownRenderer
-											key={`tx-${bi}`}
+											key={`tx-${stableKey}`}
 											content={block.content}
 											isStreaming={
 												bi === parseCustomBlocks(message.text).length - 1 &&
 												isStreaming
 											}
 										/>
-									),
-								)
+									);
+								})
 							) : (
 								<StreamdownRenderer
 									content={message.text}

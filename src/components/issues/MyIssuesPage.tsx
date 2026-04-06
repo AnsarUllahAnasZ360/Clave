@@ -12,6 +12,7 @@ import {
 	ClipboardList,
 	Diamond,
 	Flag,
+	Plus,
 	SignalHigh,
 	Timer,
 	TriangleAlert,
@@ -19,6 +20,8 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IssueBulkActionBar } from "@/components/issues/IssueBulkActionBar";
+import { useIssueCreate } from "@/components/issues/IssueCreateContext";
 import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
@@ -28,6 +31,7 @@ import {
 } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDisplayOptions } from "@/hooks/use-display-options";
@@ -357,6 +361,7 @@ function IssueRow({
 	labelMap,
 	displayProperties,
 	workspaceSlug,
+	bulkSelect,
 }: {
 	issue: IssueData;
 	isHighlighted: boolean;
@@ -367,6 +372,10 @@ function IssueRow({
 	labelMap: Map<string, LabelData>;
 	displayProperties: DisplayPropertyId[];
 	workspaceSlug: string;
+	bulkSelect?: {
+		selected: boolean;
+		onToggle: (shiftKey: boolean) => void;
+	};
 }) {
 	const assignee = issue.assigneeId
 		? memberMap.get(issue.assigneeId)
@@ -408,6 +417,10 @@ function IssueRow({
 			prefetch={false}
 			onClick={(e) => {
 				e.preventDefault();
+				if (bulkSelect && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+					bulkSelect.onToggle(e.shiftKey);
+					return;
+				}
 				onClick();
 			}}
 			onDoubleClick={(e) => {
@@ -419,6 +432,23 @@ function IssueRow({
 				isHighlighted && "ring-1 ring-primary/50 bg-muted/40",
 			)}
 		>
+			{bulkSelect ? (
+				<span
+					className="shrink-0"
+					onClick={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						bulkSelect.onToggle((e as unknown as MouseEvent).shiftKey);
+					}}
+				>
+					<Checkbox
+						checked={bulkSelect.selected}
+						className="pointer-events-none"
+						aria-label="Select issue"
+					/>
+				</span>
+			) : null}
+
 			{/* Status icon */}
 			<span className="shrink-0">{STATUS_ICONS[issue.status]}</span>
 
@@ -555,6 +585,8 @@ function GroupedIssueList({
 	workspaceSlug,
 	onIssueClick,
 	onIssueNavigate,
+	selectedIds,
+	onSelectIssue,
 }: {
 	sections: GroupedSection[];
 	highlightedIndex: number;
@@ -566,6 +598,8 @@ function GroupedIssueList({
 	workspaceSlug: string;
 	onIssueClick: (issueId: Id<"issues">) => void;
 	onIssueNavigate: (identifier: string) => void;
+	selectedIds: Set<string>;
+	onSelectIssue: (issueId: string, shiftKey: boolean) => void;
 }) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -606,11 +640,36 @@ function GroupedIssueList({
 									labelMap={labelMap}
 									displayProperties={displayProperties}
 									workspaceSlug={workspaceSlug}
+									bulkSelect={{
+										selected: selectedIds.has(issue._id as string),
+										onToggle: (shiftKey) =>
+											onSelectIssue(issue._id as string, shiftKey),
+									}}
 								/>
 							);
 						})}
 				</div>
 			))}
+		</div>
+	);
+}
+
+function EmptyIssuesHint() {
+	const { openQuickCreate } = useIssueCreate();
+
+	return (
+		<div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-4">
+			<ClipboardList className="h-10 w-10 opacity-40" />
+			<p className="text-sm">No issues to show</p>
+			<Button
+				type="button"
+				size="sm"
+				className="gap-1.5"
+				onClick={() => openQuickCreate()}
+			>
+				<Plus className="h-3.5 w-3.5" />
+				New issue
+			</Button>
 		</div>
 	);
 }
@@ -626,6 +685,7 @@ function IssueTabContent({
 	projectMap,
 	milestoneMap,
 	labelMap,
+	sprintOptions,
 	workspaceSlug,
 	onSelectIssue,
 }: {
@@ -637,6 +697,7 @@ function IssueTabContent({
 	projectMap: Map<string, string>;
 	milestoneMap: Map<string, string>;
 	labelMap: Map<string, LabelData>;
+	sprintOptions: { id: string; name: string }[];
 	workspaceSlug: string;
 	onSelectIssue?: (issueId: Id<"issues">) => void;
 }) {
@@ -678,6 +739,74 @@ function IssueTabContent({
 	const flatIssues = useMemo(
 		() => sections.flatMap((s) => s.issues),
 		[sections],
+	);
+
+	// ── Bulk selection (ClickUp-style) ───────────────────────────────────
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [lastClickedId, setLastClickedId] = useState<string | null>(null);
+	const visibleIssueIds = useMemo(
+		() => flatIssues.map((i) => i._id as string),
+		[flatIssues],
+	);
+
+	useEffect(() => {
+		setSelectedIds((prev) => {
+			if (prev.size === 0) return prev;
+			const visible = new Set(visibleIssueIds);
+			const next = new Set<string>();
+			for (const id of prev) {
+				if (visible.has(id)) next.add(id);
+			}
+			return next;
+		});
+	}, [visibleIssueIds]);
+
+	const headerCheckboxState = useMemo<boolean | "indeterminate">(() => {
+		if (visibleIssueIds.length === 0) return false;
+		let selectedVisible = 0;
+		for (const id of visibleIssueIds) {
+			if (selectedIds.has(id)) selectedVisible++;
+		}
+		if (selectedVisible === 0) return false;
+		if (selectedVisible === visibleIssueIds.length) return true;
+		return "indeterminate";
+	}, [visibleIssueIds, selectedIds]);
+
+	const toggleSelectAllVisible = useCallback(() => {
+		setSelectedIds((prev) => {
+			if (visibleIssueIds.length === 0) return prev;
+			const allSelected = visibleIssueIds.every((id) => prev.has(id));
+			const next = new Set(prev);
+			if (allSelected) {
+				for (const id of visibleIssueIds) next.delete(id);
+			} else {
+				for (const id of visibleIssueIds) next.add(id);
+			}
+			return next;
+		});
+		setLastClickedId(null);
+	}, [visibleIssueIds]);
+
+	const handleSelectIssue = useCallback(
+		(issueId: string, shiftKey: boolean) => {
+			setSelectedIds((prev) => {
+				const next = new Set(prev);
+				if (shiftKey && lastClickedId) {
+					const start = visibleIssueIds.indexOf(lastClickedId);
+					const end = visibleIssueIds.indexOf(issueId);
+					if (start !== -1 && end !== -1) {
+						const [from, to] = start < end ? [start, end] : [end, start];
+						for (let i = from; i <= to; i++) next.add(visibleIssueIds[i]);
+					}
+				} else {
+					if (next.has(issueId)) next.delete(issueId);
+					else next.add(issueId);
+				}
+				return next;
+			});
+			setLastClickedId(issueId);
+		},
+		[lastClickedId, visibleIssueIds],
 	);
 
 	const handleIssueNavigate = useCallback(
@@ -751,17 +880,18 @@ function IssueTabContent({
 	}
 
 	if (issues.length === 0) {
-		return (
-			<div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-				<ClipboardList className="h-10 w-10 mb-3 opacity-40" />
-				<p className="text-sm">No issues to show</p>
-			</div>
-		);
+		return <EmptyIssuesHint />;
 	}
 
 	return (
 		<div ref={containerRef}>
-			<div className="flex items-center justify-end px-4 py-1.5 border-b border-border/40">
+			<div className="flex items-center gap-2 px-4 py-1.5 border-b border-border/40">
+				<Checkbox
+					checked={headerCheckboxState}
+					onCheckedChange={() => toggleSelectAllVisible()}
+					aria-label="Select all visible issues"
+				/>
+				<div className="flex-1" />
 				<span className="text-xs text-muted-foreground">
 					{issues.length} issue{issues.length !== 1 ? "s" : ""}
 				</span>
@@ -777,6 +907,14 @@ function IssueTabContent({
 				workspaceSlug={workspaceSlug}
 				onIssueClick={handleIssueSelect}
 				onIssueNavigate={handleIssueNavigate}
+				selectedIds={selectedIds}
+				onSelectIssue={handleSelectIssue}
+			/>
+
+			<IssueBulkActionBar
+				selectedIds={selectedIds}
+				onClearSelection={() => setSelectedIds(new Set())}
+				sprintOptions={sprintOptions}
 			/>
 		</div>
 	);
@@ -786,6 +924,7 @@ function IssueTabContent({
 
 export function MyIssuesPage() {
 	const { workspaceId, workspaceSlug } = useWorkspace();
+	const { openQuickCreate } = useIssueCreate();
 
 	// Tab state
 	const [activeTab, setActiveTab] = useState<MyIssuesTab>("assigned");
@@ -971,6 +1110,16 @@ export function MyIssuesPage() {
 					{/* Spacer */}
 					<div className="flex-1" />
 
+					<Button
+						type="button"
+						size="sm"
+						className="h-7 gap-1.5 shrink-0"
+						onClick={() => openQuickCreate()}
+					>
+						<Plus className="h-3.5 w-3.5" />
+						New issue
+					</Button>
+
 					{/* Tab pills */}
 					<div className="flex items-center gap-0.5 p-0">
 						{TAB_OPTIONS.map((tab) => (
@@ -1127,6 +1276,10 @@ export function MyIssuesPage() {
 							projectMap={projectMap}
 							milestoneMap={milestoneMap}
 							labelMap={labelMap}
+							sprintOptions={(workspaceSprints ?? []).map((s) => ({
+								id: s._id as string,
+								name: s.name,
+							}))}
 							workspaceSlug={workspaceSlug}
 							onSelectIssue={setSelectedIssueId}
 						/>

@@ -399,7 +399,9 @@ export function MyTasksPage() {
 				)}
 				{viewOptions.viewType === "board" && (
 					<TasksKanbanBoard
-						onAddTask={() => openCreateTask()}
+						onAddTask={(status) =>
+							openCreateTask(status ? { status } : undefined)
+						}
 						onOpenTask={openEditTask}
 					/>
 				)}

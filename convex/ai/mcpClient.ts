@@ -107,8 +107,10 @@ export async function loadMcpTools(
 		timeoutMs: MCP_CONNECTION_TIMEOUT_MS,
 	});
 
-	// Fast path: skip all MCP work when no optional servers are selected
-	// and the page is not a board (Excalidraw tools only needed on boards).
+	// Fast path: skip MCP work when no optional servers are selected
+	// and the page is not a board. The built-in board tools (createWhiteboard,
+	// addElementsToWhiteboard, etc.) work from any page without MCP.
+	// Excalidraw MCP tools (read_me) are only loaded on board pages.
 	const hasOptionalServers =
 		selectedServerIds !== undefined && selectedServerIds.length > 0;
 	if (!hasOptionalServers && pageContext !== "board") {

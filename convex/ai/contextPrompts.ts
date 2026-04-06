@@ -322,7 +322,7 @@ async function buildWhiteboardContext(
 
 	lines.push("");
 	lines.push(
-		`  You are viewing this board. For diagram/wireframe/flowchart requests, call \`generateWhiteboardDiagram\` with whiteboardId="${board._id}". To update board metadata, use \`updateWhiteboard\`. To read board details, use \`getWhiteboard\`.`,
+		`  You are viewing this board (whiteboardId="${board._id}"). To add diagrams: call MCP tool \`read_me\` for element format, generate elements JSON, then call \`addElementsToWhiteboard\` with this board ID. To update metadata: \`updateWhiteboard\`.`,
 	);
 
 	return wrapContextBlock(lines.join("\n"));

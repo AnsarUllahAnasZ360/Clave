@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { SKELETON_KEYS_6 } from "@/lib/skeleton-placeholders";
 
 export default function Loading() {
 	return (
@@ -9,8 +10,8 @@ export default function Loading() {
 			</div>
 
 			<div className="p-4 space-y-2">
-				{Array.from({ length: 6 }, (_, i) => (
-					<div key={i} className="flex items-center gap-3 p-3">
+				{SKELETON_KEYS_6.map((key) => (
+					<div key={key} className="flex items-center gap-3 p-3">
 						<Skeleton className="h-10 w-10 rounded-full shrink-0" />
 						<div className="flex-1 space-y-2">
 							<Skeleton className="h-4 w-40" />

@@ -25,7 +25,7 @@ describe("AI update tools", () => {
 				"createLabel",
 				"createWhiteboard",
 				"updateWhiteboard",
-				"generateWhiteboardDiagram",
+				"addElementsToWhiteboard",
 				"approvePendingAction",
 				"createSprint",
 				"moveIssueToSprint",
