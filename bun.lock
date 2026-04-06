@@ -11,8 +11,8 @@
         "@ariakit/react": "^0.4.21",
         "@auth/core": "0.37.4",
         "@chat-adapter/gchat": "^4.14.0",
-        "@convex-dev/agent": "0.6.0-alpha.1",
-        "@convex-dev/auth": "^0.0.90",
+        "@convex-dev/agent": "0.6.1",
+        "@convex-dev/auth": "^0.0.91",
         "@convex-dev/prosemirror-sync": "^0.2.2",
         "@convex-dev/rag": "^0.7.1",
         "@convex-dev/stripe": "^0.1.3",
@@ -99,7 +99,7 @@
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
-        "convex": "1.32.0",
+        "convex": "1.34.1",
         "date-fns": "^4.1.0",
         "dedent": "1.0.0",
         "dompurify": "^3.3.3",
@@ -361,9 +361,9 @@
 
     "@codemirror/view": ["@codemirror/view@6.39.15", "", { "dependencies": { "@codemirror/state": "^6.5.0", "crelt": "^1.0.6", "style-mod": "^4.1.0", "w3c-keyname": "^2.2.4" } }, "sha512-aCWjgweIIXLBHh7bY6cACvXuyrZ0xGafjQ2VInjp4RM4gMfscK5uESiNdrH0pE+e1lZr2B4ONGsjchl2KsKZzg=="],
 
-    "@convex-dev/agent": ["@convex-dev/agent@0.6.0-alpha.1", "", { "optionalDependencies": { "@ungap/structured-clone": "^1.3.0" }, "peerDependencies": { "@ai-sdk/provider-utils": "^4.0.6", "ai": "^6.0.35", "convex": "^1.24.8", "convex-helpers": "^0.1.103", "react": "^18.3.1 || ^19.0.0" }, "optionalPeers": ["react"] }, "sha512-nNJzprNfUiTBknrxLUfAxHhCTiNHkkubyWuYZZiE1YUlfMaCE0e2c+2u9sDeHaYiQxiR+DRtKxlaUBGMdN3tiQ=="],
+    "@convex-dev/agent": ["@convex-dev/agent@0.6.1", "", { "optionalDependencies": { "@ungap/structured-clone": "^1.3.0" }, "peerDependencies": { "@ai-sdk/provider-utils": "^4.0.6", "ai": "^6.0.35", "convex": "^1.24.8", "convex-helpers": "^0.1.103", "react": "^18.3.1 || ^19.0.0" }, "optionalPeers": ["react"] }, "sha512-FTHF2r6yuY3Lr/zYu9fBMimg30xVXlGkA+9hU12FH1SUoXtrPWCwU3zUYsCKhkH/5sPpWGyO9JMMuXHrP13DQg=="],
 
-    "@convex-dev/auth": ["@convex-dev/auth@0.0.90", "", { "dependencies": { "@oslojs/crypto": "^1.0.1", "@oslojs/encoding": "^1.1.0", "cookie": "^1.0.1", "is-network-error": "^1.1.0", "jose": "^5.2.2", "jwt-decode": "^4.0.0", "lucia": "^3.2.0", "oauth4webapi": "^3.1.2", "path-to-regexp": "^6.3.0", "server-only": "^0.0.1" }, "peerDependencies": { "@auth/core": "^0.37.0", "convex": "^1.17.0", "react": "^18.2.0 || ^19.0.0-0" }, "optionalPeers": ["react"], "bin": { "auth": "dist/bin.cjs" } }, "sha512-aqw88EB042HvnaF4wcf/f/wTocmT2Bus2VDQRuV79cM0+8kORM0ICK/ByZ6XsHgQ9qr6TmidNbXm6QAgndrdpQ=="],
+    "@convex-dev/auth": ["@convex-dev/auth@0.0.91", "", { "dependencies": { "@oslojs/crypto": "^1.0.1", "@oslojs/encoding": "^1.1.0", "cookie": "^1.0.1", "is-network-error": "^1.1.0", "jose": "^5.2.2", "jwt-decode": "^4.0.0", "lucia": "^3.2.0", "oauth4webapi": "^3.1.2", "path-to-regexp": "^6.3.0", "server-only": "^0.0.1" }, "peerDependencies": { "@auth/core": "^0.37.0", "convex": "^1.17.0", "react": "^18.2.0 || ^19.0.0-0" }, "optionalPeers": ["react"], "bin": { "auth": "dist/bin.cjs" } }, "sha512-wLD4hszo3IhhMkwPs6ozWf0cUauwmhOvjUVn0g//kC338n/jApOjeDYWKCrn/qYUkveyDsbag5zrY8mVzA09Qg=="],
 
     "@convex-dev/prosemirror-sync": ["@convex-dev/prosemirror-sync@0.2.2", "", { "peerDependencies": { "@blocknote/core": ">=0.31.0 <=1.0.0", "@blocknote/mantine": ">=0.31.0 <=1.0.0", "@blocknote/react": ">=0.31.0 <=1.0.0", "@tiptap/core": "^2.7.0 || ^3.10.7", "convex": "^1.24.8", "decode-named-character-reference": "^1.3.0", "react": "^18.3.1 || ^19.0.0", "react-dom": "^18.3.1 || ^19.0.0" }, "optionalPeers": ["@blocknote/core", "@blocknote/mantine", "@blocknote/react"] }, "sha512-xc0G/qSyDP477Xl1ZuIJdPIFWwnawI9QjKvOzHYcQJUiDoEewMqBN632uLM/33aCTr3pnyDZIBrEOdC1JxJurg=="],
 
@@ -1485,7 +1485,7 @@
 
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
 
-    "convex": ["convex@1.32.0", "", { "dependencies": { "esbuild": "0.27.0", "prettier": "^3.0.0", "ws": "8.18.0" }, "peerDependencies": { "@auth0/auth0-react": "^2.0.1", "@clerk/clerk-react": "^4.12.8 || ^5.0.0", "react": "^18.0.0 || ^19.0.0-0 || ^19.0.0" }, "optionalPeers": ["@auth0/auth0-react", "@clerk/clerk-react", "react"], "bin": { "convex": "bin/main.js" } }, "sha512-5FlajdLpW75pdLS+/CgGH5H6yeRuA+ru50AKJEYbJpmyILUS+7fdTvsdTaQ7ZFXMv0gE8mX4S+S3AtJ94k0mfw=="],
+    "convex": ["convex@1.34.1", "", { "dependencies": { "esbuild": "0.27.0", "prettier": "^3.0.0", "ws": "8.18.0" }, "peerDependencies": { "@auth0/auth0-react": "^2.0.1", "@clerk/clerk-react": "^4.12.8 || ^5.0.0", "react": "^18.0.0 || ^19.0.0-0 || ^19.0.0" }, "optionalPeers": ["@auth0/auth0-react", "@clerk/clerk-react", "react"], "bin": { "convex": "bin/main.js" } }, "sha512-ooyFnZVVq0u6b5zt0Ptq8QB2ixhf/2vXe+PIcUtdtrs0lq/TwpkmmruHdqkFmWgMd6N+Tmfy8AGkz6QnZUYZBA=="],
 
     "convex-helpers": ["convex-helpers@0.1.112", "", { "peerDependencies": { "@standard-schema/spec": "^1.0.0", "convex": "^1.25.4", "hono": "^4.0.5", "react": "^17.0.2 || ^18.0.0 || ^19.0.0", "typescript": "^5.5", "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["@standard-schema/spec", "hono", "react", "typescript", "zod"], "bin": { "convex-helpers": "bin.cjs" } }, "sha512-zhcm14aaRRNQYwxsFngmfYsGB3V0HwJ/hHMfKI9eeTR1N0b9o5Rohqvz3NgzyVJcmGNvYlZpUPbOy2YL5sYQNw=="],
 
