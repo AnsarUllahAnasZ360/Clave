@@ -22,7 +22,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { CreateBranchDialog } from "@/components/github/CreateBranchDialog";
 import { EstimateInput } from "@/components/issues/EstimateInput";
-import { formatEstimate } from "@/components/issues/IssueListRow";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -44,19 +43,10 @@ import {
 	DEFAULT_ISSUE_TYPES,
 	DEFAULT_PRIORITIES,
 	DEFAULT_STATUSES,
-	PRIORITY_RECORD,
-	STATUS_RECORD,
-	TYPE_RECORD,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-
-// ── Status / Priority / Type configs (from centralized module) ───────────
-
-const STATUS_CONFIG = STATUS_RECORD;
-const PRIORITY_CONFIG = PRIORITY_RECORD;
-const TYPE_CONFIG = TYPE_RECORD;
 
 // ── Property row ────────────────────────────────────────────────────────────
 
@@ -271,10 +261,6 @@ export function IssuePreviewSidebar({
 		);
 	}
 
-	// Resolve lookups
-	const statusConfig = STATUS_CONFIG[issue.status];
-	const priorityConfig = PRIORITY_CONFIG[issue.priority];
-	const typeConfig = issue.type ? TYPE_CONFIG[issue.type] : undefined;
 	const assignee = issue.assigneeId
 		? memberMap.get(issue.assigneeId)
 		: undefined;

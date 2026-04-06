@@ -433,20 +433,22 @@ function IssueRow({
 			)}
 		>
 			{bulkSelect ? (
-				<span
+				<button
+					type="button"
 					className="shrink-0"
 					onClick={(e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						bulkSelect.onToggle((e as unknown as MouseEvent).shiftKey);
+						bulkSelect.onToggle(e.shiftKey);
 					}}
+					aria-label="Select issue"
 				>
 					<Checkbox
 						checked={bulkSelect.selected}
 						className="pointer-events-none"
 						aria-label="Select issue"
 					/>
-				</span>
+				</button>
 			) : null}
 
 			{/* Status icon */}

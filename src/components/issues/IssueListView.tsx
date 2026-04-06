@@ -346,7 +346,7 @@ export function IssueListView({
 	hideFilter,
 	onIssueClick,
 }: IssueListViewProps) {
-	const { workspaceId, workspaceSlug } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const router = useRouter();
 
 	// ── Filter state ─────────────────────────────────────────────────────
@@ -848,11 +848,7 @@ export function IssueListView({
 	const renderColumnHeader = useCallback(() => {
 		const columnLabels = new Map(ALL_COLUMNS.map((c) => [c.id, c.label]));
 		return (
-			<div
-				className="sticky top-0 z-10 flex items-center gap-x-6 h-8 border-b border-border bg-muted/60 text-xs font-medium text-muted-foreground shrink-0"
-				role="row"
-				tabIndex={-1}
-			>
+			<div className="sticky top-0 z-10 flex items-center gap-x-6 h-8 border-b border-border bg-muted/60 text-xs font-medium text-muted-foreground shrink-0">
 				<div className="w-[36px] shrink-0 flex items-center justify-center pl-1">
 					<Checkbox
 						checked={headerCheckboxState}
@@ -869,8 +865,6 @@ export function IssueListView({
 							col === "priority" && "flex items-center justify-center",
 							col !== "priority" && "truncate",
 						)}
-						role="columnheader"
-						tabIndex={-1}
 					>
 						{columnLabels.get(col) ?? col}
 					</div>

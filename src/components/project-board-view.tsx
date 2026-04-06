@@ -103,6 +103,7 @@ export function ProjectBoardView({
 	const draggableCard = (p: Project) => (
 		<div
 			key={p.id}
+			role="presentation"
 			draggable
 			className={`transition-all ${
 				draggingId === p.id
@@ -193,6 +194,7 @@ export function ProjectBoardView({
 				{COLUMN_ORDER.map((status) => (
 					<div
 						key={status}
+						role="presentation"
 						className="rounded-xl bg-muted"
 						onDragOver={onDragOver}
 						onDrop={onDropTo(status)}
