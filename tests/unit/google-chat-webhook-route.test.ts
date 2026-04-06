@@ -8,6 +8,16 @@ const { mockWebhookHandler } = vi.hoisted(() => ({
 	mockWebhookHandler: vi.fn(),
 }));
 
+vi.mock("@/lib/chat/bot", () => ({
+	ensureHandlers: vi.fn().mockResolvedValue(undefined),
+	getBot: () => ({
+		webhooks: { gchat: mockWebhookHandler },
+		getAdapter: () => ({
+			postMessage: vi.fn().mockResolvedValue(undefined),
+		}),
+	}),
+}));
+
 vi.mock("chat", () => {
 	// Return a constructor function (not arrow) so `new Chat(...)` works
 	function MockChat() {
