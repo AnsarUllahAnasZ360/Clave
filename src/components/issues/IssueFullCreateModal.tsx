@@ -331,6 +331,14 @@ function IssueFullCreateModalContent({
 		resetFormKeepProperties,
 	]);
 
+	const selectedAssignees = useMemo(() => {
+		const ids = formState.assigneeIds ?? [];
+		if (ids.length === 0) return [];
+		return ids
+			.map((id) => assigneeOptions.find((a) => a.id === id))
+			.filter((a) => a !== undefined);
+	}, [assigneeOptions, formState.assigneeIds]);
+
 	if (!open) return null;
 
 	const currentStatus =
@@ -340,13 +348,6 @@ function IssueFullCreateModalContent({
 		PRIORITY_OPTIONS[0];
 	const currentType =
 		TYPE_OPTIONS.find((t) => t.id === formState.issueType) ?? TYPE_OPTIONS[0];
-	const selectedAssignees = useMemo(() => {
-		const ids = formState.assigneeIds ?? [];
-		if (ids.length === 0) return [];
-		return ids
-			.map((id) => assigneeOptions.find((a) => a.id === id))
-			.filter((a) => a !== undefined);
-	}, [assigneeOptions, formState.assigneeIds]);
 	const selectedProject = projectOptions.find(
 		(p) => p.id === formState.projectId,
 	);

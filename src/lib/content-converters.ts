@@ -956,7 +956,7 @@ export function htmlToSlate(html: string): SlateNode[] {
 			// Fragment contains images
 			for (const img of images) {
 				const src = img[1];
-				const alt = img[2];
+				const _alt = img[2];
 				result.push({
 					type: "img" as const,
 					url: src,

@@ -649,7 +649,7 @@ export function IssueBoardView({
 		if (!el) return;
 		const raf = requestAnimationFrame(() => updateScrollIndicators());
 		return () => cancelAnimationFrame(raf);
-	}, [updateScrollIndicators, rawIssues, swimlaneBy]);
+	}, [updateScrollIndicators]);
 
 	// Wheel → horizontal scroll (shift+wheel already works natively,
 	// this also converts plain vertical wheel to horizontal when over the board)
@@ -717,7 +717,7 @@ export function IssueBoardView({
 
 		track.addEventListener("wheel", handler, { passive: false });
 		return () => track.removeEventListener("wheel", handler);
-	}, [canHScroll]);
+	}, []);
 
 	// Custom scrollbar drag handlers
 	const handleThumbMouseDown = useCallback(

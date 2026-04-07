@@ -9,13 +9,13 @@ describe("ProjectDescriptionEditor (create project) image file extraction", () =
 		const image = new File(["img"], "pasted.png", { type: "image/png" });
 		const text = new File(["txt"], "note.txt", { type: "text/plain" });
 
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const files = extractImageFilesFromClipboardData({
-			// biome-ignore lint/suspicious/noExplicitAny: test-only shape
 			items: [
 				{ kind: "file", type: "image/png", getAsFile: () => image },
 				{ kind: "file", type: "text/plain", getAsFile: () => text },
 			] as any,
-			// biome-ignore lint/suspicious/noExplicitAny: test-only shape
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			files: [] as any,
 		} as unknown as DataTransfer);
 

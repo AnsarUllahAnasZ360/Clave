@@ -731,7 +731,7 @@ export function IssueListView({
 			void raf2;
 		});
 		return () => cancelAnimationFrame(raf1);
-	}, [groupedIssues]);
+	}, []);
 
 	function SortableIssueRow({
 		issueId,
