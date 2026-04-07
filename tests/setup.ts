@@ -11,9 +11,9 @@ if (!("ResizeObserver" in globalThis)) {
 }
 
 // JSDOM doesn't implement scrollIntoView; some components call it.
-if (!Element.prototype.scrollIntoView) {
+if ("Element" in globalThis && !globalThis.Element.prototype.scrollIntoView) {
 	// biome-ignore lint/suspicious/noExplicitAny: test-only polyfill
-	(Element.prototype as any).scrollIntoView = () => {};
+	(globalThis.Element.prototype as any).scrollIntoView = () => {};
 }
 
 const isConvexScheduledFunctionError = (error: unknown): boolean => {
