@@ -46,6 +46,7 @@ async function seedInviteFixture(
 			createdBy: ownerId,
 			useCount: 0,
 			usedBy: [],
+			status: "pending",
 		});
 
 		return { ownerId, joinerId, workspaceId, code };
@@ -86,6 +87,9 @@ describe("workspaceMembers.joinWithCode", () => {
 		expect(records.workspaceMember?.role).toBe("member");
 		expect(records.inviteCode?.useCount).toBe(1);
 		expect(records.inviteCode?.usedBy).toContain(fx.joinerId);
+		expect(records.inviteCode?.status).toBe("accepted");
+		expect(records.inviteCode?.acceptedBy).toBe(fx.joinerId);
+		expect(records.inviteCode?.acceptedAt).toBeDefined();
 	});
 
 	it("enforces plan member limits on join", async () => {

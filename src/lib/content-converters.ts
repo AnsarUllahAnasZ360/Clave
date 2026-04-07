@@ -936,23 +936,46 @@ export function looksLikeHtml(text: string): boolean {
  * Convert HTML string to Slate JSON by stripping tags and wrapping in paragraphs.
  */
 export function htmlToSlate(html: string): SlateNode[] {
-	// Split on block-level tags into paragraphs, strip all tags
-	const blocks = html
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<\/(?:p|div|h[1-6]|li|tr|blockquote)>/gi, "\n")
-		.replace(/<[^>]*>/g, "")
-		.split(/\n+/)
-		.map((line) => line.trim())
-		.filter(Boolean);
+	const result: SlateNode[] = [];
 
-	if (blocks.length === 0) {
-		return [{ type: "p", children: [{ text: "" }] }];
+	// Split by block-level tag boundaries to create paragraphs
+	const fragments = html.split(
+		/<\/(?:p|div|h[1-6]|li|tr|blockquote)>|<(?:p|div|h[1-6]|li|tr|blockquote)[^>]*>/,
+	);
+
+	for (const fragment of fragments) {
+		const trimmed = fragment.trim().replace(/<br\s*\/?>/gi, "\n");
+		if (!trimmed) continue;
+
+		// Check for images in this fragment
+		const imgRegex =
+			/<img[^>]*src=["']([^"']+)["'][^>]*alt=["']([^"']+)["'][^>]*>/g;
+		const images = Array.from(trimmed.matchAll(imgRegex));
+
+		if (images.length > 0) {
+			// Fragment contains images
+			for (const img of images) {
+				const src = img[1];
+				const alt = img[2];
+				result.push({
+					type: "img" as const,
+					url: src,
+					children: [{ text: "" }],
+				} as SlateNode);
+			}
+		} else {
+			// Regular text fragment
+			const textContent = trimmed.replace(/<[^>]*>/g, "");
+			if (textContent) {
+				result.push({
+					type: "p" as const,
+					children: [{ text: textContent }],
+				});
+			}
+		}
 	}
 
-	return blocks.map((text) => ({
-		type: "p" as const,
-		children: [{ text }],
-	}));
+	return result.length > 0 ? result : [{ type: "p", children: [{ text: "" }] }];
 }
 
 export function looksLikeMarkdown(text: string): boolean {

@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useWorkspaceOptional } from "@/components/providers/workspace-context";
 import { Button } from "@/components/ui/button";
 import {
 	FilterEmptyState,
@@ -9,12 +10,8 @@ import {
 	FilterOptionItem,
 	UnifiedFilterPopover,
 } from "@/components/unified-filter-popover";
-import {
-	DEFAULT_ISSUE_TYPES,
-	DEFAULT_PRIORITIES,
-	DEFAULT_STATUSES,
-	PRIORITY_LABELS,
-} from "@/lib/issue-config";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import { DEFAULT_PRIORITIES, PRIORITY_LABELS } from "@/lib/issue-config";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -146,16 +143,7 @@ export function sprintIdFromSingleMilestoneFilter(
 	return milestoneIds[0] as Id<"sprints">;
 }
 
-// ── Status / Priority config (derived from centralized module) ───────────
-
-const STATUS_OPTIONS = DEFAULT_STATUSES.map((s) => {
-	const Icon = s.icon;
-	return {
-		id: s.key,
-		label: s.name,
-		icon: <Icon className={`h-3.5 w-3.5 ${s.color}`} />,
-	};
-});
+// ── Priority config (derived from centralized module) ───────────
 
 const PRIORITY_OPTIONS = [...DEFAULT_PRIORITIES]
 	.sort((a, b) => {
@@ -170,23 +158,6 @@ const PRIORITY_OPTIONS = [...DEFAULT_PRIORITIES]
 			icon: <Icon className={`h-3.5 w-3.5 ${p.color}`} />,
 		};
 	});
-
-const TYPE_OPTIONS = DEFAULT_ISSUE_TYPES.map((t) => {
-	const Icon = t.icon;
-	return {
-		id: t.key,
-		label: t.name,
-		icon: <Icon className={`h-3.5 w-3.5 ${t.color}`} />,
-	};
-});
-
-const STATUS_LABELS: Record<string, string> = Object.fromEntries(
-	DEFAULT_STATUSES.map((s) => [s.key, s.name]),
-);
-
-const TYPE_LABELS: Record<string, string> = Object.fromEntries(
-	DEFAULT_ISSUE_TYPES.map((t) => [t.key, t.name]),
-);
 
 // ── Filter Popover ──────────────────────────────────────────────────────
 
@@ -225,6 +196,38 @@ export function MyIssuesFilterPopover({
 }) {
 	const [activeCategory, setActiveCategory] =
 		useState<FilterCategoryId>("status");
+	const workspace = useWorkspaceOptional();
+	const issueConfig = useEffectiveIssueConfig(workspace?.workspaceId);
+	const statusOptions = useMemo(() => {
+		return issueConfig.statuses.map((s) => {
+			const Icon = issueConfig.getStatusIcon(s.key);
+			return {
+				id: s.key,
+				label: s.name,
+				icon: (
+					<Icon
+						className="h-3.5 w-3.5"
+						style={{ color: issueConfig.getStatusColor(s.key) }}
+					/>
+				),
+			};
+		});
+	}, [issueConfig]);
+	const typeOptions = useMemo(() => {
+		return issueConfig.types.map((t) => {
+			const Icon = issueConfig.getTypeIcon(t.key);
+			return {
+				id: t.key,
+				label: t.name,
+				icon: (
+					<Icon
+						className="h-3.5 w-3.5"
+						style={{ color: issueConfig.getTypeColor(t.key) }}
+					/>
+				),
+			};
+		});
+	}, [issueConfig]);
 
 	// ── Temp (draft) state – committed only on Apply ──────────────────────
 	const [temp, setTemp] = useState<IssueFilters>({ ...EMPTY_FILTERS });
@@ -301,7 +304,7 @@ export function MyIssuesFilterPopover({
 	const renderOptions = (categoryId: string) => {
 		switch (categoryId) {
 			case "status":
-				return STATUS_OPTIONS.map((opt) => (
+				return statusOptions.map((opt) => (
 					<FilterOptionItem
 						key={opt.id}
 						checked={temp.statuses.includes(opt.id)}
@@ -388,7 +391,7 @@ export function MyIssuesFilterPopover({
 				));
 
 			case "type":
-				return TYPE_OPTIONS.map((opt) => (
+				return typeOptions.map((opt) => (
 					<FilterOptionItem
 						key={opt.id}
 						checked={temp.types.includes(opt.id)}
@@ -460,6 +463,8 @@ export function IssueFilterChips({
 	memberMap?: Map<string, string>;
 	milestoneMap?: Map<string, string>;
 }) {
+	const workspace = useWorkspaceOptional();
+	const issueConfig = useEffectiveIssueConfig(workspace?.workspaceId);
 	const removeArrayItem = (
 		key:
 			| "statuses"
@@ -481,7 +486,7 @@ export function IssueFilterChips({
 	for (const s of filters.statuses) {
 		chips.push({
 			key: `status-${s}`,
-			label: `Status: ${STATUS_LABELS[s] ?? s}`,
+			label: `Status: ${issueConfig.getStatusName(s)}`,
 			onRemove: () => removeArrayItem("statuses", s),
 		});
 	}
@@ -524,7 +529,7 @@ export function IssueFilterChips({
 	for (const t of filters.types) {
 		chips.push({
 			key: `type-${t}`,
-			label: `Type: ${TYPE_LABELS[t] ?? t}`,
+			label: `Type: ${issueConfig.getTypeName(t)}`,
 			onRemove: () => removeArrayItem("types", t),
 		});
 	}

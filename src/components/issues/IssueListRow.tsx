@@ -1,8 +1,18 @@
 "use client";
 
 import { format } from "date-fns";
-import { Calendar, Check, Flag } from "lucide-react";
-import { memo, useCallback, useState } from "react";
+import {
+	Calendar,
+	Check,
+	Copy,
+	ExternalLink,
+	Flag,
+	Link,
+	Trash2,
+	X,
+} from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { EstimateInput } from "@/components/issues/EstimateInput";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +24,13 @@ import {
 	CommandItem,
 	CommandList,
 } from "@/components/ui/command";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DatePicker, GenericPicker } from "@/components/ui/pickers";
 import {
 	Popover,
@@ -75,6 +92,7 @@ export type IssueListData = {
 	priority: string;
 	type?: string;
 	assigneeId?: Id<"users">;
+	assigneeIds?: Id<"users">[];
 	labelIds?: Id<"labels">[];
 	startDate?: number;
 	dueDate?: number;
@@ -124,6 +142,8 @@ export type IssueListRowProps = {
 	issue: IssueListData;
 	columns: ListColumnId[];
 	isHighlighted?: boolean;
+	issueUrl?: string;
+	onDelete?: (issueId: Id<"issues">) => void;
 	memberOptions: MemberOption[];
 	labelOptions: LabelOption[];
 	projectOptions: ProjectOption[];
@@ -136,6 +156,10 @@ export type IssueListRowProps = {
 	onAssigneeChange: (
 		issueId: Id<"issues">,
 		assigneeId: string | undefined,
+	) => void;
+	onAssigneesChange?: (
+		issueId: Id<"issues">,
+		assigneeIds: string[] | undefined,
 	) => void;
 	onLabelToggle: (issueId: Id<"issues">, labelId: Id<"labels">) => void;
 	onMilestoneChange: (issueId: Id<"issues">, milestoneId: string) => void;
@@ -239,6 +263,8 @@ export const IssueListRow = memo(function IssueListRow({
 	issue,
 	columns,
 	isHighlighted,
+	issueUrl,
+	onDelete,
 	memberOptions,
 	labelOptions,
 	projectOptions,
@@ -249,6 +275,7 @@ export const IssueListRow = memo(function IssueListRow({
 	onStatusChange,
 	onPriorityChange,
 	onAssigneeChange,
+	onAssigneesChange,
 	onLabelToggle,
 	onMilestoneChange,
 	onEstimateChange,
@@ -275,7 +302,7 @@ export const IssueListRow = memo(function IssueListRow({
 		[issue._id, onPriorityChange],
 	);
 
-	const handleAssigneeSelect = useCallback(
+	const _handleAssigneeSelect = useCallback(
 		(item: { id: string }) => {
 			onAssigneeChange(issue._id, item.id);
 		},
@@ -318,6 +345,80 @@ export const IssueListRow = memo(function IssueListRow({
 		[issue._id, onLabelToggle],
 	);
 
+	const handleCopyIdentifier = useCallback(async () => {
+		try {
+			await navigator.clipboard.writeText(issue.identifier);
+			toast.success(`Copied "${issue.identifier}"`);
+		} catch {
+			toast.error("Failed to copy identifier");
+		}
+	}, [issue.identifier]);
+
+	const handleCopyLink = useCallback(async () => {
+		if (!issueUrl) {
+			toast.error("No link available");
+			return;
+		}
+		try {
+			const absolute = new URL(issueUrl, window.location.origin).toString();
+			await navigator.clipboard.writeText(absolute);
+			toast.success("Link copied to clipboard");
+		} catch {
+			toast.error("Failed to copy link");
+		}
+	}, [issueUrl]);
+
+	const handleDelete = useCallback(() => {
+		if (!onDelete) return;
+		onDelete(issue._id);
+	}, [issue._id, onDelete]);
+
+	const derivedAssigneeIds = useMemo(() => {
+		return issue.assigneeIds && issue.assigneeIds.length > 0
+			? issue.assigneeIds
+			: issue.assigneeId
+				? [issue.assigneeId]
+				: [];
+	}, [issue.assigneeIds, issue.assigneeId]);
+
+	// Keep a local selection for instant multi-toggle (prevents "last click wins"
+	// when the parent list hasn't re-rendered with updated issue data yet).
+	const [selectedAssigneeIds, setSelectedAssigneeIds] =
+		useState<Id<"users">[]>(derivedAssigneeIds);
+
+	useEffect(() => {
+		setSelectedAssigneeIds((prev) => {
+			if (prev.length === derivedAssigneeIds.length) {
+				const prevSet = new Set(prev);
+				const same = derivedAssigneeIds.every((id) => prevSet.has(id));
+				if (same) return prev;
+			}
+			return derivedAssigneeIds;
+		});
+	}, [derivedAssigneeIds]);
+
+	const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+
+	const handleAssigneeToggle = useCallback(
+		(memberId: string) => {
+			if (!onAssigneesChange) return;
+
+			const memberIdTyped = memberId as Id<"users">;
+			setSelectedAssigneeIds((prev) => {
+				const isSelected = prev.includes(memberIdTyped);
+				const next = isSelected
+					? prev.filter((id) => id !== memberIdTyped)
+					: [...prev, memberIdTyped];
+				onAssigneesChange(
+					issue._id,
+					next.length > 0 ? (next as unknown as string[]) : undefined,
+				);
+				return next;
+			});
+		},
+		[issue._id, onAssigneesChange],
+	);
+
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: spreadsheet-like list row with click-to-open and inline editing cells
 		<div
@@ -339,22 +440,31 @@ export const IssueListRow = memo(function IssueListRow({
 			}}
 		>
 			{bulkSelect ? (
-				<button
-					type="button"
+				<div
 					data-issue-select=""
 					className="w-[36px] shrink-0 flex items-center justify-center pl-1"
+					role="checkbox"
+					aria-checked={bulkSelect.selected}
+					aria-label="Select issue"
+					tabIndex={0}
 					onClick={(e) => {
 						e.stopPropagation();
 						bulkSelect.onToggle(e.shiftKey);
 					}}
-					aria-label="Select issue"
+					onKeyDown={(e) => {
+						if (e.key === " " || e.key === "Enter") {
+							e.preventDefault();
+							e.stopPropagation();
+							bulkSelect.onToggle(e.shiftKey);
+						}
+					}}
 				>
 					<Checkbox
 						checked={bulkSelect.selected}
 						className="pointer-events-none"
 						aria-label="Select issue"
 					/>
-				</button>
+				</div>
 			) : null}
 			{columns.map((col) => {
 				switch (col) {
@@ -423,11 +533,98 @@ export const IssueListRow = memo(function IssueListRow({
 							<div
 								key={col}
 								className={cn(
-									"flex-1 min-w-0 px-2 truncate",
+									"flex-1 min-w-0 px-2",
 									isDone && "line-through text-muted-foreground",
 								)}
 							>
-								{issue.title}
+								<div className="flex items-center gap-2 min-w-0">
+									<div className="min-w-0 flex-1 truncate">{issue.title}</div>
+									<div
+										className={cn(
+											"shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity",
+										)}
+										onClick={(e) => e.stopPropagation()}
+										onKeyDown={(e) => e.stopPropagation()}
+									>
+										<DropdownMenu>
+											<DropdownMenuTrigger asChild>
+												<button
+													type="button"
+													aria-label="Issue options"
+													className="h-6 w-6 inline-flex items-center justify-center rounded hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
+													onPointerDown={(e) => {
+														// Avoid triggering drag + row click.
+														e.stopPropagation();
+													}}
+												>
+													<span className="sr-only">Open issue menu</span>
+													<svg
+														viewBox="0 0 24 24"
+														aria-hidden="true"
+														className="h-4 w-4"
+														fill="none"
+														stroke="currentColor"
+														strokeWidth="2"
+														strokeLinecap="round"
+														strokeLinejoin="round"
+													>
+														<circle cx="12" cy="5" r="1" />
+														<circle cx="12" cy="12" r="1" />
+														<circle cx="12" cy="19" r="1" />
+													</svg>
+												</button>
+											</DropdownMenuTrigger>
+											<DropdownMenuContent align="end">
+												<DropdownMenuItem
+													onClick={(e) => {
+														e.stopPropagation();
+														onClick?.();
+													}}
+													className="gap-2"
+												>
+													<ExternalLink className="h-4 w-4" />
+													Open issue
+												</DropdownMenuItem>
+												<DropdownMenuItem
+													onClick={(e) => {
+														e.stopPropagation();
+														void handleCopyLink();
+													}}
+													className="gap-2"
+												>
+													<Link className="h-4 w-4" />
+													Copy link
+												</DropdownMenuItem>
+												<DropdownMenuItem
+													onClick={(e) => {
+														e.stopPropagation();
+														void handleCopyIdentifier();
+													}}
+													className="gap-2"
+												>
+													<Copy className="h-4 w-4" />
+													Copy ID
+												</DropdownMenuItem>
+												{onDelete ? (
+													<>
+														<DropdownMenuSeparator />
+														<DropdownMenuItem
+															variant="destructive"
+															onClick={(e) => {
+																e.stopPropagation();
+																handleDelete();
+															}}
+															className="gap-2"
+														>
+															<Trash2 className="h-4 w-4" />
+															Delete issue
+														</DropdownMenuItem>
+													</>
+												) : null}
+											</DropdownMenuContent>
+										</DropdownMenu>
+									</div>
+								</div>
 							</div>
 						);
 
@@ -476,29 +673,50 @@ export const IssueListRow = memo(function IssueListRow({
 							// biome-ignore lint/a11y/noStaticElementInteractions: inline editing cell
 							<div
 								key={col}
-								className="w-[120px] shrink-0 px-1"
+								className="w-[140px] shrink-0 px-1"
 								onClick={(e) => e.stopPropagation()}
 								onKeyDown={(e) => e.stopPropagation()}
 							>
-								<GenericPicker
-									items={memberOptions}
-									onSelect={handleAssigneeSelect}
-									selectedId={issue.assigneeId ?? undefined}
-									placeholder="Assign to..."
-									renderItem={(item) => (
-										<div className="flex items-center gap-2 w-full">
-											<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
-												{item.name.charAt(0)}
-											</div>
-											<span className="flex-1">{item.name}</span>
-										</div>
-									)}
-									trigger={
+								<Popover
+									open={assigneeDropdownOpen}
+									onOpenChange={setAssigneeDropdownOpen}
+								>
+									<PopoverTrigger asChild>
 										<button
 											type="button"
-											className="flex items-center gap-1.5 w-full rounded px-1 py-0.5 hover:bg-muted/80 transition-colors text-xs truncate"
+											aria-label="Edit assignees"
+											className="flex items-center gap-1 w-full rounded px-1 py-0.5 hover:bg-muted/80 transition-colors text-xs"
 										>
-											{assignee ? (
+											{selectedAssigneeIds.length > 0 ? (
+												<div className="flex items-center gap-1 w-full">
+													{selectedAssigneeIds.slice(0, 2).map((assigneeId) => {
+														const assigneeOption = memberOptions.find(
+															(m) => m.id === assigneeId,
+														);
+														return assigneeOption ? (
+															<Avatar
+																key={assigneeId}
+																className="size-4 shrink-0"
+															>
+																{assigneeOption.image && (
+																	<AvatarImage
+																		src={assigneeOption.image}
+																		alt={assigneeOption.name}
+																	/>
+																)}
+																<AvatarFallback className="text-[8px]">
+																	{assigneeOption.name.charAt(0).toUpperCase()}
+																</AvatarFallback>
+															</Avatar>
+														) : null;
+													})}
+													{selectedAssigneeIds.length > 2 && (
+														<span className="text-[10px] text-muted-foreground">
+															+{selectedAssigneeIds.length - 2}
+														</span>
+													)}
+												</div>
+											) : assignee ? (
 												<>
 													<Avatar className="size-4 shrink-0">
 														{assignee.image && (
@@ -514,11 +732,83 @@ export const IssueListRow = memo(function IssueListRow({
 													<span className="truncate">{assignee.name}</span>
 												</>
 											) : (
-												<span className="text-muted-foreground">-</span>
+												<span className="text-muted-foreground">
+													Unassigned
+												</span>
 											)}
 										</button>
-									}
-								/>
+									</PopoverTrigger>
+									<PopoverContent className="p-0 w-[280px]" align="start">
+										<Command
+											onPointerDown={(e) => {
+												if (
+													e.target instanceof HTMLElement &&
+													e.target.closest("[cmdk-item]")
+												) {
+													e.preventDefault();
+												}
+											}}
+										>
+											<CommandInput placeholder="Search members..." />
+											<CommandList>
+												<CommandEmpty>No members found.</CommandEmpty>
+												<CommandGroup>
+													<CommandItem
+														value="Unassigned"
+														onSelect={() => {
+															onAssigneesChange?.(issue._id, undefined);
+															setSelectedAssigneeIds([]);
+														}}
+														className="cursor-pointer"
+													>
+														<div className="flex items-center gap-2 w-full">
+															<X className="h-4 w-4 text-muted-foreground" />
+															<span className="flex-1">Unassigned</span>
+															{selectedAssigneeIds.length === 0 && (
+																<Check className="h-4 w-4 text-primary" />
+															)}
+														</div>
+													</CommandItem>
+												</CommandGroup>
+												<CommandGroup>
+													{memberOptions.map((option) => {
+														const isSelected = selectedAssigneeIds.includes(
+															option.id as Id<"users">,
+														);
+														return (
+															<CommandItem
+																key={option.id}
+																value={option.name}
+																onSelect={() => {
+																	handleAssigneeToggle(option.id);
+																}}
+																className="cursor-pointer"
+															>
+																<div className="flex items-center gap-2 w-full">
+																	<Avatar className="h-4 w-4">
+																		{option.image && (
+																			<AvatarImage
+																				src={option.image}
+																				alt={option.name}
+																			/>
+																		)}
+																		<AvatarFallback className="text-[8px]">
+																			{option.name.charAt(0).toUpperCase()}
+																		</AvatarFallback>
+																	</Avatar>
+																	<span className="flex-1">{option.name}</span>
+																	{isSelected && (
+																		<Check className="h-4 w-4 text-primary" />
+																	)}
+																</div>
+															</CommandItem>
+														);
+													})}
+												</CommandGroup>
+											</CommandList>
+										</Command>
+									</PopoverContent>
+								</Popover>
 							</div>
 						);
 

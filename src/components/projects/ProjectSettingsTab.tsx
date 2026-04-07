@@ -4,10 +4,27 @@ import { useMutation } from "convex/react";
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { DEFAULT_ISSUE_TYPES, DEFAULT_STATUSES } from "@/lib/issue-config";
-import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -21,194 +38,7 @@ type ProjectData = {
 	customTypes?: CustomItem[];
 };
 
-// ── Color presets ────────────────────────────────────────────────────────
-
-const COLOR_PRESETS = [
-	"#ef4444",
-	"#f97316",
-	"#eab308",
-	"#22c55e",
-	"#06b6d4",
-	"#3b82f6",
-	"#8b5cf6",
-	"#ec4899",
-	"#6b7280",
-];
-
 // ── Editable list section ────────────────────────────────────────────────
-
-function ConfigSection({
-	title,
-	description,
-	defaults,
-	items,
-	onSave,
-}: {
-	title: string;
-	description: string;
-	defaults: CustomItem[];
-	items: CustomItem[];
-	onSave: (items: CustomItem[]) => void;
-}) {
-	const [localItems, setLocalItems] = useState<CustomItem[]>(items);
-	const [isAdding, setIsAdding] = useState(false);
-	const [newKey, setNewKey] = useState("");
-	const [newName, setNewName] = useState("");
-	const [newColor, setNewColor] = useState("#6b7280");
-	const hasChanges = JSON.stringify(localItems) !== JSON.stringify(items);
-
-	const handleAdd = () => {
-		const key = newKey.trim().toLowerCase().replace(/\s+/g, "_");
-		const name = newName.trim();
-		if (!key || !name) return;
-		if (
-			localItems.some((i) => i.key === key) ||
-			defaults.some((d) => d.key === key)
-		) {
-			toast.error("A type with this key already exists");
-			return;
-		}
-		setLocalItems([...localItems, { key, name, color: newColor }]);
-		setNewKey("");
-		setNewName("");
-		setNewColor("#6b7280");
-		setIsAdding(false);
-	};
-
-	const handleRemove = (key: string) => {
-		setLocalItems(localItems.filter((i) => i.key !== key));
-	};
-
-	const handleSave = () => {
-		onSave(localItems);
-		toast.success(`${title} updated`);
-	};
-
-	const handleReset = () => {
-		setLocalItems([]);
-		onSave([]);
-		toast.success(`Reset to workspace defaults`);
-	};
-
-	const allItems = [
-		...defaults.map((d) => ({ ...d, isDefault: true })),
-		...localItems
-			.filter((i) => !defaults.some((d) => d.key === i.key))
-			.map((i) => ({ ...i, isDefault: false })),
-	];
-
-	return (
-		<section className="space-y-3">
-			<div>
-				<h3 className="text-sm font-medium">{title}</h3>
-				<p className="text-xs text-muted-foreground mt-0.5">{description}</p>
-			</div>
-
-			<div className="space-y-1">
-				{allItems.map((item) => (
-					<div
-						key={item.key}
-						className="flex items-center gap-2 px-3 py-2 rounded-md border border-border/40 bg-card/50"
-					>
-						<span
-							className="h-3 w-3 rounded-full shrink-0"
-							style={{ backgroundColor: item.color }}
-						/>
-						<span className="text-xs font-mono text-muted-foreground w-24 shrink-0">
-							{item.key}
-						</span>
-						<span className="text-sm flex-1">{item.name}</span>
-						{item.isDefault ? (
-							<span className="text-[10px] text-muted-foreground/50">
-								default
-							</span>
-						) : (
-							<button
-								type="button"
-								onClick={() => handleRemove(item.key)}
-								className="text-muted-foreground/50 hover:text-destructive transition-colors"
-							>
-								<Trash2 className="h-3.5 w-3.5" />
-							</button>
-						)}
-					</div>
-				))}
-			</div>
-
-			{isAdding ? (
-				<div className="flex items-center gap-2 px-3 py-2 rounded-md border border-dashed border-border/60">
-					<div className="flex gap-1">
-						{COLOR_PRESETS.map((c) => (
-							<button
-								key={c}
-								type="button"
-								onClick={() => setNewColor(c)}
-								className={cn(
-									"h-4 w-4 rounded-full border transition-transform",
-									newColor === c
-										? "scale-125 border-foreground"
-										: "border-transparent hover:scale-110",
-								)}
-								style={{ backgroundColor: c }}
-							/>
-						))}
-					</div>
-					<Input
-						value={newKey}
-						onChange={(e) => setNewKey(e.target.value)}
-						placeholder="key"
-						className="h-7 text-xs w-20 font-mono"
-					/>
-					<Input
-						value={newName}
-						onChange={(e) => setNewName(e.target.value)}
-						placeholder="Display name"
-						className="h-7 text-xs flex-1"
-						onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-					/>
-					<Button size="sm" className="h-7 text-xs" onClick={handleAdd}>
-						Add
-					</Button>
-					<Button
-						size="sm"
-						variant="ghost"
-						className="h-7 text-xs"
-						onClick={() => setIsAdding(false)}
-					>
-						Cancel
-					</Button>
-				</div>
-			) : (
-				<Button
-					variant="ghost"
-					size="sm"
-					className="h-7 gap-1 text-xs text-muted-foreground"
-					onClick={() => setIsAdding(true)}
-				>
-					<Plus className="h-3.5 w-3.5" />
-					Add custom {title.toLowerCase().replace(/s$/, "")}
-				</Button>
-			)}
-
-			{hasChanges && (
-				<div className="flex items-center gap-2 pt-1">
-					<Button size="sm" className="h-7 text-xs" onClick={handleSave}>
-						Save changes
-					</Button>
-					<Button
-						size="sm"
-						variant="ghost"
-						className="h-7 text-xs text-muted-foreground"
-						onClick={handleReset}
-					>
-						Reset to defaults
-					</Button>
-				</div>
-			)}
-		</section>
-	);
-}
-
 // ── Main component ──────────────────────────────────────────────────────
 
 export function ProjectSettingsTab({
@@ -218,7 +48,12 @@ export function ProjectSettingsTab({
 	projectId: Id<"projects">;
 	project: ProjectData;
 }) {
-	const updateProject = useMutation(api.projects.update);
+	const createType = useMutation(api.projects.createCustomIssueType);
+	const updateType = useMutation(api.projects.updateCustomIssueType);
+	const deleteType = useMutation(api.projects.deleteCustomIssueType);
+	const createStatus = useMutation(api.projects.createCustomIssueStatus);
+	const updateStatus = useMutation(api.projects.updateCustomIssueStatus);
+	const deleteStatus = useMutation(api.projects.deleteCustomIssueStatus);
 
 	const defaultTypes = DEFAULT_ISSUE_TYPES.map((t) => ({
 		key: t.key,
@@ -232,6 +67,222 @@ export function ProjectSettingsTab({
 		color: s.color.replace("text-", ""),
 	}));
 
+	const mergeDefaults = (
+		defaults: CustomItem[],
+		custom: CustomItem[] | undefined,
+	) => {
+		if (!custom || custom.length === 0)
+			return defaults.map((d) => ({ ...d, isDefault: true }));
+		const merged = defaults.map((def) => {
+			const override = custom.find((c) => c.key === def.key);
+			return { ...(override ?? def), isDefault: true };
+		});
+		const customOnly = custom.filter(
+			(c) => !defaults.some((d) => d.key === c.key),
+		);
+		return [...merged, ...customOnly.map((c) => ({ ...c, isDefault: false }))];
+	};
+
+	const types = mergeDefaults(defaultTypes, project.customTypes);
+	const statuses = mergeDefaults(defaultStatuses, project.customStatuses);
+
+	const [addingSection, setAddingSection] = useState<
+		"types" | "statuses" | null
+	>(null);
+	const [newName, setNewName] = useState("");
+	const [newColor, setNewColor] = useState("#6b7280");
+	const [editingKey, setEditingKey] = useState<string | null>(null);
+	const [editName, setEditName] = useState("");
+
+	const [deleteState, setDeleteState] = useState<{
+		section: "types" | "statuses";
+		key: string;
+		name: string;
+	} | null>(null);
+	const [replacementKey, setReplacementKey] = useState<string>("");
+
+	const handleAdd = async (section: "types" | "statuses") => {
+		const name = newName.trim();
+		if (!name) return;
+		try {
+			if (section === "types") {
+				await createType({ projectId, name, color: newColor });
+			} else {
+				await createStatus({ projectId, name, color: newColor });
+			}
+			toast.success("Added");
+			setNewName("");
+			setNewColor("#6b7280");
+			setAddingSection(null);
+		} catch {
+			toast.error("Failed to add");
+		}
+	};
+
+	const handleSave = async (section: "types" | "statuses", key: string) => {
+		const name = editName.trim();
+		try {
+			if (section === "types") {
+				await updateType({ projectId, key, name: name || undefined });
+			} else {
+				await updateStatus({ projectId, key, name: name || undefined });
+			}
+			toast.success("Saved");
+			setEditingKey(null);
+		} catch {
+			toast.error("Failed to save");
+		}
+	};
+
+	const handleColor = async (
+		section: "types" | "statuses",
+		key: string,
+		color: string,
+	) => {
+		try {
+			if (section === "types") {
+				await updateType({ projectId, key, color });
+			} else {
+				await updateStatus({ projectId, key, color });
+			}
+		} catch {
+			toast.error("Failed to update color");
+		}
+	};
+
+	const handleRequestDelete = (section: "types" | "statuses", key: string) => {
+		const items = section === "types" ? types : statuses;
+		const item = items.find((i) => i.key === key);
+		if (!item || item.isDefault) return;
+		const firstReplacement = items.find((i) => i.key !== key)?.key ?? "";
+		setReplacementKey(firstReplacement);
+		setDeleteState({ section, key, name: item.name });
+	};
+
+	const handleConfirmDelete = async () => {
+		if (!deleteState) return;
+		if (!replacementKey) return;
+		try {
+			if (deleteState.section === "types") {
+				await deleteType({ projectId, key: deleteState.key, replacementKey });
+			} else {
+				await deleteStatus({ projectId, key: deleteState.key, replacementKey });
+			}
+			toast.success("Removed");
+			setDeleteState(null);
+			setReplacementKey("");
+		} catch {
+			toast.error("Failed to remove");
+		}
+	};
+
+	const renderSection = (section: "types" | "statuses") => {
+		const items = section === "types" ? types : statuses;
+		return (
+			<section className="space-y-3">
+				<div>
+					<h3 className="text-sm font-medium">
+						{section === "types" ? "Issue types" : "Statuses"}
+					</h3>
+					<p className="text-xs text-muted-foreground mt-0.5">
+						Default items can be renamed but not deleted. Custom items can be
+						deleted with replacement.
+					</p>
+				</div>
+
+				<div className="space-y-1">
+					{items.map((item) => (
+						<div
+							key={item.key}
+							className="flex items-center gap-2 px-3 py-2 rounded-md border border-border/40 bg-card/50"
+						>
+							<ColorPicker
+								color={item.color}
+								onColorChange={(c) => void handleColor(section, item.key, c)}
+							/>
+
+							{editingKey === `${section}-${item.key}` ? (
+								<Input
+									value={editName}
+									onChange={(e) => setEditName(e.target.value)}
+									className="h-7 text-xs flex-1"
+									onBlur={() => handleSave(section, item.key)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") handleSave(section, item.key);
+										if (e.key === "Escape") setEditingKey(null);
+									}}
+								/>
+							) : (
+								<button
+									type="button"
+									className="text-sm flex-1 text-left hover:underline"
+									onClick={() => {
+										setEditingKey(`${section}-${item.key}`);
+										setEditName(item.name);
+									}}
+								>
+									{item.name}
+								</button>
+							)}
+
+							{item.isDefault ? (
+								<span className="text-[10px] text-muted-foreground/50">
+									default
+								</span>
+							) : (
+								<button
+									type="button"
+									onClick={() => handleRequestDelete(section, item.key)}
+									className="text-muted-foreground/50 hover:text-destructive transition-colors"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+								</button>
+							)}
+						</div>
+					))}
+				</div>
+
+				{addingSection === section ? (
+					<div className="flex items-center gap-2 px-3 py-2 rounded-md border border-dashed border-border/60">
+						<ColorPicker color={newColor} onColorChange={setNewColor} />
+						<Input
+							value={newName}
+							onChange={(e) => setNewName(e.target.value)}
+							placeholder="Label"
+							className="h-7 text-xs flex-1"
+							onKeyDown={(e) => e.key === "Enter" && handleAdd(section)}
+						/>
+						<Button
+							size="sm"
+							className="h-7 text-xs"
+							onClick={() => handleAdd(section)}
+						>
+							Add
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-7 text-xs"
+							onClick={() => setAddingSection(null)}
+						>
+							Cancel
+						</Button>
+					</div>
+				) : (
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-7 gap-1 text-xs text-muted-foreground"
+						onClick={() => setAddingSection(section)}
+					>
+						<Plus className="h-3.5 w-3.5" />
+						Add custom {section === "types" ? "type" : "status"}
+					</Button>
+				)}
+			</section>
+		);
+	};
+
 	return (
 		<div className="space-y-8">
 			<div>
@@ -242,31 +293,52 @@ export function ProjectSettingsTab({
 				</p>
 			</div>
 
-			<ConfigSection
-				title="Issue types"
-				description="Add project-specific issue types beyond workspace defaults. Use a unique key (e.g. epic, story, task)."
-				defaults={defaultTypes}
-				items={project.customTypes ?? []}
-				onSave={(items) =>
-					updateProject({
-						projectId,
-						customTypes: items.length > 0 ? items : undefined,
-					})
-				}
-			/>
+			<div className="space-y-6">
+				{renderSection("types")}
+				{renderSection("statuses")}
+			</div>
 
-			<ConfigSection
-				title="Statuses"
-				description="Add project-specific statuses. These appear alongside workspace defaults in issue dropdowns."
-				defaults={defaultStatuses}
-				items={project.customStatuses ?? []}
-				onSave={(items) =>
-					updateProject({
-						projectId,
-						customStatuses: items.length > 0 ? items : undefined,
-					})
-				}
-			/>
+			<AlertDialog
+				open={Boolean(deleteState)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDeleteState(null);
+						setReplacementKey("");
+					}
+				}}
+			>
+				<AlertDialogContent size="sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete {deleteState?.name}</AlertDialogTitle>
+						<AlertDialogDescription>
+							Choose a replacement. Existing issues using this value will be
+							migrated.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<div className="space-y-2">
+						<Select value={replacementKey} onValueChange={setReplacementKey}>
+							<SelectTrigger>
+								<SelectValue placeholder="Replacement" />
+							</SelectTrigger>
+							<SelectContent>
+								{(deleteState?.section === "types" ? types : statuses)
+									.filter((i) => i.key !== deleteState?.key)
+									.map((i) => (
+										<SelectItem key={i.key} value={i.key}>
+											{i.name}
+										</SelectItem>
+									))}
+							</SelectContent>
+						</Select>
+					</div>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={handleConfirmDelete}>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

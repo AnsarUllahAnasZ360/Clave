@@ -404,7 +404,6 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	// ── Mutations ────────────────────────────────────────────────────────
 	const updateIssue = useMutation(api.issues.update);
 	const updateStatus = useMutation(api.issues.updateStatus);
-	const assignIssue = useMutation(api.issues.assign);
 	const removeIssue = useMutation(api.issues.remove);
 	const subscribeMutation = useMutation(api.issues.subscribe);
 	const unsubscribeMutation = useMutation(api.issues.unsubscribe);
@@ -414,6 +413,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	const [titleValue, setTitleValue] = useState("");
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 	const [showSidebar, setShowSidebar] = useState(true);
+	const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
 	const titleInputRef = useRef<HTMLInputElement>(null);
 
 	// ── Sync local state with issue data ─────────────────────────────────
@@ -453,10 +453,18 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 		}));
 	}, [sprints]);
 
-	const assignee = useMemo(() => {
-		if (!issue?.assigneeId || !memberOptions.length) return undefined;
-		return memberOptions.find((m) => m.id === issue.assigneeId);
-	}, [issue?.assigneeId, memberOptions]);
+	const assignees = useMemo(() => {
+		if (!memberOptions.length) return [];
+		const ids =
+			issue?.assigneeIds && issue.assigneeIds.length > 0
+				? issue.assigneeIds
+				: issue?.assigneeId
+					? [issue.assigneeId]
+					: [];
+		return ids
+			.map((id) => memberOptions.find((m) => m.id === id))
+			.filter((m) => m !== undefined) as typeof memberOptions;
+	}, [issue?.assigneeIds, issue?.assigneeId, memberOptions]);
 
 	const project = useMemo(() => {
 		if (!issue?.projectId || !projects) return undefined;
@@ -501,30 +509,20 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 		[issueId, updateStatus],
 	);
 
-	const handleAssigneeChange = useCallback(
-		async (option: { id: string }) => {
+	const handleAssigneesChange = useCallback(
+		async (assigneeIds: string[] | undefined) => {
 			try {
-				await assignIssue({
+				const mappedIds = assigneeIds?.map((id) => id as Id<"users">);
+				await updateIssue({
 					issueId: issueId as Id<"issues">,
-					assigneeId: option.id as Id<"users">,
+					assigneeIds: mappedIds,
 				});
 			} catch {
-				toast.error("Failed to assign issue");
+				toast.error("Failed to update assignees");
 			}
 		},
-		[issueId, assignIssue],
+		[issueId, updateIssue],
 	);
-
-	const handleUnassign = useCallback(async () => {
-		try {
-			await assignIssue({
-				issueId: issueId as Id<"issues">,
-				assigneeId: undefined,
-			});
-		} catch {
-			toast.error("Failed to unassign");
-		}
-	}, [issueId, assignIssue]);
 
 	const handlePriorityChange = useCallback(
 		async (option: { id: string }) => {
@@ -976,59 +974,119 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 							</PropertyRow>
 
 							{/* Assignee */}
-							<PropertyRow icon={User} label="Assignee">
-								<div className="flex items-center gap-1">
-									<GenericPicker
-										items={memberOptions}
-										onSelect={handleAssigneeChange}
-										selectedId={issue.assigneeId ?? undefined}
-										placeholder="Assign to..."
-										renderItem={(item) => (
-											<div className="flex items-center gap-2 w-full">
-												<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
-													{item.name.charAt(0)}
-												</div>
-												<span className="flex-1">{item.name}</span>
-											</div>
-										)}
-										trigger={
-											<button
-												type="button"
-												className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
-											>
-												{assignee ? (
-													<>
-														<Avatar className="size-5">
-															{assignee.image && (
+							<PropertyRow icon={User} label="Assignees">
+								<Popover
+									open={assigneeDropdownOpen}
+									onOpenChange={setAssigneeDropdownOpen}
+								>
+									<PopoverTrigger asChild>
+										<button
+											type="button"
+											className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+										>
+											{assignees.length > 0 ? (
+												<div className="flex items-center gap-1">
+													{assignees.slice(0, 2).map((member) => (
+														<Avatar key={member.id} className="size-5">
+															{member.image && (
 																<AvatarImage
-																	src={assignee.image}
-																	alt={assignee.name}
+																	src={member.image}
+																	alt={member.name}
 																/>
 															)}
 															<AvatarFallback className="text-[10px]">
-																{assignee.name.charAt(0).toUpperCase()}
+																{member.name.charAt(0).toUpperCase()}
 															</AvatarFallback>
 														</Avatar>
-														<span>{assignee.name}</span>
-													</>
-												) : (
-													<span className="text-muted-foreground">
-														Unassigned
-													</span>
-												)}
-											</button>
-										}
-									/>
-									{issue.assigneeId && (
-										<button
-											type="button"
-											onClick={handleUnassign}
-											className="text-muted-foreground hover:text-foreground p-1 rounded-md hover:bg-muted transition-colors"
-										>
-											<X className="h-3 w-3" />
+													))}
+													{assignees.length > 2 && (
+														<span className="text-xs text-muted-foreground">
+															+{assignees.length - 2}
+														</span>
+													)}
+												</div>
+											) : (
+												<span className="text-muted-foreground">
+													Unassigned
+												</span>
+											)}
 										</button>
-									)}
-								</div>
+									</PopoverTrigger>
+									<PopoverContent className="p-0 w-[240px]" align="start">
+										<Command>
+											<CommandInput placeholder="Search members..." />
+											<CommandList>
+												<CommandEmpty>No members found.</CommandEmpty>
+												<CommandGroup>
+													<CommandItem
+														value="Unassigned"
+														onSelect={() => handleAssigneesChange(undefined)}
+														className="cursor-pointer"
+													>
+														<div className="flex items-center gap-2 w-full">
+															<X className="h-4 w-4 text-muted-foreground" />
+															<span className="flex-1">Unassigned</span>
+															{assignees.length === 0 && (
+																<Check className="h-4 w-4 text-primary" />
+															)}
+														</div>
+													</CommandItem>
+												</CommandGroup>
+												<CommandGroup>
+													{memberOptions.map((option) => {
+														const currentIds =
+															issue?.assigneeIds && issue.assigneeIds.length > 0
+																? issue.assigneeIds
+																: issue?.assigneeId
+																	? [issue.assigneeId]
+																	: [];
+														const isSelected = currentIds.includes(
+															option.id as Id<"users">,
+														);
+														return (
+															<CommandItem
+																key={option.id}
+																value={option.name}
+																onSelect={() => {
+																	const newIds = isSelected
+																		? currentIds.filter(
+																				(id) =>
+																					id !== (option.id as Id<"users">),
+																			)
+																		: [...currentIds, option.id as Id<"users">];
+																	handleAssigneesChange(
+																		newIds.length > 0
+																			? (newIds as string[])
+																			: undefined,
+																	);
+																}}
+																className="cursor-pointer"
+															>
+																<div className="flex items-center gap-2 w-full">
+																	<Avatar className="h-4 w-4">
+																		{option.image && (
+																			<AvatarImage
+																				src={option.image}
+																				alt={option.name}
+																			/>
+																		)}
+																		<AvatarFallback className="text-[8px]">
+																			{option.name.charAt(0).toUpperCase()}
+																		</AvatarFallback>
+																	</Avatar>
+																	<span className="flex-1">{option.name}</span>
+																	{isSelected && (
+																		<Check className="h-4 w-4 text-primary" />
+																	)}
+																</div>
+															</CommandItem>
+														);
+													})}
+												</CommandGroup>
+											</CommandList>
+										</Command>
+									</PopoverContent>
+								</Popover>
 							</PropertyRow>
 
 							{/* Priority */}

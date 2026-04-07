@@ -20,23 +20,9 @@ import { fractionalIndex, generateIdentifier } from "./lib/utils";
 
 // ── Shared Validators ──────────────────────────────────────────────────────
 
-const issueStatusValidator = v.union(
-	v.literal("triage"),
-	v.literal("backlog"),
-	v.literal("todo"),
-	v.literal("in_progress"),
-	v.literal("in_review"),
-	v.literal("done"),
-	v.literal("cancelled"),
-);
+const issueStatusValidator = v.string();
 
-const nonDestructiveIssueStatusValidator = v.union(
-	v.literal("triage"),
-	v.literal("backlog"),
-	v.literal("todo"),
-	v.literal("in_progress"),
-	v.literal("in_review"),
-);
+const nonDestructiveIssueStatusValidator = v.string();
 
 const issuePriorityValidator = v.union(
 	v.literal("urgent"),
@@ -46,17 +32,84 @@ const issuePriorityValidator = v.union(
 	v.literal("no_priority"),
 );
 
-const issueTypeValidator = v.union(
-	v.literal("issue"),
-	v.literal("bug"),
-	v.literal("improvement"),
-	v.literal("feature"),
-);
+const issueTypeValidator = v.string();
+
+const DEFAULT_STATUS_KEYS = [
+	"triage",
+	"backlog",
+	"todo",
+	"in_progress",
+	"in_review",
+	"done",
+	"cancelled",
+] as const;
+
+const DEFAULT_TYPE_KEYS = ["issue", "bug", "improvement", "feature"] as const;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function isCompletedStatus(status: string): boolean {
 	return status === "done" || status === "cancelled";
+}
+
+async function getAllowedStatusKeys(
+	ctx: QueryCtx | MutationCtx,
+	workspaceId: Id<"workspaces">,
+	projectId?: Id<"projects">,
+): Promise<Set<string>> {
+	const set = new Set<string>(DEFAULT_STATUS_KEYS);
+
+	const settings = await ctx.db
+		.query("workspaceSettings")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.unique();
+	for (const s of settings?.customStatuses ?? []) {
+		set.add(s.key);
+	}
+
+	if (projectId) {
+		const project = await ctx.db.get(projectId);
+		for (const s of project?.customStatuses ?? []) {
+			set.add(s.key);
+		}
+	}
+
+	return set;
+}
+
+async function getAllowedTypeKeys(
+	ctx: QueryCtx | MutationCtx,
+	workspaceId: Id<"workspaces">,
+	projectId?: Id<"projects">,
+): Promise<Set<string>> {
+	const set = new Set<string>(DEFAULT_TYPE_KEYS);
+
+	const settings = await ctx.db
+		.query("workspaceSettings")
+		.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+		.unique();
+	for (const t of settings?.customTypes ?? []) {
+		set.add(t.key);
+	}
+
+	if (projectId) {
+		const project = await ctx.db.get(projectId);
+		for (const t of project?.customTypes ?? []) {
+			set.add(t.key);
+		}
+	}
+
+	return set;
+}
+
+function assertAllowedKey(
+	kind: "status" | "type",
+	key: string,
+	allowed: ReadonlySet<string>,
+) {
+	if (!allowed.has(key)) {
+		throw new ConvexError(`Unknown issue ${kind}: ${key}`);
+	}
 }
 
 async function ensureAssigneeInWorkspace(
@@ -93,6 +146,7 @@ const issueDocValidator = v.object({
 	priority: v.string(),
 	type: v.string(),
 	assigneeId: v.optional(v.id("users")),
+	assigneeIds: v.optional(v.array(v.id("users"))),
 	labelIds: v.optional(v.array(v.id("labels"))),
 	startDate: v.optional(v.number()),
 	dueDate: v.optional(v.number()),
@@ -124,6 +178,7 @@ const issueWithParentValidator = v.object({
 	priority: v.string(),
 	type: v.string(),
 	assigneeId: v.optional(v.id("users")),
+	assigneeIds: v.optional(v.array(v.id("users"))),
 	labelIds: v.optional(v.array(v.id("labels"))),
 	startDate: v.optional(v.number()),
 	dueDate: v.optional(v.number()),
@@ -810,6 +865,7 @@ export const create = mutation({
 		priority: v.optional(issuePriorityValidator),
 		type: v.optional(issueTypeValidator),
 		assigneeId: v.optional(v.id("users")),
+		assigneeIds: v.optional(v.array(v.id("users"))),
 		labelIds: v.optional(v.array(v.id("labels"))),
 		startDate: v.optional(v.number()),
 		dueDate: v.optional(v.number()),
@@ -967,8 +1023,15 @@ export const create = mutation({
 			if (!hasAccess)
 				throw new ConvexError("You don't have access to this project");
 		}
-		if (args.assigneeId) {
-			await ensureAssigneeInWorkspace(ctx, args.workspaceId, args.assigneeId);
+		const effectiveAssigneeIds =
+			args.assigneeIds && args.assigneeIds.length > 0
+				? args.assigneeIds
+				: args.assigneeId
+					? [args.assigneeId]
+					: [];
+
+		for (const assigneeId of effectiveAssigneeIds) {
+			await ensureAssigneeInWorkspace(ctx, args.workspaceId, assigneeId);
 		}
 
 		// Compute sortOrder: append at end of sprint/list/milestone/project bucket
@@ -1006,7 +1069,22 @@ export const create = mutation({
 		}
 		const sortOrder = fractionalIndex(lastSortOrder, null);
 
+		const allowedStatuses = await getAllowedStatusKeys(
+			ctx,
+			args.workspaceId,
+			projectId,
+		);
+		const allowedTypes = await getAllowedTypeKeys(
+			ctx,
+			args.workspaceId,
+			projectId,
+		);
+
 		const status = args.status ?? "backlog";
+		assertAllowedKey("status", status, allowedStatuses);
+
+		const type = args.type ?? "issue";
+		assertAllowedKey("type", type, allowedTypes);
 
 		const issueId = await ctx.db.insert("issues", {
 			workspaceId: args.workspaceId,
@@ -1020,8 +1098,14 @@ export const create = mutation({
 			description: args.description,
 			status,
 			priority: args.priority ?? "no_priority",
-			type: args.type ?? "issue",
-			assigneeId: args.assigneeId,
+			type,
+			assigneeId: args.assigneeIds !== undefined ? undefined : args.assigneeId,
+			assigneeIds:
+				args.assigneeIds !== undefined
+					? args.assigneeIds.length > 0
+						? args.assigneeIds
+						: undefined
+					: undefined,
 			labelIds: args.labelIds,
 			startDate: args.startDate,
 			dueDate: args.dueDate,
@@ -1048,21 +1132,23 @@ export const create = mutation({
 		// Auto-subscribe creator
 		await autoSubscribe(ctx, issueId, userId);
 
-		// Notify assignee if set and auto-subscribe them
-		if (args.assigneeId) {
-			await autoSubscribe(ctx, issueId, args.assigneeId);
+		// Notify assignees (single or multiple) and auto-subscribe them
+		if (effectiveAssigneeIds.length > 0) {
 			const actor = await ctx.db.get(userId);
 			const actorName = actor?.name ?? "Someone";
-			await createNotification(ctx, {
-				userId: args.assigneeId,
-				workspaceId: args.workspaceId,
-				type: "issue_assigned",
-				title: "Issue assigned to you",
-				body: `${actorName} assigned '${identifier}: ${args.title}' to you`,
-				issueId,
-				projectId,
-				actorId: userId,
-			});
+			for (const assigneeId of effectiveAssigneeIds) {
+				await autoSubscribe(ctx, issueId, assigneeId);
+				await createNotification(ctx, {
+					userId: assigneeId,
+					workspaceId: args.workspaceId,
+					type: "issue_assigned",
+					title: "Issue assigned to you",
+					body: `${actorName} assigned '${identifier}: ${args.title}' to you`,
+					issueId,
+					projectId,
+					actorId: userId,
+				});
+			}
 		}
 
 		// Schedule RAG indexing (async, non-blocking)
@@ -1086,6 +1172,7 @@ export const update = mutation({
 		priority: v.optional(issuePriorityValidator),
 		type: v.optional(issueTypeValidator),
 		assigneeId: v.optional(v.id("users")),
+		assigneeIds: v.optional(v.array(v.id("users"))),
 		projectId: v.optional(v.id("projects")),
 		sprintId: v.optional(v.id("sprints")),
 		listId: v.optional(v.id("lists")),
@@ -1138,6 +1225,11 @@ export const update = mutation({
 		}
 		if (args.assigneeId) {
 			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
+		}
+		if (args.assigneeIds) {
+			for (const assigneeId of args.assigneeIds) {
+				await ensureAssigneeInWorkspace(ctx, issue.workspaceId, assigneeId);
+			}
 		}
 
 		// Mutual exclusivity: setting sprintId clears listId and vice versa
@@ -1238,6 +1330,21 @@ export const update = mutation({
 			}
 		}
 
+		{
+			const allowedStatuses = await getAllowedStatusKeys(
+				ctx,
+				issue.workspaceId,
+				targetProjectId ?? undefined,
+			);
+			const allowedTypes = await getAllowedTypeKeys(
+				ctx,
+				issue.workspaceId,
+				targetProjectId ?? undefined,
+			);
+			if (args.status) assertAllowedKey("status", args.status, allowedStatuses);
+			if (args.type) assertAllowedKey("type", args.type, allowedTypes);
+		}
+
 		const { issueId, ...updates } = args;
 		const patch: Record<string, unknown> = {
 			...updates,
@@ -1246,6 +1353,11 @@ export const update = mutation({
 			listId: resolvedListId ?? undefined,
 			updatedAt: Date.now(),
 		};
+
+		// Clear assigneeId when assigneeIds is set (mutual exclusivity)
+		if (args.assigneeIds !== undefined) {
+			patch.assigneeId = undefined;
+		}
 
 		// Handle completedAt logic for status changes
 		if (args.status) {
@@ -1335,6 +1447,32 @@ export const update = mutation({
 				field: "assigneeId",
 				oldValue: issue.assigneeId ?? undefined,
 				newValue: args.assigneeId ?? undefined,
+			});
+			logged = true;
+		}
+
+		if (
+			args.assigneeIds !== undefined &&
+			JSON.stringify(args.assigneeIds) !==
+				JSON.stringify(issue.assigneeIds ?? [])
+		) {
+			const oldNames = await Promise.all(
+				(issue.assigneeIds ?? []).map((id) =>
+					ctx.db.get(id).then((user) => user?.name ?? "someone"),
+				),
+			);
+			const newNames = await Promise.all(
+				args.assigneeIds.map((id) =>
+					ctx.db.get(id).then((user) => user?.name ?? "someone"),
+				),
+			);
+			await logActivity(ctx, {
+				...baseLog,
+				action: "assigned",
+				description: `assigned issue to ${newNames.length > 0 ? newNames.join(", ") : "no one"}`,
+				field: "assigneeIds",
+				oldValue: oldNames.length > 0 ? oldNames.join(", ") : undefined,
+				newValue: newNames.length > 0 ? newNames.join(", ") : undefined,
 			});
 			logged = true;
 		}
@@ -1554,6 +1692,13 @@ export const updateStatus = mutation({
 			ctx,
 			issue.workspaceId,
 		);
+
+		const allowedStatuses = await getAllowedStatusKeys(
+			ctx,
+			issue.workspaceId,
+			issue.projectId ?? undefined,
+		);
+		assertAllowedKey("status", args.status, allowedStatuses);
 
 		// RBAC: verify project access for member users
 		if (member.role !== "admin" && issue.projectId) {
@@ -1822,6 +1967,115 @@ export const assign = mutation({
 	},
 });
 
+export const assignMultiple = mutation({
+	args: {
+		issueId: v.id("issues"),
+		assigneeIds: v.array(v.id("users")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const issue = await ctx.db.get(args.issueId);
+		if (!issue || issue.deletedAt) {
+			throw new ConvexError("Issue not found");
+		}
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			issue.workspaceId,
+		);
+
+		// RBAC: verify project access for member users
+		if (member.role !== "admin" && issue.projectId) {
+			const hasAccess = await canAccessProject(
+				ctx,
+				issue.projectId,
+				userId,
+				member.role as "admin" | "member",
+			);
+			if (
+				!hasAccess &&
+				!issue.assigneeIds?.includes(userId) &&
+				issue.createdBy !== userId
+			) {
+				throw new ConvexError("You don't have access to this issue's project");
+			}
+		}
+
+		// Validate all assignees
+		for (const assigneeId of args.assigneeIds) {
+			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, assigneeId);
+		}
+
+		const oldAssigneeIds = issue.assigneeIds ?? [];
+		await ctx.db.patch(args.issueId, {
+			assigneeIds: args.assigneeIds,
+			updatedAt: Date.now(),
+		});
+
+		// Activity log for assignment
+		const oldNames = await Promise.all(
+			oldAssigneeIds.map((id) =>
+				ctx.db.get(id).then((user) => user?.name ?? "someone"),
+			),
+		);
+		const newNames = await Promise.all(
+			args.assigneeIds.map((id) =>
+				ctx.db.get(id).then((user) => user?.name ?? "someone"),
+			),
+		);
+		await logActivity(ctx, {
+			workspaceId: issue.workspaceId,
+			entityType: "issue",
+			entityId: args.issueId,
+			action: "assigned",
+			actorId: userId,
+			description: `assigned issue to ${newNames.join(", ")}`,
+			issueId: args.issueId,
+			projectId: issue.projectId,
+			field: "assigneeIds",
+			oldValue: oldAssigneeIds.length > 0 ? oldNames.join(", ") : undefined,
+			newValue: args.assigneeIds.length > 0 ? newNames.join(", ") : undefined,
+		});
+
+		// Notify new assignees and auto-subscribe
+		const actor = await ctx.db.get(userId);
+		const actorName = actor?.name ?? "Someone";
+		const newAssignees = args.assigneeIds.filter(
+			(id) => !oldAssigneeIds.includes(id),
+		);
+
+		for (const assigneeId of newAssignees) {
+			await autoSubscribe(ctx, args.issueId, assigneeId);
+			await createNotification(ctx, {
+				userId: assigneeId,
+				workspaceId: issue.workspaceId,
+				type: "issue_assigned",
+				title: "Issue assigned to you",
+				body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to you`,
+				issueId: args.issueId,
+				projectId: issue.projectId ?? undefined,
+				actorId: userId,
+			});
+		}
+
+		// Notify other subscribers
+		const excludeIds: Id<"users">[] = args.assigneeIds;
+		await notifySubscribers(
+			ctx,
+			args.issueId,
+			{
+				workspaceId: issue.workspaceId,
+				type: "issue_assigned",
+				title: "Issue reassigned",
+				body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to ${newNames.length > 0 ? newNames.join(", ") : "unassigned"}`,
+				issueId: args.issueId,
+				projectId: issue.projectId ?? undefined,
+				actorId: userId,
+			},
+			excludeIds,
+		);
+	},
+});
+
 /** Update sortOrder for drag-and-drop reordering */
 export const reorder = mutation({
 	args: {
@@ -1861,6 +2115,13 @@ export const bulkUpdateStatus = mutation({
 			ctx,
 			firstIssue.workspaceId,
 		);
+
+		// Validate status against workspace-level config (bulk can span projects)
+		const allowedStatuses = await getAllowedStatusKeys(
+			ctx,
+			firstIssue.workspaceId,
+		);
+		assertAllowedKey("status", args.status, allowedStatuses);
 		const accessibleProjectIds = await getAccessibleProjectIds(
 			ctx,
 			firstIssue.workspaceId,

@@ -57,6 +57,7 @@ describe("invite codes (integration)", () => {
 				expiresAt: Date.now() + 86400000,
 				maxUses: 10,
 				useCount: 0,
+				status: "pending",
 			});
 
 			return { code: inviteCode };
@@ -89,6 +90,7 @@ describe("invite codes (integration)", () => {
 				expiresAt: Date.now() + 86400000,
 				maxUses: 5,
 				useCount: 0,
+				status: "pending",
 			});
 
 			return { code: "ADMROL" };
@@ -125,6 +127,7 @@ describe("invite codes (integration)", () => {
 				expiresAt: Date.now() - 1000,
 				maxUses: 10,
 				useCount: 0,
+				status: "pending",
 			});
 		});
 

@@ -1,13 +1,13 @@
 "use client";
 
 import {
-	closestCorners,
 	DndContext,
 	type DragEndEvent,
 	DragOverlay,
 	type DragStartEvent,
 	KeyboardSensor,
 	PointerSensor,
+	rectIntersection,
 	useDroppable,
 	useSensor,
 	useSensors,
@@ -194,6 +194,7 @@ export function IssueBoardView({
 	const updateStatus = useMutation(api.issues.updateStatus);
 	const reorderIssue = useMutation(api.issues.reorder);
 	const updateIssue = useMutation(api.issues.update);
+	const removeIssue = useMutation(api.issues.remove);
 
 	// Build member lookup
 	const memberLookup = useMemo(() => {
@@ -537,8 +538,27 @@ export function IssueBoardView({
 		[router, workspaceSlug, externalOnIssueClick, rawIssues],
 	);
 
+	const onDeleteIssue = useCallback(
+		async (issueId: string, identifier: string) => {
+			const ok = window.confirm(`Delete ${identifier}? This cannot be undone.`);
+			if (!ok) return;
+			// Optimistic remove
+			setLocalIssues((prev) => prev.filter((i) => i._id !== issueId));
+			try {
+				await removeIssue({ issueId: issueId as Id<"issues"> });
+				toast.success("Issue deleted");
+			} catch {
+				toast.error("Failed to delete issue");
+			}
+		},
+		[removeIssue],
+	);
+
 	// Scroll edge indicators (must be before any early returns — Rules of Hooks)
 	const scrollRef = useRef<HTMLDivElement>(null);
+	// Content wrapper inside the horizontal scroller. We observe this because
+	// scrollWidth changes don't trigger ResizeObserver on the scroller itself.
+	const scrollContentRef = useRef<HTMLDivElement>(null);
 	const [canScrollLeft, setCanScrollLeft] = useState(false);
 	const [canScrollRight, setCanScrollRight] = useState(false);
 
@@ -546,7 +566,7 @@ export function IssueBoardView({
 	const [scrollThumbLeft, setScrollThumbLeft] = useState(0);
 	const [scrollThumbWidth, setScrollThumbWidth] = useState(0);
 	const [canHScroll, setCanHScroll] = useState(false);
-	const trackRef = useRef<HTMLButtonElement>(null);
+	const trackRef = useRef<HTMLDivElement>(null);
 	const isDraggingThumb = useRef(false);
 	const dragStartX = useRef(0);
 	const dragStartScrollLeft = useRef(0);
@@ -574,32 +594,130 @@ export function IssueBoardView({
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
+
+		// Initial calculation
 		updateScrollIndicators();
+
+		// Recalculate after paint to ensure DOM measurements are ready
+		const rafId1 = requestAnimationFrame(() => {
+			updateScrollIndicators();
+			// Some route/tab transitions briefly report 0px widths; a second frame
+			// makes the custom scrollbar settle reliably.
+			requestAnimationFrame(() => updateScrollIndicators());
+		});
+
 		el.addEventListener("scroll", updateScrollIndicators, { passive: true });
 		const ro = new ResizeObserver(updateScrollIndicators);
+		// Observe both the scroll container size and the content size. The content
+		// width can change after data loads / hydration even when the container
+		// size doesn't.
 		ro.observe(el);
+		if (scrollContentRef.current) ro.observe(scrollContentRef.current);
+		if (trackRef.current) ro.observe(trackRef.current);
+
+		// Also recalculate on window resize
+		const handleWindowResize = () => {
+			updateScrollIndicators();
+		};
+		window.addEventListener("resize", handleWindowResize);
+
+		// Recalculate when returning to the page (bfcache) or regaining focus.
+		const handleWindowFocus = () => updateScrollIndicators();
+		const handlePageShow = () => updateScrollIndicators();
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === "visible") updateScrollIndicators();
+		};
+		window.addEventListener("focus", handleWindowFocus);
+		window.addEventListener("pageshow", handlePageShow);
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+
 		return () => {
+			cancelAnimationFrame(rafId1);
 			el.removeEventListener("scroll", updateScrollIndicators);
 			ro.disconnect();
+			window.removeEventListener("resize", handleWindowResize);
+			window.removeEventListener("focus", handleWindowFocus);
+			window.removeEventListener("pageshow", handlePageShow);
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
 		};
 	}, [updateScrollIndicators]);
+
+	// When issues/swimlanes change, force a fresh measurement. This covers the
+	// common case where the board mounts before it has real content.
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		const raf = requestAnimationFrame(() => updateScrollIndicators());
+		return () => cancelAnimationFrame(raf);
+	}, [updateScrollIndicators, rawIssues, swimlaneBy]);
 
 	// Wheel → horizontal scroll (shift+wheel already works natively,
 	// this also converts plain vertical wheel to horizontal when over the board)
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
+		const normalizeWheelDelta = (e: WheelEvent) => {
+			// deltaMode: 0=pixel, 1=line, 2=page
+			// Use a conservative line height to keep behavior predictable on Windows.
+			if (e.deltaMode === 1) return e.deltaY * 16;
+			if (e.deltaMode === 2) return e.deltaY * el.clientWidth;
+			return e.deltaY;
+		};
+		const shouldAllowVerticalWheel = (target: HTMLElement, deltaY: number) => {
+			const columnScrollable = target.closest(".kanban-column-scroll");
+			if (!columnScrollable) return false;
+			const element = columnScrollable as HTMLElement;
+			if (element.scrollHeight <= element.clientHeight + 1) return false;
+			// Keep the wheel vertical only if the column can scroll in that direction.
+			if (deltaY < 0) return element.scrollTop > 0;
+			if (deltaY > 0)
+				return (
+					element.scrollTop < element.scrollHeight - element.clientHeight - 1
+				);
+			return false;
+		};
 		const handler = (e: WheelEvent) => {
+			const deltaY = normalizeWheelDelta(e);
+			// If the wheel event is over a column that can scroll in this direction,
+			// keep it vertical. Otherwise, fall through to horizontal board scrolling.
+			const target = e.target as HTMLElement;
+			if (shouldAllowVerticalWheel(target, deltaY)) return;
+
 			// Only intercept vertical wheel events when content overflows horizontally
 			if (el.scrollWidth <= el.clientWidth) return;
+			// Away from columns: treat vertical wheel as horizontal scroll (My issues behavior).
 			if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && e.deltaX === 0) {
 				e.preventDefault();
-				el.scrollLeft += e.deltaY;
+				el.scrollLeft += deltaY;
 			}
 		};
 		el.addEventListener("wheel", handler, { passive: false });
 		return () => el.removeEventListener("wheel", handler);
 	}, []);
+
+	// Wheel over the custom scrollbar track should scroll horizontally.
+	// This is important for mouse users who expect the bottom bar to behave
+	// like a horizontal scroll area.
+	useEffect(() => {
+		const track = trackRef.current;
+		const el = scrollRef.current;
+		if (!track || !el) return;
+
+		const handler = (e: WheelEvent) => {
+			if (el.scrollWidth <= el.clientWidth) return;
+			// Always treat vertical wheel as horizontal scroll while over the track.
+			if (e.deltaY !== 0) {
+				e.preventDefault();
+				el.scrollLeft += e.deltaY;
+			} else if (e.deltaX !== 0) {
+				e.preventDefault();
+				el.scrollLeft += e.deltaX;
+			}
+		};
+
+		track.addEventListener("wheel", handler, { passive: false });
+		return () => track.removeEventListener("wheel", handler);
+	}, [canHScroll]);
 
 	// Custom scrollbar drag handlers
 	const handleThumbMouseDown = useCallback(
@@ -637,7 +755,7 @@ export function IssueBoardView({
 
 	// Click on track to jump to position
 	const handleTrackClick = useCallback(
-		(e: React.MouseEvent<HTMLButtonElement>) => {
+		(e: React.MouseEvent<HTMLDivElement>) => {
 			const el = scrollRef.current;
 			const track = trackRef.current;
 			if (!el || !track || e.target !== track) return;
@@ -750,25 +868,25 @@ export function IssueBoardView({
 	return (
 		<DndContext
 			sensors={sensors}
-			collisionDetection={closestCorners}
+			collisionDetection={rectIntersection}
 			onDragStart={handleDragStart}
 			onDragEnd={handleDragEnd}
 			onDragCancel={handleDragCancel}
 		>
 			<div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
 				{/* Scrollable board area */}
-				<div className="relative flex-1 min-h-0 min-w-0">
+				<div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
 					{/* Left edge fade */}
 					<div
 						className={cn(
-							"pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-r from-background to-transparent transition-opacity duration-200",
+							"pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-linear-to-r from-background to-transparent transition-opacity duration-200",
 							canScrollLeft ? "opacity-100" : "opacity-0",
 						)}
 					/>
 					{/* Right edge fade */}
 					<div
 						className={cn(
-							"pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-l from-background to-transparent transition-opacity duration-200",
+							"pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-linear-to-l from-background to-transparent transition-opacity duration-200",
 							canScrollRight ? "opacity-100" : "opacity-0",
 						)}
 					/>
@@ -779,7 +897,10 @@ export function IssueBoardView({
 					>
 						{swimlaneGroups ? (
 							// Swimlane mode: rows of columns
-							<div className="px-4 pb-2 pt-2 space-y-4 min-w-max">
+							<div
+								ref={scrollContentRef}
+								className="px-4 pb-2 pt-2 space-y-4 min-w-max"
+							>
 								{/* Column headers (sticky) */}
 								<div className="flex gap-3 min-w-max">
 									<div className="w-[272px] shrink-0" />{" "}
@@ -810,12 +931,17 @@ export function IssueBoardView({
 										swimlaneBy={swimlaneBy}
 										boardSprintId={boardSprintId}
 										onCardClick={onCardClick}
+										workspaceSlug={workspaceSlug}
+										onDeleteIssue={onDeleteIssue}
 									/>
 								))}
 							</div>
 						) : (
 							// Flat mode: simple columns
-							<div className="flex gap-3 px-4 pb-2 pt-2 w-full min-w-max h-full">
+							<div
+								ref={scrollContentRef}
+								className="flex gap-3 px-4 pb-2 pt-2 min-w-max h-full"
+							>
 								{STATUS_COLUMNS.map((column) => {
 									const columnItems = columnGroups.get(column.id) ?? [];
 									return (
@@ -829,6 +955,8 @@ export function IssueBoardView({
 											projectId={projectId}
 											sprintId={boardSprintId}
 											onCardClick={onCardClick}
+											workspaceSlug={workspaceSlug}
+											onDeleteIssue={onDeleteIssue}
 										/>
 									);
 								})}
@@ -838,12 +966,32 @@ export function IssueBoardView({
 				</div>
 
 				{/* Custom horizontal scrollbar — always visible */}
-				<button
-					type="button"
+				<div
 					ref={trackRef}
-					className="shrink-0 h-4 mx-4 mb-2 mt-1 rounded-full bg-muted cursor-pointer relative"
+					className={cn(
+						"shrink-0 h-4 mx-4 mb-2 mt-1 rounded-full cursor-pointer relative",
+						canHScroll ? "bg-muted" : "bg-muted/30",
+					)}
 					onClick={handleTrackClick}
+					role="slider"
 					aria-label="Horizontal scrollbar"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round(
+						(scrollThumbLeft / (trackRef.current?.offsetWidth || 1)) * 100,
+					)}
+					tabIndex={canHScroll ? 0 : -1}
+					onKeyDown={(e) => {
+						if (!canHScroll) return;
+						if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+							e.preventDefault();
+							const delta = e.key === "ArrowLeft" ? -50 : 50;
+							const target = scrollRef.current;
+							if (target) {
+								target.scrollLeft += delta;
+							}
+						}
+					}}
 				>
 					{canHScroll && (
 						<button
@@ -858,7 +1006,7 @@ export function IssueBoardView({
 							tabIndex={-1}
 						/>
 					)}
-				</button>
+				</div>
 			</div>
 
 			{/* Drag overlay */}
@@ -868,6 +1016,10 @@ export function IssueBoardView({
 						<IssueBoardCard
 							issue={activeItem}
 							displayProperties={displayProperties}
+							issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
+							onDelete={() =>
+								onDeleteIssue(activeItem._id, activeItem.identifier)
+							}
 							assignee={
 								activeItem.assigneeId
 									? memberLookup.get(activeItem.assigneeId)
@@ -912,6 +1064,8 @@ function BoardColumn({
 	projectId,
 	sprintId,
 	onCardClick,
+	workspaceSlug,
+	onDeleteIssue,
 }: {
 	column: StatusColumnConfig;
 	items: IssueCardData[];
@@ -921,6 +1075,8 @@ function BoardColumn({
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
 	onCardClick: (identifier: string) => void;
+	workspaceSlug: string;
+	onDeleteIssue: (issueId: string, identifier: string) => void;
 }) {
 	const { isOver, setNodeRef } = useDroppable({ id: column.id });
 	const itemIds = useMemo(() => items.map((i) => i._id), [items]);
@@ -929,7 +1085,7 @@ function BoardColumn({
 		<div
 			ref={setNodeRef}
 			className={cn(
-				"flex-shrink-0 min-w-[240px] w-[272px] flex flex-col transition-colors rounded-lg",
+				"shrink-0 min-w-[240px] w-[272px] flex flex-col transition-colors rounded-lg",
 				isOver && "bg-primary/5",
 			)}
 		>
@@ -940,7 +1096,7 @@ function BoardColumn({
 
 			{/* Cards */}
 			<SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-				<div className="px-1.5 pb-2 space-y-1.5 flex-1 overflow-y-auto min-h-0">
+				<div className="kanban-column-scroll px-1.5 pb-2 space-y-1.5 flex-1 overflow-y-auto min-h-0">
 					{items.length === 0 ? (
 						<EmptyColumnState />
 					) : (
@@ -952,6 +1108,8 @@ function BoardColumn({
 								labelLookup={labelLookup}
 								displayProperties={displayProperties}
 								onCardClick={onCardClick}
+								workspaceSlug={workspaceSlug}
+								onDeleteIssue={onDeleteIssue}
 							/>
 						))
 					)}
@@ -985,6 +1143,8 @@ function SwimlaneRow({
 	swimlaneBy,
 	boardSprintId,
 	onCardClick,
+	workspaceSlug,
+	onDeleteIssue,
 }: {
 	swimlane: SwimlaneGroup;
 	columns: StatusColumnConfig[];
@@ -996,6 +1156,8 @@ function SwimlaneRow({
 	swimlaneBy: SwimlaneSetting;
 	boardSprintId?: Id<"sprints">;
 	onCardClick: (identifier: string) => void;
+	workspaceSlug: string;
+	onDeleteIssue: (issueId: string, identifier: string) => void;
 }) {
 	const sprintIdForCreate = resolveSprintIdForBoardCreate(
 		swimlaneBy,
@@ -1045,6 +1207,8 @@ function SwimlaneRow({
 								projectId={projectId}
 								sprintId={sprintIdForCreate}
 								onCardClick={onCardClick}
+								workspaceSlug={workspaceSlug}
+								onDeleteIssue={onDeleteIssue}
 							/>
 						);
 					})}
@@ -1066,6 +1230,8 @@ function SwimlaneCell({
 	projectId,
 	sprintId,
 	onCardClick,
+	workspaceSlug,
+	onDeleteIssue,
 }: {
 	columnId: IssueStatus;
 	swimlaneKey: string;
@@ -1076,6 +1242,8 @@ function SwimlaneCell({
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
 	onCardClick: (identifier: string) => void;
+	workspaceSlug: string;
+	onDeleteIssue: (issueId: string, identifier: string) => void;
 }) {
 	const droppableId = makeSwimlaneDroppableId(columnId, swimlaneKey);
 	const { isOver, setNodeRef } = useDroppable({ id: droppableId });
@@ -1090,7 +1258,7 @@ function SwimlaneCell({
 			)}
 		>
 			<SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-				<div className="space-y-1.5 flex-1 min-h-[48px]">
+				<div className="kanban-column-scroll space-y-1.5 flex-1 overflow-y-auto min-h-[48px]">
 					{items.length === 0 ? (
 						<EmptyColumnState />
 					) : (
@@ -1102,6 +1270,8 @@ function SwimlaneCell({
 								labelLookup={labelLookup}
 								displayProperties={displayProperties}
 								onCardClick={onCardClick}
+								workspaceSlug={workspaceSlug}
+								onDeleteIssue={onDeleteIssue}
 							/>
 						))
 					)}
@@ -1128,12 +1298,16 @@ function SortableCard({
 	labelLookup,
 	displayProperties,
 	onCardClick,
+	workspaceSlug,
+	onDeleteIssue,
 }: {
 	issue: IssueCardData;
 	memberLookup: Map<string, { name: string; avatarUrl?: string }>;
 	labelLookup: Map<string, { _id: Id<"labels">; name: string; color: string }>;
 	displayProperties?: DisplayProperties;
 	onCardClick?: (identifier: string) => void;
+	workspaceSlug: string;
+	onDeleteIssue: (issueId: string, identifier: string) => void;
 }) {
 	const {
 		attributes,
@@ -1166,6 +1340,8 @@ function SortableCard({
 			<IssueBoardCard
 				issue={issue}
 				displayProperties={displayProperties}
+				issueUrl={`/${workspaceSlug}/issues/${issue.identifier}`}
+				onDelete={() => onDeleteIssue(issue._id, issue.identifier)}
 				assignee={assignee}
 				labels={labels}
 				onClick={onCardClick ? () => onCardClick(issue.identifier) : undefined}
@@ -1193,7 +1369,7 @@ function BoardSkeleton() {
 				{STATUS_COLUMNS.slice(0, 5).map((column) => (
 					<div
 						key={column.id}
-						className="flex-shrink-0 w-[272px] p-2 space-y-3 border-r border-border/20 last:border-r-0"
+						className="shrink-0 w-[272px] p-2 space-y-3 border-r border-border/20 last:border-r-0"
 					>
 						<div className="flex items-center gap-2">
 							<Skeleton className="h-4 w-4 rounded" />

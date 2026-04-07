@@ -47,10 +47,14 @@ function mergeDefaults(
 	custom: CustomItem[] | undefined,
 ): CustomItem[] {
 	if (!custom || custom.length === 0) return defaults;
-	return defaults.map((def) => {
+	const merged = defaults.map((def) => {
 		const override = custom.find((c) => c.key === def.key);
 		return override ?? def;
 	});
+	const customOnly = custom.filter(
+		(c) => !defaults.some((d) => d.key === c.key),
+	);
+	return [...merged, ...customOnly];
 }
 
 export function useWorkspaceSettings(

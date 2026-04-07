@@ -335,3 +335,26 @@
 .kanban-scrollbar::-webkit-scrollbar {
 	display: none;
 }
+
+/* Kanban column: visible scrollbar for vertical scrolling */
+.kanban-column-scroll {
+	scrollbar-width: thin;
+	scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+}
+
+.kanban-column-scroll::-webkit-scrollbar {
+	width: 6px;
+}
+
+.kanban-column-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.kanban-column-scroll::-webkit-scrollbar-thumb {
+	background: hsl(var(--muted-foreground) / 0.25);
+	border-radius: 9999px;
+}
+
+.kanban-column-scroll::-webkit-scrollbar-thumb:hover {
+	background: hsl(var(--muted-foreground) / 0.45);
+}

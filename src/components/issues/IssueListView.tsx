@@ -1,5 +1,19 @@
 "use client";
 
+import {
+	closestCenter,
+	DndContext,
+	PointerSensor,
+	useDroppable,
+	useSensor,
+	useSensors,
+} from "@dnd-kit/core";
+import {
+	SortableContext,
+	useSortable,
+	verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery } from "convex/react";
 import {
 	ChevronDown,
@@ -85,7 +99,7 @@ const ALL_COLUMNS: { id: ListColumnId; label: string; default: boolean }[] = [
 	{ id: "identifier", label: "ID", default: true },
 	{ id: "title", label: "Name", default: true },
 	{ id: "priority", label: "Priority", default: true },
-	{ id: "assignee", label: "Assignee", default: true },
+	{ id: "assignee", label: "Assignees", default: true },
 	{ id: "labels", label: "Labels", default: false },
 	{ id: "project", label: "Project", default: false },
 	{ id: "milestone", label: "Sprint", default: false },
@@ -193,7 +207,22 @@ function groupIssues(
 				key = issue.priority;
 				break;
 			case "assignee":
-				key = issue.assigneeId ?? "unassigned";
+				// Multi-assign support: group by the single assignee, otherwise "Multiple" bucket.
+				// This keeps list view stable when assigneeIds is used instead of legacy assigneeId.
+				{
+					const effectiveIds =
+						issue.assigneeIds && issue.assigneeIds.length > 0
+							? issue.assigneeIds
+							: issue.assigneeId
+								? [issue.assigneeId]
+								: [];
+					key =
+						effectiveIds.length === 0
+							? "unassigned"
+							: effectiveIds.length === 1
+								? (effectiveIds[0] as string)
+								: "multiple";
+				}
 				break;
 			case "project":
 				key = issue.projectId ? (issue.projectId as string) : "no_project";
@@ -248,8 +277,9 @@ function groupIssues(
 	} else if (groupBy === "assignee") {
 		// Assigned users first, then unassigned
 		const unassigned = groups.get("unassigned");
+		const multiple = groups.get("multiple");
 		for (const [key, items] of groups) {
-			if (key === "unassigned") continue;
+			if (key === "unassigned" || key === "multiple") continue;
 			const member = memberMap.get(key);
 			result.push({
 				key,
@@ -257,6 +287,15 @@ function groupIssues(
 				icon: <Users className="h-4 w-4 text-muted-foreground" />,
 				count: items.length,
 				issues: items,
+			});
+		}
+		if (multiple) {
+			result.push({
+				key: "multiple",
+				label: "Multiple",
+				icon: <Users className="h-4 w-4 text-muted-foreground" />,
+				count: multiple.length,
+				issues: multiple,
 			});
 		}
 		if (unassigned) {
@@ -348,6 +387,14 @@ export function IssueListView({
 }: IssueListViewProps) {
 	const { workspaceSlug } = useWorkspace();
 	const router = useRouter();
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+	);
+	// Prevent accidental navigation when a drag ends (mouse up can trigger click).
+	const suppressClickRef = useRef(false);
+	// Preserve scroll position when a drop triggers data refresh.
+	const restoreScrollTopRef = useRef<number | null>(null);
+	const requestRestoreRef = useRef(false);
 
 	// ── Filter state ─────────────────────────────────────────────────────
 	const {
@@ -396,6 +443,7 @@ export function IssueListView({
 	const updateIssue = useMutation(api.issues.update);
 	const updateStatus = useMutation(api.issues.updateStatus);
 	const assignIssue = useMutation(api.issues.assign);
+	const removeIssue = useMutation(api.issues.remove);
 
 	// ── Computed maps ───────────────────────────────────────────────────
 	const memberOptions = useMemo(() => {
@@ -633,6 +681,112 @@ export function IssueListView({
 		[updateStatus],
 	);
 
+	// Drag/drop across groups (status only for now)
+	const canDragAcrossGroups = groupBy === "status";
+	const issueIdToStatus = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const issue of sortedIssues) {
+			map.set(issue._id as string, issue.status);
+		}
+		return map;
+	}, [sortedIssues]);
+	const handleDragEnd = useCallback(
+		(event: {
+			active: { id: string | number };
+			over: { id: string | number } | null;
+		}) => {
+			if (!canDragAcrossGroups) return;
+			if (!event.over) return;
+			const activeId = String(event.active.id);
+			const overId = String(event.over.id);
+			// Prefer explicit group drop zone, but also support dropping onto a row
+			// inside the destination group (typical sortable list behavior).
+			const nextStatus = overId.startsWith("group:")
+				? overId.slice("group:".length)
+				: issueIdToStatus.get(overId);
+			if (!nextStatus) return;
+			const currentStatus = issueIdToStatus.get(activeId);
+			if (currentStatus === nextStatus) return;
+			// Request scroll restoration after the status mutation triggers re-render.
+			requestRestoreRef.current = true;
+			void handleStatusChange(activeId as Id<"issues">, nextStatus);
+		},
+		[canDragAcrossGroups, handleStatusChange, issueIdToStatus],
+	);
+
+	useEffect(() => {
+		if (!requestRestoreRef.current) return;
+		const el = containerRef.current;
+		if (!el) return;
+		const top = restoreScrollTopRef.current;
+		if (top == null) return;
+		// Restore on next frames so DOM/layout has settled.
+		const raf1 = requestAnimationFrame(() => {
+			el.scrollTop = top;
+			const raf2 = requestAnimationFrame(() => {
+				el.scrollTop = top;
+				requestRestoreRef.current = false;
+			});
+			// We can't cancel raf2 easily without storing it; best-effort restore is fine.
+			void raf2;
+		});
+		return () => cancelAnimationFrame(raf1);
+	}, [groupedIssues]);
+
+	function SortableIssueRow({
+		issueId,
+		children,
+	}: {
+		issueId: string;
+		children: React.ReactNode;
+	}) {
+		const {
+			attributes,
+			listeners,
+			setNodeRef,
+			transform,
+			transition,
+			isDragging,
+		} = useSortable({ id: issueId });
+		const style: React.CSSProperties = {
+			transform: CSS.Transform.toString(transform),
+			transition,
+		};
+		return (
+			<div
+				ref={setNodeRef}
+				style={style}
+				data-issue-id={issueId}
+				className={cn(isDragging && "opacity-70")}
+				onClickCapture={(e) => {
+					if (suppressClickRef.current) {
+						e.preventDefault();
+						e.stopPropagation();
+					}
+				}}
+				{...attributes}
+				{...listeners}
+			>
+				{children}
+			</div>
+		);
+	}
+
+	function GroupDropZone({
+		groupKey,
+		children,
+	}: {
+		groupKey: string;
+		children: React.ReactNode;
+	}) {
+		const { setNodeRef, isOver } = useDroppable({ id: `group:${groupKey}` });
+		return (
+			<div ref={setNodeRef} className={cn(isOver && "ring-1 ring-primary/30")}>
+				{children}
+			</div>
+		);
+	}
+
 	const handlePriorityChange = useCallback(
 		async (issueId: Id<"issues">, priority: string) => {
 			try {
@@ -664,6 +818,21 @@ export function IssueListView({
 			}
 		},
 		[assignIssue],
+	);
+
+	const handleAssigneesChange = useCallback(
+		async (issueId: Id<"issues">, assigneeIds: string[] | undefined) => {
+			try {
+				const mappedIds = assigneeIds?.map((id) => id as Id<"users">);
+				await updateIssue({
+					issueId,
+					assigneeIds: mappedIds,
+				});
+			} catch {
+				toast.error("Failed to update assignees");
+			}
+		},
+		[updateIssue],
 	);
 
 	const handleLabelToggle = useCallback(
@@ -749,6 +918,30 @@ export function IssueListView({
 		[router, workspaceSlug, onIssueClick, issues],
 	);
 
+	const handleDeleteIssue = useCallback(
+		async (issueId: Id<"issues">) => {
+			const issue = issues.find((i) => i._id === issueId);
+			if (!issue) return;
+			const ok = window.confirm(
+				`Delete ${issue.identifier}? This cannot be undone.`,
+			);
+			if (!ok) return;
+			try {
+				await removeIssue({ issueId });
+				toast.success("Issue deleted");
+				setSelectedIds((prev) => {
+					if (!prev.has(issueId as string)) return prev;
+					const next = new Set(prev);
+					next.delete(issueId as string);
+					return next;
+				});
+			} catch {
+				toast.error("Failed to delete issue");
+			}
+		},
+		[issues, removeIssue],
+	);
+
 	const toggleGroup = useCallback((groupKey: string) => {
 		setCollapsedGroups((prev) => {
 			const next = new Set(prev);
@@ -829,10 +1022,17 @@ export function IssueListView({
 	const resolveIssueProps = useCallback(
 		(issue: IssueListData) => {
 			const sprintLikeId = issue.sprintId ?? issue.milestoneId;
+			const effectiveIds =
+				issue.assigneeIds && issue.assigneeIds.length > 0
+					? issue.assigneeIds
+					: issue.assigneeId
+						? [issue.assigneeId]
+						: [];
 			return {
-				assignee: issue.assigneeId
-					? (memberMap.get(issue.assigneeId as string) ?? null)
-					: null,
+				assignee:
+					effectiveIds.length === 1
+						? (memberMap.get(effectiveIds[0] as string) ?? null)
+						: null,
 				projectName: issue.projectId
 					? projectMap.get(issue.projectId as string)
 					: undefined,
@@ -907,50 +1107,56 @@ export function IssueListView({
 			const idx = flatIssueIds.indexOf(issue._id);
 			const props = resolveIssueProps(issue);
 			const issueId = issue._id as string;
+			const issueUrl = `/${workspaceSlug}/issues/${issue.identifier}`;
 
 			return (
-				<div
-					key={issue._id}
-					onClickCapture={(e) => {
-						// Modifier click selects (like ClickUp). Normal click opens.
-						if (e.ctrlKey || e.metaKey || e.shiftKey) {
-							e.preventDefault();
-							e.stopPropagation();
-							handleSelectIssue(issueId, e.shiftKey);
-						}
-					}}
-				>
-					<IssueListRow
-						issue={issue}
-						columns={visibleColumns}
-						isHighlighted={idx === highlightedIndex}
-						memberOptions={memberOptions}
-						labelOptions={labelOptions}
-						projectOptions={projectOptions}
-						milestoneOptions={milestoneOptions}
-						assignee={props.assignee}
-						projectName={props.projectName}
-						milestoneName={props.milestoneName}
-						onStatusChange={handleStatusChange}
-						onPriorityChange={handlePriorityChange}
-						onAssigneeChange={handleAssigneeChange}
-						onLabelToggle={handleLabelToggle}
-						onMilestoneChange={handleMilestoneChange}
-						onEstimateChange={handleEstimateChange}
-						onDueDateChange={handleDueDateChange}
-						onProjectChange={handleProjectChange}
-						bulkSelect={{
-							selected: selectedIds.has(issueId),
-							onToggle: (shiftKey) => handleSelectIssue(issueId, shiftKey),
+				<SortableIssueRow key={issue._id} issueId={issueId}>
+					<div
+						onClickCapture={(e) => {
+							// Modifier click selects (like ClickUp). Normal click opens.
+							if (e.ctrlKey || e.metaKey || e.shiftKey) {
+								e.preventDefault();
+								e.stopPropagation();
+								handleSelectIssue(issueId, e.shiftKey);
+							}
 						}}
-						onClick={() => handleIssueClick(issue.identifier)}
-					/>
-				</div>
+					>
+						<IssueListRow
+							issue={issue}
+							columns={visibleColumns}
+							isHighlighted={idx === highlightedIndex}
+							issueUrl={issueUrl}
+							onDelete={handleDeleteIssue}
+							memberOptions={memberOptions}
+							labelOptions={labelOptions}
+							projectOptions={projectOptions}
+							milestoneOptions={milestoneOptions}
+							assignee={props.assignee}
+							projectName={props.projectName}
+							milestoneName={props.milestoneName}
+							onStatusChange={handleStatusChange}
+							onPriorityChange={handlePriorityChange}
+							onAssigneeChange={handleAssigneeChange}
+							onAssigneesChange={handleAssigneesChange}
+							onLabelToggle={handleLabelToggle}
+							onMilestoneChange={handleMilestoneChange}
+							onEstimateChange={handleEstimateChange}
+							onDueDateChange={handleDueDateChange}
+							onProjectChange={handleProjectChange}
+							bulkSelect={{
+								selected: selectedIds.has(issueId),
+								onToggle: (shiftKey) => handleSelectIssue(issueId, shiftKey),
+							}}
+							onClick={() => handleIssueClick(issue.identifier)}
+						/>
+					</div>
+				</SortableIssueRow>
 			);
 		},
 		[
 			flatIssueIds,
 			highlightedIndex,
+			workspaceSlug,
 			visibleColumns,
 			memberOptions,
 			labelOptions,
@@ -960,12 +1166,14 @@ export function IssueListView({
 			handleStatusChange,
 			handlePriorityChange,
 			handleAssigneeChange,
+			handleAssigneesChange,
 			handleLabelToggle,
 			handleMilestoneChange,
 			handleEstimateChange,
 			handleDueDateChange,
 			handleProjectChange,
 			handleIssueClick,
+			handleDeleteIssue,
 			selectedIds,
 			handleSelectIssue,
 		],
@@ -1031,56 +1239,84 @@ export function IssueListView({
 				/>
 			)}
 
-			<div
-				ref={containerRef}
-				className="flex-1 overflow-y-auto overflow-x-hidden outline-none px-6 min-w-0"
-				role="listbox"
-				tabIndex={0}
+			<DndContext
+				sensors={sensors}
+				collisionDetection={closestCenter}
+				onDragStart={() => {
+					suppressClickRef.current = true;
+					// Capture current scroll position so drop doesn't jump to top.
+					restoreScrollTopRef.current = containerRef.current?.scrollTop ?? 0;
+				}}
+				onDragEnd={(e) => {
+					// Clear suppression after pointer-up settles.
+					requestAnimationFrame(() => {
+						requestAnimationFrame(() => {
+							suppressClickRef.current = false;
+						});
+					});
+					handleDragEnd(e);
+				}}
+				onDragCancel={() => {
+					suppressClickRef.current = false;
+				}}
 			>
-				{renderColumnHeader()}
-				{groupedIssues.map((group) => {
-					const isCollapsed = collapsedGroups.has(group.key);
+				<SortableContext
+					items={flatIssueIds}
+					strategy={verticalListSortingStrategy}
+				>
+					<div
+						ref={containerRef}
+						className="flex-1 overflow-y-auto overflow-x-auto outline-none px-6 min-w-0"
+						role="listbox"
+						tabIndex={0}
+					>
+						{renderColumnHeader()}
+						{groupedIssues.map((group) => {
+							const isCollapsed = collapsedGroups.has(group.key);
 
-					// If groupBy is "none" and there's only one group, skip the header
-					if (groupBy === "none") {
-						return (
-							<div key={group.key}>{group.issues.map(renderIssueRow)}</div>
-						);
-					}
+							// If groupBy is "none" and there's only one group, skip the header
+							if (groupBy === "none") {
+								return (
+									<div key={group.key}>{group.issues.map(renderIssueRow)}</div>
+								);
+							}
 
-					return (
-						<div key={group.key}>
-							{renderGroupHeader(group)}
-							{!isCollapsed && (
-								<>
-									{group.subGroups
-										? group.subGroups.map((sub) => {
-												const subKey = `${group.key}::${sub.key}`;
-												const isSubCollapsed = collapsedGroups.has(subKey);
-												return (
-													<div key={sub.key}>
-														{renderGroupHeader(sub, group.key)}
-														{!isSubCollapsed && sub.issues.map(renderIssueRow)}
-														{!isSubCollapsed && sub.issues.length === 0 && (
-															<div className="px-8 py-3 text-xs text-muted-foreground italic">
-																No issues
+							return (
+								<GroupDropZone key={group.key} groupKey={group.key}>
+									{renderGroupHeader(group)}
+									{!isCollapsed && (
+										<>
+											{group.subGroups
+												? group.subGroups.map((sub) => {
+														const subKey = `${group.key}::${sub.key}`;
+														const isSubCollapsed = collapsedGroups.has(subKey);
+														return (
+															<div key={sub.key}>
+																{renderGroupHeader(sub, group.key)}
+																{!isSubCollapsed &&
+																	sub.issues.map(renderIssueRow)}
+																{!isSubCollapsed && sub.issues.length === 0 && (
+																	<div className="px-8 py-3 text-xs text-muted-foreground italic">
+																		No issues
+																	</div>
+																)}
 															</div>
-														)}
-													</div>
-												);
-											})
-										: group.issues.map(renderIssueRow)}
-									{!group.subGroups && group.issues.length === 0 && (
-										<div className="px-4 py-3 text-xs text-muted-foreground italic">
-											No issues
-										</div>
+														);
+													})
+												: group.issues.map(renderIssueRow)}
+											{!group.subGroups && group.issues.length === 0 && (
+												<div className="px-4 py-3 text-xs text-muted-foreground italic">
+													No issues
+												</div>
+											)}
+										</>
 									)}
-								</>
-							)}
-						</div>
-					);
-				})}
-			</div>
+								</GroupDropZone>
+							);
+						})}
+					</div>
+				</SortableContext>
+			</DndContext>
 
 			<IssueBulkActionBar
 				selectedIds={selectedIds}

@@ -21,6 +21,7 @@ export const generate = mutation({
 		role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
 		maxUses: v.optional(v.number()),
 		expiresInHours: v.optional(v.number()),
+		sentTo: v.optional(v.string()),
 	},
 	returns: v.string(),
 	handler: async (ctx, args) => {
@@ -56,6 +57,8 @@ export const generate = mutation({
 			maxUses: args.maxUses,
 			useCount: 0,
 			usedBy: [],
+			status: "pending",
+			sentTo: args.sentTo,
 		});
 
 		return code;
@@ -81,6 +84,12 @@ export const validate = query({
 			.unique();
 
 		if (!inviteCode) {
+			return { valid: false };
+		}
+
+		// Check status is pending (default to pending for backward compatibility)
+		const status = inviteCode.status ?? "pending";
+		if (status !== "pending") {
 			return { valid: false };
 		}
 
@@ -122,6 +131,17 @@ export const listByWorkspace = query({
 			expiresAt: v.optional(v.number()),
 			maxUses: v.optional(v.number()),
 			useCount: v.number(),
+			status: v.optional(
+				v.union(
+					v.literal("pending"),
+					v.literal("accepted"),
+					v.literal("expired"),
+					v.literal("rejected"),
+				),
+			),
+			sentTo: v.optional(v.string()),
+			acceptedBy: v.optional(v.id("users")),
+			acceptedAt: v.optional(v.number()),
 		}),
 	),
 	handler: async (ctx, args) => {
@@ -141,7 +161,123 @@ export const listByWorkspace = query({
 			expiresAt: code.expiresAt,
 			maxUses: code.maxUses,
 			useCount: code.useCount,
+			status: code.status,
+			sentTo: code.sentTo,
+			acceptedBy: code.acceptedBy,
+			acceptedAt: code.acceptedAt,
 		}));
+	},
+});
+
+/** Mark an invite code as accepted */
+export const markAsAccepted = mutation({
+	args: {
+		codeId: v.id("inviteCodes"),
+		userId: v.id("users"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const code = await ctx.db.get(args.codeId);
+		if (!code) {
+			throw new ConvexError("Invite code not found");
+		}
+
+		await ctx.db.patch(args.codeId, {
+			status: "accepted",
+			acceptedBy: args.userId,
+			acceptedAt: Date.now(),
+		});
+
+		return null;
+	},
+});
+
+/** Mark an invite code as expired */
+export const markAsExpired = mutation({
+	args: {
+		codeId: v.id("inviteCodes"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const code = await ctx.db.get(args.codeId);
+		if (!code) {
+			throw new ConvexError("Invite code not found");
+		}
+
+		await ctx.db.patch(args.codeId, {
+			status: "expired",
+		});
+
+		return null;
+	},
+});
+
+/** Revoke a pending invite (mark as rejected) */
+export const revokePendingInvite = mutation({
+	args: {
+		codeId: v.id("inviteCodes"),
+		workspaceId: v.id("workspaces"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		await requireWorkspaceAdmin(ctx, args.workspaceId);
+
+		const code = await ctx.db.get(args.codeId);
+		if (!code) {
+			throw new ConvexError("Invite code not found");
+		}
+
+		if (code.status !== "pending") {
+			throw new ConvexError("Only pending invites can be revoked");
+		}
+
+		await ctx.db.patch(args.codeId, {
+			status: "rejected",
+		});
+
+		return null;
+	},
+});
+
+/** List all pending invites for a workspace (admin only) */
+export const listPendingByWorkspace = query({
+	args: { workspaceId: v.id("workspaces") },
+	returns: v.array(
+		v.object({
+			_id: v.id("inviteCodes"),
+			_creationTime: v.number(),
+			code: v.string(),
+			workspaceId: v.id("workspaces"),
+			createdBy: v.id("users"),
+			role: v.union(v.literal("admin"), v.literal("member")),
+			expiresAt: v.optional(v.number()),
+			sentTo: v.optional(v.string()),
+		}),
+	),
+	handler: async (ctx, args) => {
+		await requireWorkspaceAdmin(ctx, args.workspaceId);
+
+		const now = Date.now();
+		const codes = await ctx.db
+			.query("inviteCodes")
+			.withIndex("by_workspace_status", (q) =>
+				q.eq("workspaceId", args.workspaceId).eq("status", "pending"),
+			)
+			.collect();
+
+		// Filter out expired ones
+		return codes
+			.filter((code) => !code.expiresAt || code.expiresAt > now)
+			.map((code) => ({
+				_id: code._id,
+				_creationTime: code._creationTime,
+				code: code.code,
+				workspaceId: code.workspaceId,
+				createdBy: code.createdBy,
+				role: code.role ?? "member",
+				expiresAt: code.expiresAt,
+				sentTo: code.sentTo,
+			}));
 	},
 });
 
@@ -153,6 +289,7 @@ export const sendInviteEmail = action({
 		workspaceName: v.string(),
 		inviterName: v.string(),
 		role: v.union(v.literal("admin"), v.literal("member")),
+		sentTo: v.optional(v.string()),
 	},
 	returns: v.null(),
 	handler: async (_ctx, args) => {

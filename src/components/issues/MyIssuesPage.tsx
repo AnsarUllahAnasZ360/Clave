@@ -136,6 +136,7 @@ type IssueData = {
 	priority: string;
 	type?: string;
 	assigneeId?: Id<"users">;
+	assigneeIds?: Id<"users">[];
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
 	milestoneId?: Id<"milestones">;
@@ -168,6 +169,7 @@ function toCardData(issues: IssueData[]): IssueCardData[] {
 		status: issue.status,
 		priority: issue.priority,
 		assigneeId: issue.assigneeId,
+		assigneeIds: issue.assigneeIds,
 		labelIds: issue.labelIds,
 		dueDate: issue.dueDate,
 		estimate: issue.estimate,
@@ -380,6 +382,12 @@ function IssueRow({
 	const assignee = issue.assigneeId
 		? memberMap.get(issue.assigneeId)
 		: undefined;
+	const assignees = useMemo(() => {
+		if (!issue.assigneeIds || issue.assigneeIds.length === 0) return [];
+		return issue.assigneeIds
+			.map((id) => memberMap.get(id))
+			.filter((a): a is { name: string; image?: string } => a !== undefined);
+	}, [issue.assigneeIds, memberMap]);
 	const projectName = issue.projectId
 		? projectMap.get(issue.projectId)
 		: undefined;
@@ -433,22 +441,31 @@ function IssueRow({
 			)}
 		>
 			{bulkSelect ? (
-				<button
-					type="button"
+				<div
 					className="shrink-0"
+					role="checkbox"
+					aria-checked={bulkSelect.selected}
+					aria-label="Select issue"
+					tabIndex={0}
 					onClick={(e) => {
 						e.preventDefault();
 						e.stopPropagation();
 						bulkSelect.onToggle(e.shiftKey);
 					}}
-					aria-label="Select issue"
+					onKeyDown={(e) => {
+						if (e.key === " " || e.key === "Enter") {
+							e.preventDefault();
+							e.stopPropagation();
+							bulkSelect.onToggle(e.shiftKey);
+						}
+					}}
 				>
 					<Checkbox
 						checked={bulkSelect.selected}
 						className="pointer-events-none"
 						aria-label="Select issue"
 					/>
-				</button>
+				</div>
 			) : null}
 
 			{/* Status icon */}
@@ -530,8 +547,26 @@ function IssueRow({
 				<span className="shrink-0">{PRIORITY_ICONS[issue.priority]}</span>
 			)}
 
-			{/* Assignee */}
-			{showAssignee && assignee && (
+			{/* Assignees */}
+			{showAssignee && assignees.length > 0 && (
+				<div className="flex items-center gap-1 shrink-0">
+					{assignees.slice(0, 2).map((a) => (
+						<Avatar key={a.name} className="h-5 w-5">
+							<AvatarImage src={a.image} alt={a.name} />
+							<AvatarFallback className="text-[9px]">
+								{a.name.charAt(0).toUpperCase()}
+							</AvatarFallback>
+						</Avatar>
+					))}
+					{assignees.length > 2 && (
+						<span className="text-[10px] text-muted-foreground">
+							+{assignees.length - 2}
+						</span>
+					)}
+				</div>
+			)}
+			{/* Fallback to single assignee if assignees not available */}
+			{showAssignee && assignees.length === 0 && assignee && (
 				<Avatar className="h-5 w-5 shrink-0">
 					<AvatarImage src={assignee.image} />
 					<AvatarFallback className="text-[9px]">{initials}</AvatarFallback>

@@ -744,7 +744,7 @@ export function useAIChat(
 	// Reset on thread change or new user message
 	useEffect(() => {
 		setHasPendingModeSuggestion(false);
-	}, [activeThreadId]);
+	}, []);
 
 	// ── Actions & Mutations ─────────────────────────────────────────────
 	const sendMessageAction = useAction(api.ai.chat.sendMessage);
@@ -979,6 +979,7 @@ export function useAIChat(
 			setSelectedModelState,
 			hasPendingApproval,
 			deferFirstSendUntilThreadActivation,
+			hasPendingModeSuggestion,
 		],
 	);
 

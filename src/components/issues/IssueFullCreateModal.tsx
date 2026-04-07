@@ -3,6 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import {
 	Calendar,
+	Check,
 	CircleDashed,
 	CircleDot,
 	Clock,
@@ -34,6 +35,14 @@ import {
 } from "@/components/providers/workspace-data-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	Command,
+	CommandEmpty,
+	CommandGroup,
+	CommandInput,
+	CommandItem,
+	CommandList,
+} from "@/components/ui/command";
 import { DatePicker, GenericPicker } from "@/components/ui/pickers";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -284,9 +293,10 @@ function IssueFullCreateModalContent({
 				milestoneId: formState.milestoneId
 					? (formState.milestoneId as Id<"milestones">)
 					: undefined,
-				assigneeId: formState.assigneeId
-					? (formState.assigneeId as Id<"users">)
-					: undefined,
+				assigneeIds:
+					formState.assigneeIds.length > 0
+						? (formState.assigneeIds as Id<"users">[])
+						: undefined,
 				labelIds:
 					formState.labelIds.length > 0
 						? (formState.labelIds as Id<"labels">[])
@@ -330,9 +340,13 @@ function IssueFullCreateModalContent({
 		PRIORITY_OPTIONS[0];
 	const currentType =
 		TYPE_OPTIONS.find((t) => t.id === formState.issueType) ?? TYPE_OPTIONS[0];
-	const selectedAssignee = assigneeOptions.find(
-		(a) => a.id === formState.assigneeId,
-	);
+	const selectedAssignees = useMemo(() => {
+		const ids = formState.assigneeIds ?? [];
+		if (ids.length === 0) return [];
+		return ids
+			.map((id) => assigneeOptions.find((a) => a.id === id))
+			.filter((a) => a !== undefined);
+	}, [assigneeOptions, formState.assigneeIds]);
 	const selectedProject = projectOptions.find(
 		(p) => p.id === formState.projectId,
 	);
@@ -567,36 +581,93 @@ function IssueFullCreateModalContent({
 							/>
 						</PropertyRow>
 
-						{/* Assignee */}
-						<PropertyRow label="Assignee" icon={User}>
-							<GenericPicker
-								items={assigneeOptions}
-								onSelect={(item) => updateForm({ assigneeId: item.id })}
-								selectedId={formState.assigneeId}
-								placeholder="Assign to..."
-								renderItem={(item) => (
-									<div className="flex items-center gap-2 w-full">
-										<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
-											{item.name.charAt(0)}
-										</div>
-										<span className="flex-1">{item.name}</span>
-									</div>
-								)}
-								trigger={
+						{/* Assignees (multi-select) */}
+						<PropertyRow label="Assignees" icon={User}>
+							<Popover>
+								<PopoverTrigger asChild>
 									<button
 										type="button"
-										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+										className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
+										aria-label="Edit assignees"
 									>
-										<span>
-											{selectedAssignee?.name ?? (
-												<span className="text-muted-foreground">
-													Unassigned
-												</span>
-											)}
-										</span>
+										{selectedAssignees.length > 0 ? (
+											<div className="flex items-center gap-1">
+												{selectedAssignees.slice(0, 2).map((a) => (
+													<div
+														key={a.id}
+														className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold"
+														title={a.name}
+													>
+														{a.name.charAt(0)}
+													</div>
+												))}
+												{selectedAssignees.length > 2 && (
+													<span className="text-xs text-muted-foreground">
+														+{selectedAssignees.length - 2}
+													</span>
+												)}
+											</div>
+										) : (
+											<span className="text-muted-foreground">Unassigned</span>
+										)}
 									</button>
-								}
-							/>
+								</PopoverTrigger>
+								<PopoverContent className="p-0 w-[260px]" align="start">
+									<Command>
+										<CommandInput placeholder="Assign to..." />
+										<CommandList>
+											<CommandEmpty>No members found.</CommandEmpty>
+											<CommandGroup>
+												<CommandItem
+													value="Unassigned"
+													onSelect={() => updateForm({ assigneeIds: [] })}
+													className="cursor-pointer"
+												>
+													<div className="flex items-center gap-2 w-full">
+														<X className="h-4 w-4 text-muted-foreground" />
+														<span className="flex-1">Unassigned</span>
+														{selectedAssignees.length === 0 && (
+															<Check className="h-4 w-4 text-primary" />
+														)}
+													</div>
+												</CommandItem>
+											</CommandGroup>
+											<CommandGroup>
+												{assigneeOptions.map((option) => {
+													const isSelected = formState.assigneeIds.includes(
+														option.id,
+													);
+													return (
+														<CommandItem
+															key={option.id}
+															value={option.name}
+															onSelect={() => {
+																const next = isSelected
+																	? formState.assigneeIds.filter(
+																			(id) => id !== option.id,
+																		)
+																	: [...formState.assigneeIds, option.id];
+																updateForm({ assigneeIds: next });
+															}}
+															className="cursor-pointer"
+														>
+															<div className="flex items-center gap-2 w-full">
+																<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
+																	{option.name.charAt(0)}
+																</div>
+																<span className="flex-1">{option.name}</span>
+																{isSelected && (
+																	<Check className="h-4 w-4 text-primary" />
+																)}
+															</div>
+														</CommandItem>
+													);
+												})}
+											</CommandGroup>
+										</CommandList>
+									</Command>
+								</PopoverContent>
+							</Popover>
 						</PropertyRow>
 
 						{/* Type */}

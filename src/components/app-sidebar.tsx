@@ -26,6 +26,7 @@ import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -741,6 +742,15 @@ function ProjectTreeItem({
 	const isProjectActive = pathname.startsWith(
 		`/${workspaceSlug}/projects/${project.slug}`,
 	);
+	// Backlog route matching: be resilient to workspace prefix and whether the
+	// route segment uses the project slug or id.
+	const isBacklogActive = useMemo(() => {
+		const needles = [
+			`/projects/${project.slug}/backlog`,
+			`/projects/${project._id}/backlog`,
+		];
+		return needles.some((n) => pathname.includes(n));
+	}, [pathname, project.slug, project._id]);
 
 	// Rename / delete state
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -942,59 +952,64 @@ function ProjectTreeItem({
 			{/* Expanded children */}
 			{isExpanded && (
 				<div className="ml-5 border-l border-border/40 pl-1 overflow-hidden">
-					{/* Sprint folders */}
-					{project.sprintFolders.map((folder) => (
-						<SprintFolderItem
-							key={folder._id}
-							folder={folder}
-							projectId={project._id}
-							projectSlug={project.slug}
-							workspaceSlug={workspaceSlug}
-							pathname={pathname}
-							isExpanded={expandedFolders.has(folder._id)}
-							onToggle={() => onToggleFolder(folder._id)}
-							onStartInlineCreate={onStartInlineCreate}
-							inlineCreate={inlineCreate}
-							inlineName={inlineName}
-							onInlineNameChange={onInlineNameChange}
-							onInlineKeyDown={onInlineKeyDown}
-							onInlineBlur={onInlineBlur}
-							inlineInputRef={inlineInputRef}
-						/>
-					))}
-
-					{/* Loose sprints (not in any folder) */}
-					{project.looseSprints.map((sprint) => (
-						<SprintNavItem
-							key={sprint._id}
-							sprint={sprint}
-							projectSlug={project.slug}
-							workspaceSlug={workspaceSlug}
-							pathname={pathname}
-						/>
-					))}
-
-					{/* Inline create (sprint or folder at project level) */}
-					{inlineCreate &&
-						inlineCreate.projectId === project._id &&
-						!inlineCreate.folderId && (
-							<div className="px-2 py-1">
-								<input
-									ref={inlineInputRef}
-									type="text"
-									value={inlineName}
-									onChange={(e) => onInlineNameChange(e.target.value)}
-									onKeyDown={onInlineKeyDown}
-									onBlur={onInlineBlur}
-									placeholder={
-										inlineCreate.type === "folder"
-											? "Folder name..."
-											: "Sprint name..."
-									}
-									className="w-full h-6 text-xs bg-transparent border-b border-border focus:border-foreground outline-none placeholder:text-muted-foreground/50"
+					{/* Backlog is a focused view; when active, keep the tree scoped to it. */}
+					{!isBacklogActive && (
+						<>
+							{/* Sprint folders */}
+							{project.sprintFolders.map((folder) => (
+								<SprintFolderItem
+									key={folder._id}
+									folder={folder}
+									projectId={project._id}
+									projectSlug={project.slug}
+									workspaceSlug={workspaceSlug}
+									pathname={pathname}
+									isExpanded={expandedFolders.has(folder._id)}
+									onToggle={() => onToggleFolder(folder._id)}
+									onStartInlineCreate={onStartInlineCreate}
+									inlineCreate={inlineCreate}
+									inlineName={inlineName}
+									onInlineNameChange={onInlineNameChange}
+									onInlineKeyDown={onInlineKeyDown}
+									onInlineBlur={onInlineBlur}
+									inlineInputRef={inlineInputRef}
 								/>
-							</div>
-						)}
+							))}
+
+							{/* Loose sprints (not in any folder) */}
+							{project.looseSprints.map((sprint) => (
+								<SprintNavItem
+									key={sprint._id}
+									sprint={sprint}
+									projectSlug={project.slug}
+									workspaceSlug={workspaceSlug}
+									pathname={pathname}
+								/>
+							))}
+
+							{/* Inline create (sprint or folder at project level) */}
+							{inlineCreate &&
+								inlineCreate.projectId === project._id &&
+								!inlineCreate.folderId && (
+									<div className="px-2 py-1">
+										<input
+											ref={inlineInputRef}
+											type="text"
+											value={inlineName}
+											onChange={(e) => onInlineNameChange(e.target.value)}
+											onKeyDown={onInlineKeyDown}
+											onBlur={onInlineBlur}
+											placeholder={
+												inlineCreate.type === "folder"
+													? "Folder name..."
+													: "Sprint name..."
+											}
+											className="w-full h-6 text-xs bg-transparent border-b border-border focus:border-foreground outline-none placeholder:text-muted-foreground/50"
+										/>
+									</div>
+								)}
+						</>
+					)}
 
 					{/* Backlog */}
 					<SidebarMenu>
@@ -1024,25 +1039,30 @@ function ProjectTreeItem({
 							</SidebarMenuButton>
 						</SidebarMenuItem>
 
-						{/* Docs linked to this project */}
-						{project.docs?.map((doc) => (
-							<DocNavItem
-								key={doc._id}
-								doc={doc}
-								workspaceSlug={workspaceSlug}
-								pathname={pathname}
-							/>
-						))}
+						{/* Docs/Boards are hidden when Backlog is the active project view */}
+						{!isBacklogActive && (
+							<>
+								{/* Docs linked to this project */}
+								{project.docs?.map((doc) => (
+									<DocNavItem
+										key={doc._id}
+										doc={doc}
+										workspaceSlug={workspaceSlug}
+										pathname={pathname}
+									/>
+								))}
 
-						{/* Boards linked to this project */}
-						{project.boards?.map((board) => (
-							<BoardNavItem
-								key={board._id}
-								board={board}
-								workspaceSlug={workspaceSlug}
-								pathname={pathname}
-							/>
-						))}
+								{/* Boards linked to this project */}
+								{project.boards?.map((board) => (
+									<BoardNavItem
+										key={board._id}
+										board={board}
+										workspaceSlug={workspaceSlug}
+										pathname={pathname}
+									/>
+								))}
+							</>
+						)}
 					</SidebarMenu>
 				</div>
 			)}

@@ -122,7 +122,7 @@ export function ProjectCard({
 			`/${workspaceSlug}/projects/${project.slug ?? project.id}` as never,
 		);
 
-	const onKeyNavigate: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
+	const _onKeyNavigate: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
 		if (e.key === "Enter" || e.key === " ") {
 			e.preventDefault();
 			goToDetails();

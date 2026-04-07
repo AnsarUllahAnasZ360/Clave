@@ -21,6 +21,7 @@ export interface IssueCreatePreset {
 	milestoneId?: string;
 	status?: string;
 	assigneeId?: string;
+	assigneeIds?: string[];
 }
 
 /**
@@ -37,7 +38,7 @@ export interface IssueFormState {
 	sprintId: string | undefined;
 	listId: string | undefined;
 	milestoneId: string | undefined;
-	assigneeId: string | undefined;
+	assigneeIds: string[];
 	labelIds: string[];
 	estimate: string;
 	dueDate: Date | undefined;
@@ -54,7 +55,7 @@ const DEFAULT_FORM_STATE: IssueFormState = {
 	sprintId: undefined,
 	listId: undefined,
 	milestoneId: undefined,
-	assigneeId: undefined,
+	assigneeIds: [],
 	labelIds: [],
 	estimate: "0",
 	dueDate: undefined,
@@ -113,6 +114,12 @@ export function IssueCreateProvider({
 	}, []);
 
 	const applyPreset = useCallback((p: IssueCreatePreset) => {
+		const presetAssigneeIds =
+			p.assigneeIds && p.assigneeIds.length > 0
+				? p.assigneeIds
+				: p.assigneeId
+					? [p.assigneeId]
+					: [];
 		setFormState({
 			...DEFAULT_FORM_STATE,
 			status: (p.status as StatusKey) ?? "backlog",
@@ -120,7 +127,7 @@ export function IssueCreateProvider({
 			sprintId: p.sprintId ?? p.milestoneId,
 			listId: p.listId,
 			milestoneId: p.milestoneId,
-			assigneeId: p.assigneeId,
+			assigneeIds: presetAssigneeIds,
 		});
 	}, []);
 

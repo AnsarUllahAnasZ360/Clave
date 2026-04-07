@@ -174,7 +174,7 @@ export function ProjectQuickCreateModal({
 			await createProject({
 				workspaceId,
 				name: trimmed,
-				description: trimmedDescription || undefined,
+				richDescription: trimmedDescription || undefined,
 				icon: icon || undefined,
 				summary: trimmedSummary || undefined,
 				status: status as

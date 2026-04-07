@@ -104,6 +104,12 @@ export const joinWithCode = mutation({
 			throw new ConvexError("Invalid invite code");
 		}
 
+		// Check status is pending (default to pending for backward compatibility)
+		const status = inviteCode.status ?? "pending";
+		if (status !== "pending") {
+			throw new ConvexError("This invite code is no longer valid");
+		}
+
 		// Check expiry
 		if (inviteCode.expiresAt && inviteCode.expiresAt < Date.now()) {
 			throw new ConvexError("This invite code has expired");
@@ -144,11 +150,14 @@ export const joinWithCode = mutation({
 			joinedAt: Date.now(),
 		});
 
-		// Update invite code usage
+		// Update invite code usage and mark as accepted
 		const usedBy = inviteCode.usedBy || [];
 		await ctx.db.patch(inviteCode._id, {
 			useCount: inviteCode.useCount + 1,
 			usedBy: [...usedBy, userId],
+			status: "accepted",
+			acceptedBy: userId,
+			acceptedAt: Date.now(),
 		});
 
 		return inviteCode.workspaceId;

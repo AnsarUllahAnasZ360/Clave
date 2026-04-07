@@ -10,9 +10,26 @@ import {
 	useWorkspaceLabels,
 	useWorkspaceMembers,
 } from "@/components/providers/workspace-data-context";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import {
 	DEFAULT_ISSUE_TYPES,
 	DEFAULT_PRIORITIES,
@@ -35,9 +52,21 @@ export function TypesSettingsPane() {
 	const labels = useWorkspaceLabels();
 	const members = useWorkspaceMembers();
 	const currentUser = useCurrentUser();
-	const updateTypes = useMutation(api.workspaceSettings.updateTypes);
-	const updateStatuses = useMutation(api.workspaceSettings.updateStatuses);
+	const _updateTypes = useMutation(api.workspaceSettings.updateTypes);
+	const _updateStatuses = useMutation(api.workspaceSettings.updateStatuses);
 	const updatePriorities = useMutation(api.workspaceSettings.updatePriorities);
+	const createCustomType = useMutation(api.workspaceSettings.createCustomType);
+	const updateCustomType = useMutation(api.workspaceSettings.updateCustomType);
+	const deleteCustomType = useMutation(api.workspaceSettings.deleteCustomType);
+	const createCustomStatus = useMutation(
+		api.workspaceSettings.createCustomStatus,
+	);
+	const updateCustomStatus = useMutation(
+		api.workspaceSettings.updateCustomStatus,
+	);
+	const deleteCustomStatus = useMutation(
+		api.workspaceSettings.deleteCustomStatus,
+	);
 	const createLabel = useMutation(api.labels.create);
 	const updateLabel = useMutation(api.labels.update);
 	const removeLabel = useMutation(api.labels.remove);
@@ -146,6 +175,13 @@ export function TypesSettingsPane() {
 	const [editName, setEditName] = useState("");
 	const editInputRef = useRef<HTMLInputElement>(null);
 
+	const [deleteState, setDeleteState] = useState<{
+		section: "types" | "statuses";
+		key: string;
+		name: string;
+	} | null>(null);
+	const [replacementKey, setReplacementKey] = useState<string>("");
+
 	// Label creation state
 	const [isCreatingLabel, setIsCreatingLabel] = useState(false);
 	const [newLabelName, setNewLabelName] = useState("");
@@ -182,34 +218,34 @@ export function TypesSettingsPane() {
 		section: "types" | "statuses" | "priorities",
 	) => {
 		if (!workspaceId) return;
-		const key = newItemKey.trim().toLowerCase().replace(/\s+/g, "_");
 		const name = newItemName.trim();
-		if (!key || !name) {
-			toast.error("Key and name are required");
+		if (!name) {
+			toast.error("Label is required");
 			return;
 		}
-		const items =
-			section === "types"
-				? types
-				: section === "statuses"
-					? statuses
-					: priorities;
-		if (items.some((i) => i.key === key)) {
-			toast.error("An item with this key already exists");
-			return;
-		}
-		const updated = [
-			...items.map(({ isDefault, ...rest }) => rest),
-			{ key, name, color: newItemColor },
-		];
 		try {
-			if (section === "types")
-				await updateTypes({ workspaceId, customTypes: updated });
-			else if (section === "statuses")
-				await updateStatuses({ workspaceId, customStatuses: updated });
-			else await updatePriorities({ workspaceId, customPriorities: updated });
+			if (section === "types") {
+				await createCustomType({ workspaceId, name, color: newItemColor });
+			} else if (section === "statuses") {
+				await createCustomStatus({ workspaceId, name, color: newItemColor });
+			} else {
+				const key = newItemKey.trim().toLowerCase().replace(/\s+/g, "_");
+				if (!key) {
+					toast.error("Key is required");
+					return;
+				}
+				if (priorities.some((i) => i.key === key)) {
+					toast.error("An item with this key already exists");
+					return;
+				}
+				const updated = [
+					...priorities.map(({ isDefault, ...rest }) => rest),
+					{ key, name, color: newItemColor },
+				];
+				await updatePriorities({ workspaceId, customPriorities: updated });
+				setNewItemKey("");
+			}
 			toast.success(`Added "${name}"`);
-			setNewItemKey("");
 			setNewItemName("");
 			setNewItemColor("#6b7280");
 			setAddingSection(null);
@@ -223,22 +259,55 @@ export function TypesSettingsPane() {
 		key: string,
 	) => {
 		if (!workspaceId) return;
-		const items =
-			section === "types"
-				? types
-				: section === "statuses"
-					? statuses
-					: priorities;
-		const updated = items
-			.filter((i) => i.key !== key)
-			.map(({ isDefault, ...rest }) => rest);
 		try {
-			if (section === "types")
-				await updateTypes({ workspaceId, customTypes: updated });
-			else if (section === "statuses")
-				await updateStatuses({ workspaceId, customStatuses: updated });
-			else await updatePriorities({ workspaceId, customPriorities: updated });
+			if (section === "types" || section === "statuses") {
+				const items = section === "types" ? types : statuses;
+				const item = items.find((i) => i.key === key);
+				if (!item) return;
+				if (item.isDefault) {
+					toast.error("Default items can’t be deleted");
+					return;
+				}
+				const firstReplacement = items.find((i) => i.key !== key)?.key ?? "";
+				setReplacementKey(firstReplacement);
+				setDeleteState({ section, key, name: item.name });
+				return;
+			}
+
+			const updated = priorities
+				.filter((i) => i.key !== key)
+				.map(({ isDefault, ...rest }) => rest);
+			await updatePriorities({ workspaceId, customPriorities: updated });
 			toast.success("Removed");
+		} catch {
+			toast.error("Failed to remove item");
+		}
+	};
+
+	const handleConfirmDelete = async () => {
+		if (!workspaceId) return;
+		if (!deleteState) return;
+		if (!replacementKey) {
+			toast.error("Choose a replacement");
+			return;
+		}
+		try {
+			if (deleteState.section === "types") {
+				await deleteCustomType({
+					workspaceId,
+					key: deleteState.key,
+					replacementKey,
+				});
+			} else {
+				await deleteCustomStatus({
+					workspaceId,
+					key: deleteState.key,
+					replacementKey,
+				});
+			}
+			toast.success("Removed");
+			setDeleteState(null);
+			setReplacementKey("");
 		} catch {
 			toast.error("Failed to remove item");
 		}
@@ -251,27 +320,31 @@ export function TypesSettingsPane() {
 		newColor?: string,
 	) => {
 		if (!workspaceId) return;
-		const items =
-			section === "types"
-				? types
-				: section === "statuses"
-					? statuses
-					: priorities;
-		const updated = items.map((item) =>
-			item.key === key
-				? {
-						key: item.key,
-						name: newName || item.name,
-						color: newColor ?? item.color,
-					}
-				: { key: item.key, name: item.name, color: item.color },
-		);
 		try {
 			if (section === "types") {
-				await updateTypes({ workspaceId, customTypes: updated });
+				await updateCustomType({
+					workspaceId,
+					key,
+					name: newName || undefined,
+					color: newColor,
+				});
 			} else if (section === "statuses") {
-				await updateStatuses({ workspaceId, customStatuses: updated });
+				await updateCustomStatus({
+					workspaceId,
+					key,
+					name: newName || undefined,
+					color: newColor,
+				});
 			} else {
+				const updated = priorities.map((item) =>
+					item.key === key
+						? {
+								key: item.key,
+								name: newName || item.name,
+								color: newColor ?? item.color,
+							}
+						: { key: item.key, name: item.name, color: item.color },
+				);
 				await updatePriorities({ workspaceId, customPriorities: updated });
 			}
 			toast.success("Updated successfully");
@@ -287,23 +360,17 @@ export function TypesSettingsPane() {
 		newColor: string,
 	) => {
 		if (!workspaceId) return;
-		const items =
-			section === "types"
-				? types
-				: section === "statuses"
-					? statuses
-					: priorities;
-		const updated = items.map((item) =>
-			item.key === key
-				? { key: item.key, name: item.name, color: newColor }
-				: { key: item.key, name: item.name, color: item.color },
-		);
 		try {
 			if (section === "types") {
-				await updateTypes({ workspaceId, customTypes: updated });
+				await updateCustomType({ workspaceId, key, color: newColor });
 			} else if (section === "statuses") {
-				await updateStatuses({ workspaceId, customStatuses: updated });
+				await updateCustomStatus({ workspaceId, key, color: newColor });
 			} else {
+				const updated = priorities.map((item) =>
+					item.key === key
+						? { key: item.key, name: item.name, color: newColor }
+						: { key: item.key, name: item.name, color: item.color },
+				);
 				await updatePriorities({ workspaceId, customPriorities: updated });
 			}
 		} catch {
@@ -367,7 +434,7 @@ export function TypesSettingsPane() {
 		return getPriorityConfig(key).icon;
 	};
 
-	const getIconColor = (
+	const _getIconColor = (
 		section: "types" | "statuses" | "priorities",
 		key: string,
 	) => {
@@ -439,16 +506,17 @@ export function TypesSettingsPane() {
 							</span>
 						)}
 
-						{/* Key (shown as badge) */}
-						<span className="text-[11px] font-mono text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
-							{item.key}
-						</span>
+						{item.isDefault ? (
+							<span className="text-[11px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
+								Default
+							</span>
+						) : null}
 
 						{/* Spacer */}
 						<div className="flex-1" />
 
 						{/* Delete button (visible on hover) */}
-						{isAdmin && (
+						{isAdmin && !item.isDefault && (
 							<button
 								type="button"
 								onClick={() => handleDeleteItem(section, item.key)}
@@ -486,17 +554,20 @@ export function TypesSettingsPane() {
 		return (
 			<div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 mt-2">
 				<ColorPicker color={newItemColor} onColorChange={setNewItemColor} />
+				{section === "priorities" ? (
+					<Input
+						ref={newItemRef}
+						value={newItemKey}
+						onChange={(e) => setNewItemKey(e.target.value)}
+						placeholder="key (e.g. epic)"
+						className="h-7 text-xs w-24 font-mono"
+					/>
+				) : null}
 				<Input
-					ref={newItemRef}
-					value={newItemKey}
-					onChange={(e) => setNewItemKey(e.target.value)}
-					placeholder="key (e.g. epic)"
-					className="h-7 text-xs w-24 font-mono"
-				/>
-				<Input
+					ref={section === "priorities" ? undefined : newItemRef}
 					value={newItemName}
 					onChange={(e) => setNewItemName(e.target.value)}
-					placeholder="Display name"
+					placeholder={section === "priorities" ? "Display name" : "Label"}
 					className="h-7 text-xs flex-1"
 					onKeyDown={(e) => e.key === "Enter" && handleAddItem(section)}
 				/>
@@ -504,7 +575,11 @@ export function TypesSettingsPane() {
 					size="sm"
 					className="h-7 text-xs px-3"
 					onClick={() => handleAddItem(section)}
-					disabled={!newItemKey.trim() || !newItemName.trim()}
+					disabled={
+						section === "priorities"
+							? !newItemKey.trim() || !newItemName.trim()
+							: !newItemName.trim()
+					}
 				>
 					Add
 				</Button>
@@ -744,6 +819,47 @@ export function TypesSettingsPane() {
 					{activeSection === "labels" && renderLabelsSection()}
 				</div>
 			</div>
+			<AlertDialog
+				open={Boolean(deleteState)}
+				onOpenChange={(open) => {
+					if (!open) {
+						setDeleteState(null);
+						setReplacementKey("");
+					}
+				}}
+			>
+				<AlertDialogContent size="sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete {deleteState?.name}</AlertDialogTitle>
+						<AlertDialogDescription>
+							Choose a replacement. Existing issues using this value will be
+							migrated.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<div className="space-y-2">
+						<Select value={replacementKey} onValueChange={setReplacementKey}>
+							<SelectTrigger>
+								<SelectValue placeholder="Replacement" />
+							</SelectTrigger>
+							<SelectContent>
+								{(deleteState?.section === "types" ? types : statuses)
+									.filter((i) => i.key !== deleteState?.key)
+									.map((i) => (
+										<SelectItem key={i.key} value={i.key}>
+											{i.name}
+										</SelectItem>
+									))}
+							</SelectContent>
+						</Select>
+					</div>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={handleConfirmDelete}>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

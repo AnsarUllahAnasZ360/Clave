@@ -20,7 +20,7 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
-export type StatusKey =
+export type DefaultStatusKey =
 	| "triage"
 	| "backlog"
 	| "todo"
@@ -29,9 +29,13 @@ export type StatusKey =
 	| "done"
 	| "cancelled";
 
+export type StatusKey = string;
+
 export type PriorityKey = "no_priority" | "low" | "medium" | "high" | "urgent";
 
-export type IssueTypeKey = "issue" | "bug" | "improvement" | "feature";
+export type DefaultIssueTypeKey = "issue" | "bug" | "improvement" | "feature";
+
+export type IssueTypeKey = string;
 
 export interface IssueConfigItem {
 	key: string;
@@ -42,50 +46,51 @@ export interface IssueConfigItem {
 
 // ── Default Statuses (7) ──────────────────────────────────────────────────
 
-export const DEFAULT_STATUSES: (IssueConfigItem & { key: StatusKey })[] = [
-	{
-		key: "triage",
-		name: "Triage",
-		icon: TriangleAlert,
-		color: "text-orange-500",
-	},
-	{
-		key: "backlog",
-		name: "Backlog",
-		icon: CircleDashed,
-		color: "text-muted-foreground",
-	},
-	{
-		key: "todo",
-		name: "Todo",
-		icon: Circle,
-		color: "text-muted-foreground",
-	},
-	{
-		key: "in_progress",
-		name: "In progress",
-		icon: Timer,
-		color: "text-yellow-500",
-	},
-	{
-		key: "in_review",
-		name: "In review",
-		icon: Eye,
-		color: "text-blue-500",
-	},
-	{
-		key: "done",
-		name: "Done",
-		icon: CircleCheck,
-		color: "text-emerald-500",
-	},
-	{
-		key: "cancelled",
-		name: "Cancelled",
-		icon: CircleX,
-		color: "text-muted-foreground",
-	},
-];
+export const DEFAULT_STATUSES: (IssueConfigItem & { key: DefaultStatusKey })[] =
+	[
+		{
+			key: "triage",
+			name: "Triage",
+			icon: TriangleAlert,
+			color: "text-orange-500",
+		},
+		{
+			key: "backlog",
+			name: "Backlog",
+			icon: CircleDashed,
+			color: "text-muted-foreground",
+		},
+		{
+			key: "todo",
+			name: "Todo",
+			icon: Circle,
+			color: "text-muted-foreground",
+		},
+		{
+			key: "in_progress",
+			name: "In progress",
+			icon: Timer,
+			color: "text-yellow-500",
+		},
+		{
+			key: "in_review",
+			name: "In review",
+			icon: Eye,
+			color: "text-blue-500",
+		},
+		{
+			key: "done",
+			name: "Done",
+			icon: CircleCheck,
+			color: "text-emerald-500",
+		},
+		{
+			key: "cancelled",
+			name: "Cancelled",
+			icon: CircleX,
+			color: "text-muted-foreground",
+		},
+	];
 
 // ── Default Priorities (5) ────────────────────────────────────────────────
 
@@ -115,7 +120,7 @@ export const DEFAULT_PRIORITIES: (IssueConfigItem & { key: PriorityKey })[] = [
 // ── Default Issue Types (4) ───────────────────────────────────────────────
 
 export const DEFAULT_ISSUE_TYPES: (IssueConfigItem & {
-	key: IssueTypeKey;
+	key: DefaultIssueTypeKey;
 })[] = [
 	{
 		key: "issue",

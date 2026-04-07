@@ -25,7 +25,10 @@ export const ImageElement = withHOC(
 		return (
 			<MediaToolbar plugin={ImagePlugin}>
 				<PlateElement {...props} className="py-2.5">
-					<figure className="group relative m-0" contentEditable={false}>
+					<figure
+						className="group relative m-0 max-w-2xl mx-auto"
+						contentEditable={false}
+					>
 						<Resizable
 							align={align}
 							options={{
@@ -39,7 +42,7 @@ export const ImageElement = withHOC(
 							/>
 							<Image
 								className={cn(
-									"block w-full max-w-full cursor-pointer object-cover px-0",
+									"block w-full h-auto cursor-pointer object-cover px-0",
 									"rounded-sm",
 									focused && selected && "ring-2 ring-ring ring-offset-2",
 								)}

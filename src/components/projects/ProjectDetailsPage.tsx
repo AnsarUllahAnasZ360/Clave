@@ -567,6 +567,7 @@ function ProjectIssuesTab({
 			status: issue.status,
 			priority: issue.priority,
 			assigneeId: issue.assigneeId ?? undefined,
+			assigneeIds: issue.assigneeIds ?? undefined,
 			labelIds: issue.labelIds ?? undefined,
 			dueDate: issue.dueDate ?? undefined,
 			estimate: issue.estimate ?? undefined,
@@ -590,6 +591,7 @@ function ProjectIssuesTab({
 			priority: issue.priority,
 			type: issue.type ?? undefined,
 			assigneeId: issue.assigneeId ?? undefined,
+			assigneeIds: issue.assigneeIds ?? undefined,
 			labelIds: issue.labelIds ?? undefined,
 			dueDate: issue.dueDate ?? undefined,
 			estimate: issue.estimate ?? undefined,
@@ -648,8 +650,8 @@ function ProjectIssuesTab({
 	const projectMap = useMemo(() => new Map<string, string>(), []);
 
 	return (
-		<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-			<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+		<div className="flex flex-1 min-h-0 min-w-0 overflow-y-hidden">
+			<div className="flex flex-col flex-1 min-h-0 min-w-0">
 				{/* Toolbar: Filter + Display | Create Issue */}
 				<div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 bg-muted/20 shrink-0">
 					<MyIssuesFilterPopover
@@ -723,17 +725,19 @@ function ProjectIssuesTab({
 
 				{/* Board / List / Timeline content */}
 				{options.layout === "board" && (
-					<IssueBoardView
-						projectId={projectId}
-						boardSprintId={boardSprintIdFromFilter}
-						externalIssues={filteredBoardIssues}
-						displayProperties={boardDisplayProperties}
-						swimlaneBy={options.swimlaneBy}
-						onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-					/>
+					<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+						<IssueBoardView
+							projectId={projectId}
+							boardSprintId={boardSprintIdFromFilter}
+							externalIssues={filteredBoardIssues}
+							displayProperties={boardDisplayProperties}
+							swimlaneBy={options.swimlaneBy}
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+						/>
+					</div>
 				)}
 				{options.layout === "list" && (
-					<div className="px-6 pb-6 w-full">
+					<div className="px-6 pb-6 w-full overflow-auto flex-1 min-h-0 min-w-0">
 						<IssueListView
 							issues={filteredListIssues}
 							projectId={projectId}

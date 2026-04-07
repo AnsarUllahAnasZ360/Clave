@@ -7,7 +7,7 @@ import {
 	Plus,
 	TrashSimple,
 } from "@phosphor-icons/react/dist/ssr";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
@@ -29,14 +29,20 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import { PaneDescription, PaneTitle } from "./settings-shared";
+
 export function TeammatesSettingsPane() {
 	const workspace = useWorkspaceOptional();
 	const members = useWorkspaceMembers();
 	const currentUser = useCurrentUser();
+	const pendingInvites = useQuery(
+		api.inviteCodes.listPendingByWorkspace,
+		workspace ? { workspaceId: workspace.workspaceId } : "skip",
+	);
 	const generateInviteCode = useMutation(api.inviteCodes.generate);
 	const sendInviteEmailAction = useAction(api.inviteCodes.sendInviteEmail);
 	const removeMember = useMutation(api.workspaceMembers.remove);
 	const updateRole = useMutation(api.workspaceMembers.updateRole);
+	const revokePendingInvite = useMutation(api.inviteCodes.revokePendingInvite);
 
 	const [inviteCode, setInviteCode] = useState<string | null>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
@@ -47,6 +53,7 @@ export function TeammatesSettingsPane() {
 	const [changingRoleUserId, setChangingRoleUserId] = useState<string | null>(
 		null,
 	);
+	const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null);
 
 	// Check if current user is admin
 	const currentMember = members?.find((m) => m.userId === currentUser?._id);
@@ -105,21 +112,24 @@ export function TeammatesSettingsPane() {
 		if (!workspace || !inviteEmail.trim()) return;
 		setIsSendingEmail(true);
 		try {
+			const trimmedEmail = inviteEmail.trim();
 			const code = await generateInviteCode({
 				workspaceId: workspace.workspaceId,
 				role: inviteRole,
 				expiresInHours: 7 * 24,
+				sentTo: trimmedEmail,
 			});
 			await sendInviteEmailAction({
-				email: inviteEmail.trim(),
+				email: trimmedEmail,
 				inviteCode: code,
 				workspaceName: workspace.workspaceName ?? "Workspace",
 				inviterName: currentUser?.name ?? "A teammate",
 				role: inviteRole,
+				sentTo: trimmedEmail,
 			});
 			setInviteEmail("");
 			setInviteRole("member");
-			toast.success(`Invite sent to ${inviteEmail.trim()}`);
+			toast.success(`Invite sent to ${trimmedEmail}`);
 		} catch (error) {
 			toast.error(
 				error instanceof Error ? error.message : "Failed to send invite email",
@@ -173,6 +183,27 @@ export function TeammatesSettingsPane() {
 			}
 		},
 		[workspace, updateRole],
+	);
+
+	const handleRevokeInvite = useCallback(
+		async (inviteId: string) => {
+			if (!workspace) return;
+			try {
+				await revokePendingInvite({
+					codeId: inviteId as Parameters<
+						typeof revokePendingInvite
+					>[0]["codeId"],
+					workspaceId: workspace.workspaceId,
+				});
+				toast.success("Invite revoked");
+				setRevokingInviteId(null);
+			} catch (error) {
+				toast.error(
+					error instanceof Error ? error.message : "Failed to revoke invite",
+				);
+			}
+		},
+		[workspace, revokePendingInvite],
 	);
 
 	return (
@@ -423,6 +454,102 @@ export function TeammatesSettingsPane() {
 					})}
 				</div>
 			</div>
+
+			{/* Pending Invites Section */}
+			{isAdmin && pendingInvites && pendingInvites.length > 0 && (
+				<>
+					<Separator />
+					<div className="space-y-3">
+						<div>
+							<PaneTitle className="text-base">Pending invitations</PaneTitle>
+							<PaneDescription className="mt-1 text-sm">
+								Invitations that are waiting to be accepted.
+							</PaneDescription>
+						</div>
+						<div className="rounded-2xl border border-border">
+							<div className="grid grid-cols-12 px-4 py-3 text-xs font-medium text-muted-foreground">
+								<span className="col-span-6">Email</span>
+								<span className="col-span-2">Role</span>
+								<span className="col-span-2">Expires</span>
+								{isAdmin && (
+									<span className="col-span-2 text-right">Actions</span>
+								)}
+							</div>
+							<div className="divide-y divide-border">
+								{pendingInvites.map((invite) => {
+									const isExpired =
+										invite.expiresAt && invite.expiresAt < Date.now();
+									const expiresIn = invite.expiresAt
+										? Math.ceil(
+												(invite.expiresAt - Date.now()) / (1000 * 60 * 60 * 24),
+											)
+										: null;
+
+									return (
+										<div
+											key={invite._id}
+											className="grid grid-cols-12 items-center px-4 py-4"
+										>
+											<div className="col-span-6">
+												<span className="text-sm text-foreground">
+													{invite.sentTo || invite.code}
+												</span>
+											</div>
+											<div className="col-span-2">
+												<span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
+													{invite.role === "admin" ? "Admin" : "Member"}
+												</span>
+											</div>
+											<div className="col-span-2 text-xs text-muted-foreground">
+												{isExpired ? (
+													<span className="text-destructive">Expired</span>
+												) : expiresIn !== null ? (
+													<span>{expiresIn}d</span>
+												) : (
+													<span>Never</span>
+												)}
+											</div>
+											{isAdmin && (
+												<div className="col-span-2 text-right">
+													{revokingInviteId === invite._id ? (
+														<div className="flex items-center justify-end gap-1">
+															<Button
+																variant="destructive"
+																size="sm"
+																className="h-6 px-2 text-xs"
+																onClick={() => handleRevokeInvite(invite._id)}
+															>
+																Confirm
+															</Button>
+															<Button
+																variant="ghost"
+																size="sm"
+																className="h-6 px-2 text-xs"
+																onClick={() => setRevokingInviteId(null)}
+															>
+																Cancel
+															</Button>
+														</div>
+													) : (
+														<Button
+															variant="ghost"
+															size="sm"
+															className="h-7 px-2 text-muted-foreground hover:text-destructive"
+															onClick={() => setRevokingInviteId(invite._id)}
+														>
+															<TrashSimple className="h-4 w-4" />
+														</Button>
+													)}
+												</div>
+											)}
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					</div>
+				</>
+			)}
 		</div>
 	);
 }

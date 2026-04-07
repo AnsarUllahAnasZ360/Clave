@@ -15,7 +15,6 @@ import {
 	useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { toast } from "sonner";
 import {
 	DictationRecordingIndicator,
 	type IndicatorState,

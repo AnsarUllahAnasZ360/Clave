@@ -100,9 +100,10 @@ export default function ProjectDescriptionEditor({
 			if (saveTimeoutRef.current) {
 				clearTimeout(saveTimeoutRef.current);
 			}
+			// Shorter timeout for faster saves, especially important for images
 			saveTimeoutRef.current = setTimeout(() => {
 				flushPendingSave();
-			}, 800);
+			}, 400);
 		},
 		[flushPendingSave],
 	);
@@ -121,7 +122,7 @@ export default function ProjectDescriptionEditor({
 			<h3 className="text-sm font-medium text-muted-foreground mb-2">
 				Description
 			</h3>
-			<div className="min-h-[100px] bg-background px-0 py-0 [&_.font-heading]:mt-2 [&_.font-heading]:pb-0">
+			<div className="min-h-[100px] bg-background px-0 py-0 [&_.font-heading]:mt-2 [&_.font-heading]:pb-0 [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-sm">
 				<PlateEditor
 					variant="simple"
 					value={initialValue}

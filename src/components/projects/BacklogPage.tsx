@@ -32,6 +32,20 @@ type BacklogPageProps = {
 	projectSlug: string;
 };
 
+const BACKLOG_DISPLAY_PROPERTIES: DisplayPropertyId[] = [
+	"identifier",
+	"priority",
+	"status",
+	"labels",
+	"assignee",
+	"project",
+	"milestone",
+	"estimate",
+	"dueDate",
+	"created",
+	"updated",
+];
+
 export function BacklogPage({ projectSlug }: BacklogPageProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { openQuickCreate } = useIssueCreate();
@@ -70,35 +84,27 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 
 	const boardDisplayProperties = useMemo(() => {
 		const props: Record<string, boolean> = {};
-		const allProps: DisplayPropertyId[] = [
-			"identifier",
-			"priority",
-			"status",
-			"labels",
-			"assignee",
-			"project",
-			"milestone",
-			"estimate",
-			"dueDate",
-			"created",
-			"updated",
-		];
-		for (const p of allProps) {
+		for (const p of BACKLOG_DISPLAY_PROPERTIES) {
 			props[p] = options.displayProperties.includes(p);
 		}
 		return props;
 	}, [options.displayProperties]);
 
+	const filteredIssues = useMemo(() => {
+		if (!backlogIssues) return [];
+		return applyFilters(backlogIssues);
+	}, [backlogIssues, applyFilters]);
+
 	const filteredBoardIssues = useMemo<IssueCardData[] | undefined>(() => {
-		if (!backlogIssues) return undefined;
-		const filtered = applyFilters(backlogIssues);
-		return filtered.map((issue) => ({
+		if (!filteredIssues.length) return undefined;
+		return filteredIssues.map((issue) => ({
 			_id: issue._id,
 			identifier: issue.identifier,
 			title: issue.title,
 			status: issue.status,
 			priority: issue.priority,
 			assigneeId: issue.assigneeId ?? undefined,
+			assigneeIds: issue.assigneeIds ?? undefined,
 			labelIds: issue.labelIds ?? undefined,
 			dueDate: issue.dueDate ?? undefined,
 			estimate: issue.estimate ?? undefined,
@@ -107,12 +113,10 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			sprintId: issue.sprintId ?? undefined,
 			milestoneId: issue.milestoneId ?? undefined,
 		}));
-	}, [backlogIssues, applyFilters]);
+	}, [filteredIssues]);
 
 	const filteredListIssues = useMemo<IssueListData[]>(() => {
-		if (!backlogIssues) return [];
-		const filtered = applyFilters(backlogIssues);
-		return filtered.map((issue) => ({
+		return filteredIssues.map((issue) => ({
 			_id: issue._id,
 			_creationTime: issue._creationTime,
 			identifier: issue.identifier,
@@ -121,6 +125,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			priority: issue.priority,
 			type: issue.type ?? undefined,
 			assigneeId: issue.assigneeId ?? undefined,
+			assigneeIds: issue.assigneeIds ?? undefined,
 			labelIds: issue.labelIds ?? undefined,
 			startDate: issue.startDate ?? undefined,
 			dueDate: issue.dueDate ?? undefined,
@@ -131,18 +136,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			milestoneId: issue.milestoneId ?? undefined,
 			updatedAt: issue.updatedAt ?? undefined,
 		}));
-	}, [backlogIssues, applyFilters]);
-
-	const memberMap = useMemo(() => {
-		const map = new Map<string, string>();
-		if (members) {
-			for (const m of members) map.set(m.userId, m.user?.name ?? "Unknown");
-		}
-		return map;
-	}, [members]);
-
-	const milestoneMap = useMemo(() => new Map<string, string>(), []);
-	const projectMap = useMemo(() => new Map<string, string>(), []);
+	}, [filteredIssues]);
 
 	if (project === undefined) {
 		return (
@@ -190,9 +184,9 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 
 				<h1 className="text-sm font-semibold">Backlog</h1>
 
-				{backlogIssues && (
+				{filteredIssues && (
 					<span className="text-xs text-muted-foreground ml-1">
-						{backlogIssues.length} issues
+						{filteredIssues.length} of {backlogIssues?.length ?? 0} issues
 					</span>
 				)}
 			</div>
@@ -249,19 +243,22 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 				</Button>
 			</div>
 
-			{/* Content + peek sidebar row */}
-			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-				<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
-					{/* Issue views */}
+			{/* Content + preview sidebar */}
+			<div className="flex flex-1 min-h-0 min-w-0 overflow-y-hidden">
+				<div className="flex flex-col flex-1 min-h-0 min-w-0">
+					{/* Board view — organize backlog by status */}
 					{options.layout === "board" && (
-						<IssueBoardView
-							projectId={project._id}
-							externalIssues={filteredBoardIssues}
-							displayProperties={boardDisplayProperties}
-							swimlaneBy={options.swimlaneBy}
-							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-						/>
+						<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+							<IssueBoardView
+								projectId={project._id}
+								externalIssues={filteredBoardIssues}
+								displayProperties={boardDisplayProperties}
+								swimlaneBy={options.swimlaneBy}
+								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+							/>
+						</div>
 					)}
+					{/* List view — browse backlog items */}
 					{options.layout === "list" && (
 						<div className="px-6 pb-6 w-full overflow-auto flex-1">
 							<IssueListView
@@ -276,6 +273,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 							/>
 						</div>
 					)}
+					{/* Timeline view — see backlog items with due dates */}
 					{options.layout === "timeline" && (
 						<IssueTimelineView
 							projectId={project._id}
@@ -297,7 +295,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 					)}
 				</div>
 
-				{/* Issue peek sidebar */}
+				{/* Issue detail preview panel */}
 				{selectedIssueId && (
 					<IssuePreviewSidebar
 						issueId={selectedIssueId}

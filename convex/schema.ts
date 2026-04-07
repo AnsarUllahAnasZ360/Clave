@@ -222,9 +222,21 @@ export default defineSchema({
 		maxUses: v.optional(v.number()),
 		useCount: v.number(),
 		usedBy: v.optional(v.array(v.id("users"))),
+		status: v.optional(
+			v.union(
+				v.literal("pending"),
+				v.literal("accepted"),
+				v.literal("expired"),
+				v.literal("rejected"),
+			),
+		),
+		acceptedBy: v.optional(v.id("users")),
+		acceptedAt: v.optional(v.number()),
+		sentTo: v.optional(v.string()), // Email the invite was sent to (for email invites)
 	})
 		.index("by_code", ["code"])
-		.index("by_workspace", ["workspaceId"]),
+		.index("by_workspace", ["workspaceId"])
+		.index("by_workspace_status", ["workspaceId", "status"]),
 
 	// ── Projects ──────────────────────────────────────────────────────────────
 
@@ -313,6 +325,7 @@ export default defineSchema({
 		priority: v.string(),
 		type: v.string(),
 		assigneeId: v.optional(v.id("users")),
+		assigneeIds: v.optional(v.array(v.id("users"))),
 		labelIds: v.optional(v.array(v.id("labels"))),
 		startDate: v.optional(v.number()),
 		dueDate: v.optional(v.number()),

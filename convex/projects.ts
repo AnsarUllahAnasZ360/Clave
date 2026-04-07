@@ -12,6 +12,34 @@ import {
 import { notifyUsers } from "./lib/notifications";
 import { generateSlug } from "./lib/utils";
 
+function slugifyKey(input: string): string {
+	return input
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "")
+		.slice(0, 48);
+}
+
+function dedupeKey(base: string, existing: ReadonlySet<string>): string {
+	if (!existing.has(base)) return base;
+	let i = 2;
+	while (existing.has(`${base}_${i}`)) i += 1;
+	return `${base}_${i}`;
+}
+
+const DEFAULT_STATUS_KEYS = [
+	"triage",
+	"backlog",
+	"todo",
+	"in_progress",
+	"in_review",
+	"done",
+	"cancelled",
+] as const;
+
+const DEFAULT_TYPE_KEYS = ["issue", "bug", "improvement", "feature"] as const;
+
 // ── Queries ────────────────────────────────────────────────────────────────
 
 const projectDocValidator = v.object({
@@ -958,6 +986,234 @@ export const updateStatus = mutation({
 				actorId: userId,
 			});
 		}
+	},
+});
+
+export const createCustomIssueStatus = mutation({
+	args: {
+		projectId: v.id("projects"),
+		name: v.string(),
+		color: v.string(),
+	},
+	returns: v.object({ key: v.string() }),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		const existing = new Set<string>();
+		for (const k of DEFAULT_STATUS_KEYS) existing.add(k);
+		for (const s of project.customStatuses ?? []) existing.add(s.key);
+		const base = slugifyKey(args.name);
+		if (!base) throw new ConvexError("Status name is required");
+		const key = dedupeKey(base, existing);
+		await ctx.db.patch(args.projectId, {
+			customStatuses: [
+				...(project.customStatuses ?? []),
+				{ key, name: args.name, color: args.color },
+			],
+			updatedAt: Date.now(),
+		});
+		return { key };
+	},
+});
+
+export const updateCustomIssueStatus = mutation({
+	args: {
+		projectId: v.id("projects"),
+		key: v.string(),
+		name: v.optional(v.string()),
+		color: v.optional(v.string()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		const existing = project.customStatuses ?? [];
+		const has = existing.some((s) => s.key === args.key);
+		await ctx.db.patch(args.projectId, {
+			customStatuses: has
+				? existing.map((s) =>
+						s.key === args.key
+							? {
+									...s,
+									name: args.name ?? s.name,
+									color: args.color ?? s.color,
+								}
+							: s,
+					)
+				: [
+						...existing,
+						{
+							key: args.key,
+							name: args.name ?? args.key.replaceAll("_", " "),
+							color: args.color ?? "#6b7280",
+						},
+					],
+			updatedAt: Date.now(),
+		});
+		return null;
+	},
+});
+
+export const deleteCustomIssueStatus = mutation({
+	args: {
+		projectId: v.id("projects"),
+		key: v.string(),
+		replacementKey: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		if (args.key === args.replacementKey) {
+			throw new ConvexError("Replacement must be different");
+		}
+		if ((DEFAULT_STATUS_KEYS as readonly string[]).includes(args.key)) {
+			throw new ConvexError("Default statuses cannot be deleted");
+		}
+		const allowed = new Set<string>(DEFAULT_STATUS_KEYS);
+		for (const s of project.customStatuses ?? []) allowed.add(s.key);
+		if (!allowed.has(args.replacementKey)) {
+			throw new ConvexError("Replacement status not found");
+		}
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		for (const issue of issues) {
+			if (issue.deletedAt) continue;
+			if (issue.status !== args.key) continue;
+			await ctx.db.patch(issue._id, { status: args.replacementKey });
+		}
+		await ctx.db.patch(args.projectId, {
+			customStatuses: (project.customStatuses ?? []).filter(
+				(s) => s.key !== args.key,
+			),
+			updatedAt: Date.now(),
+		});
+		return null;
+	},
+});
+
+export const createCustomIssueType = mutation({
+	args: {
+		projectId: v.id("projects"),
+		name: v.string(),
+		color: v.string(),
+	},
+	returns: v.object({ key: v.string() }),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		const existing = new Set<string>();
+		for (const k of DEFAULT_TYPE_KEYS) existing.add(k);
+		for (const t of project.customTypes ?? []) existing.add(t.key);
+		const base = slugifyKey(args.name);
+		if (!base) throw new ConvexError("Type name is required");
+		const key = dedupeKey(base, existing);
+		await ctx.db.patch(args.projectId, {
+			customTypes: [
+				...(project.customTypes ?? []),
+				{ key, name: args.name, color: args.color },
+			],
+			updatedAt: Date.now(),
+		});
+		return { key };
+	},
+});
+
+export const updateCustomIssueType = mutation({
+	args: {
+		projectId: v.id("projects"),
+		key: v.string(),
+		name: v.optional(v.string()),
+		color: v.optional(v.string()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		const existing = project.customTypes ?? [];
+		const has = existing.some((t) => t.key === args.key);
+		await ctx.db.patch(args.projectId, {
+			customTypes: has
+				? existing.map((t) =>
+						t.key === args.key
+							? {
+									...t,
+									name: args.name ?? t.name,
+									color: args.color ?? t.color,
+								}
+							: t,
+					)
+				: [
+						...existing,
+						{
+							key: args.key,
+							name: args.name ?? args.key.replaceAll("_", " "),
+							color: args.color ?? "#6b7280",
+						},
+					],
+			updatedAt: Date.now(),
+		});
+		return null;
+	},
+});
+
+export const deleteCustomIssueType = mutation({
+	args: {
+		projectId: v.id("projects"),
+		key: v.string(),
+		replacementKey: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		if (args.key === args.replacementKey) {
+			throw new ConvexError("Replacement must be different");
+		}
+		if ((DEFAULT_TYPE_KEYS as readonly string[]).includes(args.key)) {
+			throw new ConvexError("Default types cannot be deleted");
+		}
+		const allowed = new Set<string>(DEFAULT_TYPE_KEYS);
+		for (const t of project.customTypes ?? []) allowed.add(t.key);
+		if (!allowed.has(args.replacementKey)) {
+			throw new ConvexError("Replacement type not found");
+		}
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		for (const issue of issues) {
+			if (issue.deletedAt) continue;
+			if (issue.type !== args.key) continue;
+			await ctx.db.patch(issue._id, { type: args.replacementKey });
+		}
+		await ctx.db.patch(args.projectId, {
+			customTypes: (project.customTypes ?? []).filter(
+				(t) => t.key !== args.key,
+			),
+			updatedAt: Date.now(),
+		});
+		return null;
 	},
 });
 

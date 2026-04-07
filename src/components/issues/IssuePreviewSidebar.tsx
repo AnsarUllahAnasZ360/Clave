@@ -169,10 +169,14 @@ export function IssuePreviewSidebar({
 
 	// Build lookup maps
 	const memberMap = useMemo(() => {
-		const map = new Map<string, { name: string; image?: string }>();
+		const map = new Map<
+			string,
+			{ userId: string; name: string; image?: string }
+		>();
 		if (members) {
 			for (const m of members) {
 				map.set(m.userId, {
+					userId: m.userId,
 					name: m.user?.name ?? "Unknown",
 					image: m.user?.avatarUrl ?? m.user?.image ?? undefined,
 				});
@@ -261,9 +265,15 @@ export function IssuePreviewSidebar({
 		);
 	}
 
-	const assignee = issue.assigneeId
-		? memberMap.get(issue.assigneeId)
-		: undefined;
+	const effectiveAssigneeIds =
+		issue.assigneeIds && issue.assigneeIds.length > 0
+			? issue.assigneeIds
+			: issue.assigneeId
+				? [issue.assigneeId]
+				: [];
+	const assignees = effectiveAssigneeIds
+		.map((id) => memberMap.get(id))
+		.filter((m) => m !== undefined);
 	const projectName = issue.projectId
 		? projectMap.get(issue.projectId)
 		: undefined;
@@ -285,15 +295,6 @@ export function IssuePreviewSidebar({
 			(l): l is { _id: Id<"labels">; name: string; color: string } =>
 				l !== null,
 		);
-
-	const assigneeInitials = assignee?.name
-		? assignee.name
-				.split(" ")
-				.map((n) => n[0])
-				.join("")
-				.toUpperCase()
-				.slice(0, 2)
-		: "?";
 
 	// Description truncation — extract plain text from content JSON
 	const description = issue.description
@@ -402,28 +403,35 @@ export function IssuePreviewSidebar({
 							onChange={(v) => handleUpdate("priority", v)}
 						/>
 
-						{/* Assignee (editable) */}
-						<div className="flex items-center gap-3 min-h-[32px] py-0.5">
-							<span className="flex items-center gap-2 text-[12px] text-muted-foreground w-[88px] shrink-0">
+						{/* Assignees (editable, multi-select) */}
+						<div className="flex items-start gap-3 min-h-[32px] py-0.5">
+							<span className="flex items-center gap-2 text-[12px] text-muted-foreground w-[88px] shrink-0 pt-0.5">
 								<User className="h-3.5 w-3.5" />
-								Assignee
+								Assignees
 							</span>
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<button
 										type="button"
-										className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors"
+										className="flex items-center gap-1.5 text-sm hover:bg-accent/50 rounded px-1.5 py-0.5 -ml-1.5 transition-colors flex-wrap"
 									>
-										{assignee ? (
-											<>
-												<Avatar className="h-4 w-4">
-													<AvatarImage src={assignee.image} />
-													<AvatarFallback className="text-[8px]">
-														{assigneeInitials}
-													</AvatarFallback>
-												</Avatar>
-												<span>{assignee.name}</span>
-											</>
+										{assignees.length > 0 ? (
+											<div className="flex flex-wrap gap-1">
+												{assignees.map((assignee) => (
+													<span
+														key={assignee.name}
+														className="inline-flex items-center gap-1 bg-muted/40 rounded px-1.5 py-0.5"
+													>
+														<Avatar className="h-4 w-4">
+															<AvatarImage src={assignee.image} />
+															<AvatarFallback className="text-[8px]">
+																{assignee.name?.charAt(0) ?? "?"}
+															</AvatarFallback>
+														</Avatar>
+														<span className="text-xs">{assignee.name}</span>
+													</span>
+												))}
+											</div>
 										) : (
 											<span className="text-muted-foreground">Unassigned</span>
 										)}
@@ -433,21 +441,24 @@ export function IssuePreviewSidebar({
 									align="start"
 									className="w-48 max-h-60 overflow-y-auto"
 								>
-									<DropdownMenuItem
-										onClick={() => handleUpdate("assigneeId", undefined)}
-										className="gap-2 text-xs"
-									>
-										<User className="h-3.5 w-3.5 text-muted-foreground" />
-										Unassigned
-									</DropdownMenuItem>
 									{members?.map((m) =>
 										m.user ? (
 											<DropdownMenuItem
 												key={m.userId}
-												onClick={() => handleUpdate("assigneeId", m.userId)}
+												onClick={() => {
+													const newIds = issue.assigneeIds?.includes(m.userId)
+														? (issue.assigneeIds ?? []).filter(
+																(id) => id !== m.userId,
+															)
+														: [...(issue.assigneeIds ?? []), m.userId];
+													handleUpdate(
+														"assigneeIds",
+														newIds.length > 0 ? newIds : undefined,
+													);
+												}}
 												className={cn(
 													"gap-2 text-xs",
-													m.userId === issue.assigneeId && "bg-accent",
+													issue.assigneeIds?.includes(m.userId) && "bg-accent",
 												)}
 											>
 												<Avatar className="h-4 w-4">

@@ -53,16 +53,7 @@ export function IssueBulkActionBar({
 
 	const ids = Array.from(selectedIds) as Id<"issues">[];
 
-	const handleBulkStatus = async (
-		status:
-			| "triage"
-			| "backlog"
-			| "todo"
-			| "in_progress"
-			| "in_review"
-			| "done"
-			| "cancelled",
-	) => {
+	const handleBulkStatus = async (status: string) => {
 		try {
 			await bulkUpdateStatus({ issueIds: ids, status });
 			toast.success(`Updated status for ${count} issues`);

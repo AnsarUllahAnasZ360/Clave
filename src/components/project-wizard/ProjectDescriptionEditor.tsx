@@ -1,3 +1,4 @@
+import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
@@ -10,9 +11,43 @@ import { cn } from "@/lib/utils";
 import "@/styles/tiptap.css";
 import {
 	ArrowsOutSimple,
+	Image as ImageIcon,
 	Plus,
 	StarFour,
 } from "@phosphor-icons/react/dist/ssr";
+
+export function extractImageFilesFromClipboardData(
+	clipboardData: DataTransfer | null | undefined,
+): File[] {
+	if (!clipboardData) return [];
+
+	const files: File[] = [];
+
+	for (const item of Array.from(clipboardData.items ?? [])) {
+		if (item.kind === "file" && item.type.startsWith("image/")) {
+			const file = item.getAsFile();
+			if (file) files.push(file);
+		}
+	}
+
+	// Some environments only expose clipboardData.files
+	if (files.length === 0) {
+		for (const file of Array.from(clipboardData.files ?? [])) {
+			if (file.type.startsWith("image/")) files.push(file);
+		}
+	}
+
+	return files;
+}
+
+export function extractImageFilesFromDataTransfer(
+	dataTransfer: DataTransfer | null | undefined,
+): File[] {
+	if (!dataTransfer) return [];
+	return Array.from(dataTransfer.files ?? []).filter((file) =>
+		file.type.startsWith("image/"),
+	);
+}
 
 type TemplateType =
 	| "goal"
@@ -69,6 +104,10 @@ export function ProjectDescriptionEditor({
 	const editor = useEditor({
 		extensions: [
 			StarterKit,
+			// This editor stores content as HTML and currently inserts images as data URLs
+			// (via file picker, paste, and drag/drop).
+			// TipTap's Image extension blocks base64/data URLs unless explicitly enabled.
+			Image.configure({ inline: false, allowBase64: true }),
 			Placeholder.configure({
 				placeholder: ({ node }: { node: unknown }) => {
 					const name =
@@ -92,6 +131,26 @@ export function ProjectDescriptionEditor({
 				class:
 					"tiptap-editor h-full w-full outline-none prose prose-sm prose-invert dark:prose-invert max-w-none text-foreground [&_p]:text-foreground [&_*]:text-foreground",
 			},
+			handlePaste: (_view, event) => {
+				const files = extractImageFilesFromClipboardData(
+					(event as ClipboardEvent).clipboardData,
+				);
+				if (files.length === 0) return false;
+
+				event.preventDefault();
+				insertImageFiles(files);
+				return true;
+			},
+			handleDrop: (_view, event) => {
+				const files = extractImageFilesFromDataTransfer(
+					(event as DragEvent).dataTransfer,
+				);
+				if (files.length === 0) return false;
+
+				event.preventDefault();
+				insertImageFiles(files);
+				return true;
+			},
 		},
 		content: value,
 		editable: true,
@@ -113,6 +172,31 @@ export function ProjectDescriptionEditor({
 			onChange?.(editor.getHTML());
 		},
 	});
+
+	const insertImageFiles = useCallback(
+		(files: File[]) => {
+			if (!editor) return;
+			const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+			if (imageFiles.length === 0) return;
+
+			for (const file of imageFiles) {
+				const reader = new FileReader();
+				reader.onload = (event) => {
+					const url = event.target?.result as string | null | undefined;
+					if (!url) return;
+					editor
+						.chain()
+						.focus()
+						.setImage({ src: url, alt: file.name })
+						.createParagraphNear()
+						.focus()
+						.run();
+				};
+				reader.readAsDataURL(file);
+			}
+		},
+		[editor],
+	);
 
 	useEffect(() => {
 		if (!editor) return;
@@ -164,6 +248,20 @@ export function ProjectDescriptionEditor({
 			document.removeEventListener("click", handleClickOutside);
 		};
 	}, [isFocused]);
+
+	const handleInsertImage = useCallback(() => {
+		if (!editor) return;
+		const input = document.createElement("input");
+		input.type = "file";
+		input.accept = "image/*";
+		input.multiple = true;
+		input.onchange = (e) => {
+			const files = (e.target as HTMLInputElement).files;
+			if (!files) return;
+			insertImageFiles(Array.from(files));
+		};
+		input.click();
+	}, [editor, insertImageFiles]);
 
 	const handleInsertTemplate = (type: TemplateType) => {
 		if (!editor) return;
@@ -413,6 +511,23 @@ export function ProjectDescriptionEditor({
 					<div className="w-full overflow-hidden shrink-0 animate-in fade-in zoom-in-95 duration-200">
 						<div className="h-px w-full bg-border my-2" />
 						<div className="flex flex-wrap gap-2 items-center w-full">
+							<button
+								type="button"
+								onClick={(e) => {
+									e.stopPropagation();
+									handleInsertImage();
+								}}
+								className="flex gap-1.5 items-center opacity-60 hover:opacity-100 hover:bg-muted/50 px-2 py-1 rounded transition-all"
+								title="Add image"
+							>
+								<ImageIcon
+									className="size-3.5 text-muted-foreground"
+									weight="fill"
+								/>
+								<span className="font-medium text-foreground text-xs">
+									Image
+								</span>
+							</button>
 							{showTemplates && (
 								<>
 									{!existingSections.goal && (

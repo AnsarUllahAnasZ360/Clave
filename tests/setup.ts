@@ -1,5 +1,21 @@
 import "@testing-library/jest-dom/vitest";
 
+// Some UI dependencies (e.g. cmdk) rely on ResizeObserver.
+if (!("ResizeObserver" in globalThis)) {
+	// Minimal noop polyfill is sufficient for unit tests.
+	(globalThis as any).ResizeObserver = class ResizeObserver {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	};
+}
+
+// JSDOM doesn't implement scrollIntoView; some components call it.
+if (!Element.prototype.scrollIntoView) {
+	// biome-ignore lint/suspicious/noExplicitAny: test-only polyfill
+	(Element.prototype as any).scrollIntoView = () => {};
+}
+
 const isConvexScheduledFunctionError = (error: unknown): boolean => {
 	const message = error instanceof Error ? error.message : String(error);
 	return (

@@ -97,7 +97,7 @@ export function SprintDetailPage({
 		activeFilterCount,
 		applyFilters,
 	} = useIssueFilters();
-	const [showFilters, setShowFilters] = useState(false);
+	const [_showFilters, _setShowFilters] = useState(false);
 	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(
 		null,
 	);
@@ -136,6 +136,7 @@ export function SprintDetailPage({
 			status: issue.status,
 			priority: issue.priority,
 			assigneeId: issue.assigneeId ?? undefined,
+			assigneeIds: issue.assigneeIds ?? undefined,
 			labelIds: issue.labelIds ?? undefined,
 			dueDate: issue.dueDate ?? undefined,
 			estimate: issue.estimate ?? undefined,
@@ -158,6 +159,7 @@ export function SprintDetailPage({
 			priority: issue.priority,
 			type: issue.type ?? undefined,
 			assigneeId: issue.assigneeId ?? undefined,
+			assigneeIds: issue.assigneeIds ?? undefined,
 			labelIds: issue.labelIds ?? undefined,
 			dueDate: issue.dueDate ?? undefined,
 			estimate: issue.estimate ?? undefined,
@@ -187,7 +189,7 @@ export function SprintDetailPage({
 		}));
 	}, [sprintIssues, applyFilters]);
 
-	const labelMap = useMemo(() => {
+	const _labelMap = useMemo(() => {
 		const map = new Map<string, { name: string; color: string }>();
 		if (labels) {
 			for (const l of labels) map.set(l._id, { name: l.name, color: l.color });
@@ -195,7 +197,7 @@ export function SprintDetailPage({
 		return map;
 	}, [labels]);
 
-	const memberMap = useMemo(() => {
+	const _memberMap = useMemo(() => {
 		const map = new Map<string, string>();
 		if (members) {
 			for (const m of members) map.set(m.userId, m.user?.name ?? "Unknown");
@@ -203,8 +205,8 @@ export function SprintDetailPage({
 		return map;
 	}, [members]);
 
-	const milestoneMap = useMemo(() => new Map<string, string>(), []);
-	const projectMap = useMemo(() => new Map<string, string>(), []);
+	const _milestoneMap = useMemo(() => new Map<string, string>(), []);
+	const _projectMap = useMemo(() => new Map<string, string>(), []);
 
 	if (sprint === undefined || project === undefined) {
 		return (
@@ -334,18 +336,20 @@ export function SprintDetailPage({
 			</div>
 
 			{/* Content + peek sidebar row */}
-			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-				<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+			<div className="flex flex-1 min-h-0 min-w-0 overflow-y-hidden">
+				<div className="flex flex-col flex-1 min-h-0 min-w-0">
 					{/* Issue views */}
 					{options.layout === "board" && (
-						<IssueBoardView
-							projectId={project._id}
-							boardSprintId={sprint._id}
-							externalIssues={filteredBoardIssues}
-							displayProperties={boardDisplayProperties}
-							swimlaneBy={options.swimlaneBy}
-							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-						/>
+						<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+							<IssueBoardView
+								projectId={project._id}
+								boardSprintId={sprint._id}
+								externalIssues={filteredBoardIssues}
+								displayProperties={boardDisplayProperties}
+								swimlaneBy={options.swimlaneBy}
+								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+							/>
+						</div>
 					)}
 					{options.layout === "list" && (
 						<div className="px-6 pb-6 w-full overflow-auto flex-1">

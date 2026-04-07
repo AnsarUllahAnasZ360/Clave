@@ -464,7 +464,6 @@ function FolderGroup({
 								onChange={(e) => setNewSprintName(e.target.value)}
 								placeholder="Sprint name..."
 								className="flex-1 text-xs bg-transparent border border-border/60 rounded px-2 py-1 outline-none focus:border-sienna-500/50"
-								autoFocus
 								onKeyDown={(e) => {
 									if (e.key === "Escape") setIsAddingSprint(false);
 								}}
@@ -550,7 +549,7 @@ function MilestonesSection({
 	);
 
 	// Group sprints by folder
-	const folderMap = new Map(folders.map((f) => [f._id, f.name]));
+	const _folderMap = new Map(folders.map((f) => [f._id, f.name]));
 	const looseSprints = milestones.filter(
 		(m) => !(m as MilestoneData & { folderId?: string }).folderId,
 	);
