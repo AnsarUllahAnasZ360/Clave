@@ -83,7 +83,10 @@ export function CodeBlockElement(props: PlateElementProps<TCodeBlockElement>) {
 	if (isMermaid) {
 		return (
 			<PlateElement className="py-1" {...props}>
-				<div className="relative rounded-md bg-muted/50" contentEditable={false}>
+				<div
+					className="relative rounded-md bg-muted/50"
+					contentEditable={false}
+				>
 					<MermaidRenderer code={codeContent} />
 					<div
 						className="absolute top-4 right-4 z-10 flex select-none gap-0.5 pointer-events-auto"

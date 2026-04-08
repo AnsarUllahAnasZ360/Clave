@@ -18,4 +18,3 @@ describe("issueDraftDescriptionPrompt", () => {
 		expect(prompt).toContain("Write in markdown.");
 	});
 });
-

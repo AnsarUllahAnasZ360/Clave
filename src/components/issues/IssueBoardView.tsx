@@ -239,13 +239,15 @@ export function IssueBoardView({
 
 	function normalizeWheelDeltaY(e: WheelEvent): number {
 		if (e.deltaMode === 1) return e.deltaY * 16;
-		if (e.deltaMode === 2) return e.deltaY * (scrollRef.current?.clientWidth ?? 0);
+		if (e.deltaMode === 2)
+			return e.deltaY * (scrollRef.current?.clientWidth ?? 0);
 		return e.deltaY;
 	}
 
 	function normalizeWheelDeltaX(e: WheelEvent): number {
 		if (e.deltaMode === 1) return e.deltaX * 16;
-		if (e.deltaMode === 2) return e.deltaX * (scrollRef.current?.clientWidth ?? 0);
+		if (e.deltaMode === 2)
+			return e.deltaX * (scrollRef.current?.clientWidth ?? 0);
 		return e.deltaX;
 	}
 
