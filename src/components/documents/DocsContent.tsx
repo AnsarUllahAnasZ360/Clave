@@ -469,15 +469,12 @@ export function DocsContent() {
 											</div>
 											{/* Action button */}
 											<DropdownMenu>
-												<DropdownMenuTrigger asChild>
-													<button
-														type="button"
-														onClick={(e) => e.stopPropagation()}
-														className="opacity-0 group-hover:opacity-100 shrink-0 rounded-md p-1 hover:bg-muted transition-opacity"
-														aria-label="Document actions"
-													>
-														<Ellipsis className="h-4 w-4 text-muted-foreground" />
-													</button>
+												<DropdownMenuTrigger
+													className="opacity-0 group-hover:opacity-100 shrink-0 rounded-md p-1 hover:bg-muted transition-opacity"
+													aria-label="Document actions"
+													onClick={(e) => e.stopPropagation()}
+												>
+													<Ellipsis className="h-4 w-4 text-muted-foreground" />
 												</DropdownMenuTrigger>
 												<DropdownMenuContent
 													align="end"
@@ -633,15 +630,12 @@ export function DocsContent() {
 												</td>
 												<td className="px-3 py-2.5">
 													<DropdownMenu>
-														<DropdownMenuTrigger asChild>
-															<button
-																type="button"
-																onClick={(e) => e.stopPropagation()}
-																className="opacity-0 group-hover:opacity-100 rounded-md p-1 hover:bg-muted transition-opacity"
-																aria-label="Document actions"
-															>
-																<Ellipsis className="h-4 w-4 text-muted-foreground" />
-															</button>
+														<DropdownMenuTrigger
+															className="opacity-0 group-hover:opacity-100 rounded-md p-1 hover:bg-muted transition-opacity"
+															aria-label="Document actions"
+															onClick={(e) => e.stopPropagation()}
+														>
+															<Ellipsis className="h-4 w-4 text-muted-foreground" />
 														</DropdownMenuTrigger>
 														<DropdownMenuContent
 															align="end"

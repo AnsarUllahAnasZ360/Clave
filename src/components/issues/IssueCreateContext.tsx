@@ -22,6 +22,8 @@ export interface IssueCreatePreset {
 	status?: string;
 	assigneeId?: string;
 	assigneeIds?: string[];
+	/** Source of issue creation for formatting hints (e.g., "document" for plain text descriptions) */
+	source?: "document" | "project" | "board" | "tasks";
 }
 
 /**

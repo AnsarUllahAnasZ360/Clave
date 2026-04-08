@@ -14,9 +14,8 @@ describe("ProjectDescriptionEditor (create project) image file extraction", () =
 			items: [
 				{ kind: "file", type: "image/png", getAsFile: () => image },
 				{ kind: "file", type: "text/plain", getAsFile: () => text },
-			] as any,
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			files: [] as any,
+			] as unknown as DataTransferItemList,
+			files: [] as unknown as FileList,
 		} as unknown as DataTransfer);
 
 		expect(files).toEqual([image]);

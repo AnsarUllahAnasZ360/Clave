@@ -4,23 +4,27 @@ import {
 	BoldIcon,
 	Code2Icon,
 	ItalicIcon,
+	SquareCheckBigIcon,
 	StrikethroughIcon,
 	UnderlineIcon,
 } from "lucide-react";
 import { KEYS } from "platejs";
-import { useEditorReadOnly } from "platejs/react";
+import { useEditorReadOnly, useEditorRef } from "platejs/react";
 
+import { useIssueCreateOptional } from "@/components/issues/IssueCreateContext";
 import { CommentToolbarButton } from "./comment-toolbar-button";
 import { InlineEquationToolbarButton } from "./equation-toolbar-button";
 import { LinkToolbarButton } from "./link-toolbar-button";
 import { MarkToolbarButton } from "./mark-toolbar-button";
 import { MoreToolbarButton } from "./more-toolbar-button";
 import { SuggestionToolbarButton } from "./suggestion-toolbar-button";
-import { ToolbarGroup } from "./toolbar";
+import { ToolbarButton, ToolbarGroup } from "./toolbar";
 import { TurnIntoToolbarButton } from "./turn-into-toolbar-button";
 
 export function FloatingToolbarButtons() {
 	const readOnly = useEditorReadOnly();
+	const editor = useEditorRef();
+	const ctx = useIssueCreateOptional();
 
 	return (
 		<>
@@ -65,6 +69,23 @@ export function FloatingToolbarButtons() {
 						<InlineEquationToolbarButton />
 						<LinkToolbarButton />
 					</ToolbarGroup>
+
+					{/* Quick task creation */}
+					{ctx && (
+						<ToolbarGroup>
+							<ToolbarButton
+								tooltip="Create task from selection"
+								onClick={() => {
+									const text = editor.api.string(editor.selection);
+									if (!text?.trim()) return;
+									ctx.openFullCreate({ source: "document" });
+									ctx.updateForm({ title: text.trim() });
+								}}
+							>
+								<SquareCheckBigIcon />
+							</ToolbarButton>
+						</ToolbarGroup>
+					)}
 				</>
 			)}
 

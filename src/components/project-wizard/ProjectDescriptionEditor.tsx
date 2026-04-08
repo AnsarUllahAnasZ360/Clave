@@ -436,6 +436,7 @@ export function ProjectDescriptionEditor({
 						: "bg-muted/10 hover:bg-muted/20 rounded-lg cursor-text",
 				)}
 				role="presentation"
+				// biome-ignore lint/a11y/noStaticElementInteractions: wrapper focuses editor on click
 				onClick={() => {
 					if (!isFocused) {
 						setIsFocused(true);

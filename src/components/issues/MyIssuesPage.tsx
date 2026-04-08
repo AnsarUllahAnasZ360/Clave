@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
 	BarChart3,
 	Calendar,
@@ -10,19 +10,29 @@ import {
 	CircleDashed,
 	CircleX,
 	ClipboardList,
+	Copy,
 	Diamond,
+	ExternalLink,
 	Flag,
+	Link2,
+	MoreHorizontal,
 	Plus,
 	SignalHigh,
 	Timer,
+	Trash2,
 	TriangleAlert,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { IssueBulkActionBar } from "@/components/issues/IssueBulkActionBar";
 import { useIssueCreate } from "@/components/issues/IssueCreateContext";
-import { formatEstimate } from "@/components/issues/IssueListRow";
+import {
+	formatEstimate,
+	type IssueListData,
+} from "@/components/issues/IssueListRow";
+import { IssueListView } from "@/components/issues/IssueListView";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -32,6 +42,13 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDisplayOptions } from "@/hooks/use-display-options";
@@ -168,6 +185,27 @@ function toCardData(issues: IssueData[]): IssueCardData[] {
 		title: issue.title,
 		status: issue.status,
 		priority: issue.priority,
+		assigneeId: issue.assigneeId,
+		assigneeIds: issue.assigneeIds,
+		labelIds: issue.labelIds,
+		dueDate: issue.dueDate,
+		estimate: issue.estimate,
+		sortOrder: issue._creationTime + index,
+		projectId: issue.projectId,
+		sprintId: issue.sprintId,
+		milestoneId: issue.milestoneId,
+	}));
+}
+
+function toListData(issues: IssueData[]): IssueListData[] {
+	return issues.map((issue, index) => ({
+		_id: issue._id,
+		_creationTime: issue._creationTime,
+		identifier: issue.identifier,
+		title: issue.title,
+		status: issue.status,
+		priority: issue.priority,
+		type: issue.type,
 		assigneeId: issue.assigneeId,
 		assigneeIds: issue.assigneeIds,
 		labelIds: issue.labelIds,
@@ -358,6 +396,7 @@ function IssueRow({
 	isHighlighted,
 	onClick,
 	onNavigate,
+	onDelete,
 	memberMap,
 	projectMap,
 	labelMap,
@@ -369,6 +408,7 @@ function IssueRow({
 	isHighlighted: boolean;
 	onClick: () => void;
 	onNavigate: () => void;
+	onDelete: () => void;
 	memberMap: Map<string, { name: string; image?: string }>;
 	projectMap: Map<string, string>;
 	labelMap: Map<string, LabelData>;
@@ -419,9 +459,11 @@ function IssueRow({
 	const typeConfig =
 		issue.type && issue.type !== "issue" ? TYPE_CONFIG[issue.type] : undefined;
 
+	const issueUrl = `/${workspaceSlug}/issues/${issue.identifier}`;
+
 	return (
 		<Link
-			href={`/${workspaceSlug}/issues/${issue.identifier}`}
+			href={issueUrl as unknown as never}
 			prefetch={false}
 			onClick={(e) => {
 				e.preventDefault();
@@ -441,12 +483,9 @@ function IssueRow({
 			)}
 		>
 			{bulkSelect ? (
-				<div
+				<button
+					type="button"
 					className="shrink-0"
-					role="checkbox"
-					aria-checked={bulkSelect.selected}
-					aria-label="Select issue"
-					tabIndex={0}
 					onClick={(e) => {
 						e.preventDefault();
 						e.stopPropagation();
@@ -465,7 +504,7 @@ function IssueRow({
 						className="pointer-events-none"
 						aria-label="Select issue"
 					/>
-				</div>
+				</button>
 			) : null}
 
 			{/* Status icon */}
@@ -477,7 +516,95 @@ function IssueRow({
 			</span>
 
 			{/* Title */}
-			<span className="flex-1 text-sm truncate min-w-0">{issue.title}</span>
+			<div className="flex-1 min-w-0 flex items-center gap-2">
+				<span className="text-sm truncate min-w-0 flex-1">{issue.title}</span>
+				<div
+					className="shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+					aria-hidden="true"
+				>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<button
+								type="button"
+								aria-label="Issue options"
+								className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+								onPointerDown={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+								}}
+							>
+								<MoreHorizontal className="h-4 w-4" />
+							</button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							<DropdownMenuItem
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									onClick();
+								}}
+								className="gap-2"
+							>
+								<ExternalLink className="h-4 w-4" />
+								Open issue
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									void (async () => {
+										try {
+											const absolute = new URL(
+												issueUrl,
+												window.location.origin,
+											).toString();
+											await navigator.clipboard.writeText(absolute);
+											toast.success("Link copied to clipboard");
+										} catch {
+											toast.error("Failed to copy link");
+										}
+									})();
+								}}
+								className="gap-2"
+							>
+								<Link2 className="h-4 w-4" />
+								Copy link
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									void (async () => {
+										try {
+											await navigator.clipboard.writeText(issue.identifier);
+											toast.success(`Copied "${issue.identifier}"`);
+										} catch {
+											toast.error("Failed to copy identifier");
+										}
+									})();
+								}}
+								className="gap-2"
+							>
+								<Copy className="h-4 w-4" />
+								Copy ID
+							</DropdownMenuItem>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								variant="destructive"
+								onClick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									onDelete();
+								}}
+								className="gap-2"
+							>
+								<Trash2 className="h-4 w-4" />
+								Delete issue
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
+			</div>
 
 			{/* Type badge */}
 			{typeConfig && (
@@ -622,6 +749,7 @@ function GroupedIssueList({
 	workspaceSlug,
 	onIssueClick,
 	onIssueNavigate,
+	onDeleteIssue,
 	selectedIds,
 	onSelectIssue,
 }: {
@@ -635,6 +763,7 @@ function GroupedIssueList({
 	workspaceSlug: string;
 	onIssueClick: (issueId: Id<"issues">) => void;
 	onIssueNavigate: (identifier: string) => void;
+	onDeleteIssue: (issue: IssueData) => void;
 	selectedIds: Set<string>;
 	onSelectIssue: (issueId: string, shiftKey: boolean) => void;
 }) {
@@ -677,6 +806,7 @@ function GroupedIssueList({
 									labelMap={labelMap}
 									displayProperties={displayProperties}
 									workspaceSlug={workspaceSlug}
+									onDelete={() => onDeleteIssue(issue)}
 									bulkSelect={{
 										selected: selectedIds.has(issue._id as string),
 										onToggle: (shiftKey) =>
@@ -713,7 +843,7 @@ function EmptyIssuesHint() {
 
 // ── Tab Content Component ──────────────────────────────────────────────────
 
-function IssueTabContent({
+function _IssueTabContent({
 	issues,
 	groupBy,
 	displayProperties,
@@ -742,6 +872,7 @@ function IssueTabContent({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const router = useRouter();
 	const shortcuts = useShortcutsOptional();
+	const removeIssue = useMutation(api.issues.remove);
 
 	const sections = useMemo<GroupedSection[]>(() => {
 		if (!issues) return [];
@@ -865,6 +996,28 @@ function IssueTabContent({
 		[onSelectIssue, handleIssueNavigate, flatIssues],
 	);
 
+	const handleDeleteIssue = useCallback(
+		async (issue: IssueData) => {
+			const ok = window.confirm(
+				`Delete ${issue.identifier}? This cannot be undone.`,
+			);
+			if (!ok) return;
+			try {
+				await removeIssue({ issueId: issue._id });
+				toast.success("Issue deleted");
+				setSelectedIds((prev) => {
+					if (!prev.has(issue._id as string)) return prev;
+					const next = new Set(prev);
+					next.delete(issue._id as string);
+					return next;
+				});
+			} catch {
+				toast.error("Failed to delete issue");
+			}
+		},
+		[removeIssue],
+	);
+
 	// Sync active issue with shortcut provider for S/A/P/L shortcuts
 	useEffect(() => {
 		const activeIssue =
@@ -944,6 +1097,7 @@ function IssueTabContent({
 				workspaceSlug={workspaceSlug}
 				onIssueClick={handleIssueSelect}
 				onIssueNavigate={handleIssueNavigate}
+				onDeleteIssue={handleDeleteIssue}
 				selectedIds={selectedIds}
 				onSelectIssue={handleSelectIssue}
 			/>
@@ -960,7 +1114,7 @@ function IssueTabContent({
 // ── Main Page Component ────────────────────────────────────────────────────
 
 export function MyIssuesPage() {
-	const { workspaceId, workspaceSlug } = useWorkspace();
+	const { workspaceId } = useWorkspace();
 	const { openQuickCreate } = useIssueCreate();
 
 	// Tab state
@@ -1104,7 +1258,7 @@ export function MyIssuesPage() {
 			? { issueIds: activeIssueIds as Id<"issues">[] }
 			: "skip",
 	);
-	const blockingIssueIds = useMemo(
+	const _blockingIssueIds = useMemo(
 		() =>
 			new Set<string>((blockingIssueIdsRaw ?? []).map((id) => id as string)),
 		[blockingIssueIdsRaw],
@@ -1276,14 +1430,7 @@ export function MyIssuesPage() {
 			{/* ── Main content area + sidebar panels ─────────────────── */}
 			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
 				{/* Board / List content — must shrink when insights panel opens */}
-				<div
-					className={cn(
-						"flex-1 min-h-0 min-w-0",
-						displayOptions.layout === "board"
-							? "flex flex-col overflow-hidden"
-							: "overflow-auto",
-					)}
-				>
+				<div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
 					{displayOptions.layout === "board" ? (
 						<IssueBoardView
 							externalIssues={
@@ -1300,25 +1447,23 @@ export function MyIssuesPage() {
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>
 					) : (
-						<IssueTabContent
+						<IssueListView
 							issues={
 								activeIssues[activeTab]
-									? applyFilters(activeIssues[activeTab] as IssueData[])
-									: undefined
+									? toListData(
+											applyFilters(activeIssues[activeTab] as IssueData[]),
+										)
+									: []
 							}
-							groupBy={displayOptions.groupBy}
+							groupBy={
+								displayOptions.groupBy === "focus"
+									? "status"
+									: displayOptions.groupBy
+							}
+							orderBy={displayOptions.orderBy}
 							displayProperties={displayOptions.displayProperties}
-							blockingIssueIds={blockingIssueIds}
-							memberMap={memberMap}
-							projectMap={projectMap}
-							milestoneMap={milestoneMap}
-							labelMap={labelMap}
-							sprintOptions={(workspaceSprints ?? []).map((s) => ({
-								id: s._id as string,
-								name: s.name,
-							}))}
-							workspaceSlug={workspaceSlug}
-							onSelectIssue={setSelectedIssueId}
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+							hideFilter
 						/>
 					)}
 				</div>

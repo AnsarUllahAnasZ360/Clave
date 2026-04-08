@@ -458,7 +458,7 @@ export function ProjectPropertiesPanel({
 	onUpdate,
 	onRemoveClient,
 }: ProjectPropertiesPanelProps) {
-	const { workspaceSlug, workspaceId } = useWorkspace();
+	const { workspaceSlug } = useWorkspace();
 	const workspaceLabels = useWorkspaceLabels();
 	const documents = useQuery(api.documents.listByProject, {
 		projectId: project._id,

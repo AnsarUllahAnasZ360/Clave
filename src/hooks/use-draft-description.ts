@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { useEmbeddedAI } from "./use-embedded-ai";
 
 interface UseDraftDescriptionReturn {
-	/** Generated description text (markdown). */
+	/** Generated description text (markdown or plain text). */
 	description: string | null;
 	/** Whether the AI action is in progress. */
 	loading: boolean;
@@ -17,6 +17,7 @@ interface UseDraftDescriptionReturn {
 		issueType?: string;
 		priority?: string;
 		issueId?: string;
+		plainText?: boolean;
 	}) => Promise<string | null>;
 }
 
@@ -43,6 +44,7 @@ export function useDraftDescription(): UseDraftDescriptionReturn {
 						issueId: args.issueId,
 					},
 					prompt: args.title,
+					plainText: args.plainText,
 				});
 
 				if (result?.error) {

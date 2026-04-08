@@ -74,6 +74,7 @@ interface EmbeddedAIArgs {
 	selectedText?: string;
 	targetLanguage?: string;
 	whiteboard?: WhiteboardAIOptions;
+	plainText?: boolean;
 }
 
 interface UseEmbeddedAIReturn extends UseStreamingTextReturn {
@@ -115,6 +116,7 @@ export function useEmbeddedAI(): UseEmbeddedAIReturn {
 					whiteboard: args.whiteboard as Parameters<
 						typeof embeddedAction
 					>[0]["whiteboard"],
+					plainText: args.plainText,
 				});
 
 				const actionResult: AIActionResult = {

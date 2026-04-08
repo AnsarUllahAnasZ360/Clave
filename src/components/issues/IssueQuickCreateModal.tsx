@@ -20,6 +20,7 @@ import {
 	AutoTriagePanel,
 	AutoTriagePanelSkeleton,
 } from "@/components/ai/issues/AutoTriagePanel";
+import { DraftDescriptionButton } from "@/components/ai/issues/DraftDescriptionButton";
 import { DuplicateDetection } from "@/components/ai/issues/DuplicateDetection";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
@@ -92,7 +93,7 @@ export function IssueQuickCreateModal({
 	onIssueCreated,
 }: IssueQuickCreateModalProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
-	const { formState, updateForm, switchMode, resetFormKeepProperties } =
+	const { formState, updateForm, switchMode, resetFormKeepProperties, preset } =
 		useIssueCreate();
 	const createIssue = useMutation(api.issues.create);
 	const rawProjects = useWorkspaceProjects();
@@ -421,19 +422,41 @@ export function IssueQuickCreateModal({
 					</div>
 
 					{/* Description textarea */}
-					<textarea
-						ref={descriptionRef}
-						value={quickDescriptionText}
-						onChange={(e) => {
-							updateForm({ description: e.target.value });
-							const el = e.target;
-							el.style.height = "auto";
-							el.style.height = `${el.scrollHeight}px`;
-						}}
-						placeholder="Add description..."
-						rows={1}
-						className="w-full text-sm text-foreground placeholder:text-muted-foreground outline-none bg-transparent border-none resize-none overflow-hidden pl-7"
-					/>
+					<div className="space-y-2">
+						<div className="flex items-center justify-between">
+							<span className="text-xs text-muted-foreground">Description</span>
+							<DraftDescriptionButton
+								title={formState.title}
+								workspaceId={workspaceId}
+								issueType={formState.issueType}
+								priority={formState.priority}
+								hasExistingContent={quickDescriptionText.length > 0}
+								plainText={preset.source === "document"}
+								onDraft={(text) => {
+									updateForm({ description: text });
+									setTimeout(() => {
+										if (descriptionRef.current) {
+											descriptionRef.current.style.height = "auto";
+											descriptionRef.current.style.height = `${descriptionRef.current.scrollHeight}px`;
+										}
+									}, 0);
+								}}
+							/>
+						</div>
+						<textarea
+							ref={descriptionRef}
+							value={quickDescriptionText}
+							onChange={(e) => {
+								updateForm({ description: e.target.value });
+								const el = e.target;
+								el.style.height = "auto";
+								el.style.height = `${el.scrollHeight}px`;
+							}}
+							placeholder="Add description..."
+							rows={1}
+							className="w-full text-sm text-foreground placeholder:text-muted-foreground outline-none bg-transparent border-none resize-none overflow-hidden pl-7"
+						/>
+					</div>
 
 					{/* AI Auto-Triage (compact) */}
 					{triageLoading && !triageDismissed && (

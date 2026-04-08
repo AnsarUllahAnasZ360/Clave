@@ -18,6 +18,8 @@ interface DraftDescriptionButtonProps {
 	issueId?: string;
 	/** Whether description already has content (shows overwrite confirm). */
 	hasExistingContent?: boolean;
+	/** Generate plain text without markdown formatting (e.g., for doc context). */
+	plainText?: boolean;
 	/** Called with the generated description text. */
 	onDraft: (text: string) => void;
 }
@@ -29,6 +31,7 @@ export function DraftDescriptionButton({
 	priority,
 	issueId,
 	hasExistingContent = false,
+	plainText,
 	onDraft,
 }: DraftDescriptionButtonProps) {
 	const { loading, generateDraft } = useDraftDescription();
@@ -47,6 +50,7 @@ export function DraftDescriptionButton({
 			issueType,
 			priority,
 			issueId,
+			plainText,
 		});
 
 		if (text) {
@@ -62,6 +66,7 @@ export function DraftDescriptionButton({
 		issueId,
 		hasExistingContent,
 		confirmOverwrite,
+		plainText,
 		generateDraft,
 		onDraft,
 	]);

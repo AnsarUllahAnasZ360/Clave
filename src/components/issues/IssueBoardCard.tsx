@@ -124,9 +124,8 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 	};
 
 	return (
-		<div
-			role="button"
-			tabIndex={0}
+		<button
+			type="button"
 			className={cn(
 				"group border border-border bg-card rounded-lg p-3 cursor-pointer transition-shadow hover:shadow-md w-full text-left",
 				issue.status === "done" && "opacity-70",
@@ -151,11 +150,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 						</span>
 					)}
 				</div>
-				<div
-					className="flex items-center gap-1 shrink-0"
-					onClick={(e) => e.stopPropagation()}
-					onKeyDown={(e) => e.stopPropagation()}
-				>
+				<div className="flex items-center gap-1 shrink-0">
 					{display.assignee &&
 						(assignees && assignees.length > 0 ? (
 							<div className="flex items-center gap-1">
@@ -198,6 +193,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 								aria-label="Issue options"
 								className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
 								onPointerDown={(e) => e.stopPropagation()}
+								onClick={(e) => e.stopPropagation()}
 							>
 								<MoreHorizontal className="h-4 w-4" />
 							</button>
@@ -306,7 +302,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 
 				{display.blockingStatus && <BlockingIndicators issueId={issue._id} />}
 			</div>
-		</div>
+		</button>
 	);
 });
 

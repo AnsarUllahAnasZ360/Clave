@@ -108,7 +108,7 @@ export function StoriesBoardView({
 				priority: mapPriority(story.priority),
 				assignee: assignee
 					? {
-							id: story.assigneeId!,
+							id: story.assigneeId as unknown as string,
 							name: assignee.name,
 							avatarUrl: assignee.image,
 						}

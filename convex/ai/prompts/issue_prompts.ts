@@ -35,6 +35,7 @@ export function issueDraftDescriptionPrompt(context: {
 	title: string;
 	priority?: string;
 	type?: string;
+	plainText?: boolean;
 }): string {
 	const metaBlock = [
 		context.priority ? `Priority: ${context.priority}` : null,
@@ -43,6 +44,9 @@ export function issueDraftDescriptionPrompt(context: {
 		.filter(Boolean)
 		.join(", ");
 	const metaSuffix = metaBlock ? `\nMetadata: ${metaBlock}` : "";
+	const formatInstruction = context.plainText
+		? "Do not use markdown formatting or special characters like #, *, [, etc."
+		: "Write in markdown.";
 
 	return `You are a project management assistant. Write a clear issue description based on the title. Include:
 1. A brief problem statement
@@ -51,7 +55,7 @@ export function issueDraftDescriptionPrompt(context: {
 
 Issue title: ${context.title}${metaSuffix}
 
-Write in markdown. Be concise and actionable. Do not repeat the title.`;
+${formatInstruction} Be concise and actionable. Do not repeat the title.`;
 }
 
 export function issueDetectDuplicatesPrompt(context: {

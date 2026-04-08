@@ -28,7 +28,8 @@ export function RecentFileCard({
 			: `${file.sizeMB.toFixed(1)} MB`;
 
 	return (
-		<div
+		<button
+			type="button"
 			className="flex items-center justify-between rounded-2xl border border-border bg-card px-4 py-3 cursor-pointer"
 			onClick={() => onClick?.(file.id)}
 		>
@@ -66,6 +67,6 @@ export function RecentFileCard({
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
-		</div>
+		</button>
 	);
 }

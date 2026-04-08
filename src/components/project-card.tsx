@@ -148,6 +148,7 @@ export function ProjectCard({
 	};
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: card uses div for layout; click navigates and supports board dragging heuristic
 		<div
 			role="presentation"
 			onClick={() => {
@@ -196,6 +197,7 @@ export function ProjectCard({
 							<PriorityBadge level={project.priority} appearance="inline" />
 						)}
 						{actions ? (
+							// biome-ignore lint/a11y/noStaticElementInteractions: container prevents card click when interacting with actions
 							<div
 								role="presentation"
 								className="shrink-0"

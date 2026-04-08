@@ -645,6 +645,55 @@ export function IssueListView({
 		[lastClickedId, visibleIssueIds],
 	);
 
+	// Helper: Get all issue IDs from a group (including subgroups)
+	const getGroupIssueIds = useCallback((group: GroupedIssues): string[] => {
+		const ids: string[] = [];
+		for (const issue of group.issues) {
+			ids.push(issue._id as string);
+		}
+		if (group.subGroups) {
+			for (const subGroup of group.subGroups) {
+				ids.push(...getGroupIssueIds(subGroup));
+			}
+		}
+		return ids;
+	}, []);
+
+	// Helper: Calculate checkbox state for a group
+	const getGroupCheckboxState = useCallback(
+		(group: GroupedIssues): boolean | "indeterminate" => {
+			const groupIds = getGroupIssueIds(group);
+			if (groupIds.length === 0) return false;
+			let selected = 0;
+			for (const id of groupIds) {
+				if (selectedIds.has(id)) selected++;
+			}
+			if (selected === 0) return false;
+			if (selected === groupIds.length) return true;
+			return "indeterminate";
+		},
+		[getGroupIssueIds, selectedIds],
+	);
+
+	// Helper: Toggle all issues in a group
+	const toggleSelectGroup = useCallback(
+		(group: GroupedIssues) => {
+			const groupIds = getGroupIssueIds(group);
+			setSelectedIds((prev) => {
+				const allSelected = groupIds.every((id) => prev.has(id));
+				const next = new Set(prev);
+				if (allSelected) {
+					for (const id of groupIds) next.delete(id);
+				} else {
+					for (const id of groupIds) next.add(id);
+				}
+				return next;
+			});
+			setLastClickedId(null);
+		},
+		[getGroupIssueIds],
+	);
+
 	// Map from issue ID to identifier for URL generation
 	const idToIdentifier = useMemo(() => {
 		const map = new Map<string, string>();
@@ -681,15 +730,67 @@ export function IssueListView({
 		[updateStatus],
 	);
 
-	// Drag/drop across groups (status only for now)
-	const canDragAcrossGroups = groupBy === "status";
-	const issueIdToStatus = useMemo(() => {
+	const handlePriorityChange = useCallback(
+		async (issueId: Id<"issues">, priority: string) => {
+			try {
+				await updateIssue({
+					issueId,
+					priority: priority as
+						| "urgent"
+						| "high"
+						| "medium"
+						| "low"
+						| "no_priority",
+				});
+			} catch {
+				toast.error("Failed to update priority");
+			}
+		},
+		[updateIssue],
+	);
+
+	const handleAssigneeChange = useCallback(
+		async (issueId: Id<"issues">, assigneeId: string | undefined) => {
+			try {
+				await assignIssue({
+					issueId,
+					assigneeId: assigneeId ? (assigneeId as Id<"users">) : undefined,
+				});
+			} catch {
+				toast.error("Failed to update assignee");
+			}
+		},
+		[assignIssue],
+	);
+
+	// Drag/drop across groups (status, priority, and assignee)
+	const canDragAcrossGroups =
+		groupBy === "status" || groupBy === "priority" || groupBy === "assignee";
+	const issueIdToGroupKey = useMemo(() => {
 		const map = new Map<string, string>();
 		for (const issue of sortedIssues) {
-			map.set(issue._id as string, issue.status);
+			if (groupBy === "priority") {
+				map.set(issue._id as string, issue.priority);
+			} else if (groupBy === "assignee") {
+				const ids =
+					issue.assigneeIds && issue.assigneeIds.length > 0
+						? issue.assigneeIds
+						: issue.assigneeId
+							? [issue.assigneeId]
+							: [];
+				const key =
+					ids.length === 0
+						? "unassigned"
+						: ids.length === 1
+							? (ids[0] as string)
+							: "multiple";
+				map.set(issue._id as string, key);
+			} else {
+				map.set(issue._id as string, issue.status);
+			}
 		}
 		return map;
-	}, [sortedIssues]);
+	}, [sortedIssues, groupBy]);
 	const handleDragEnd = useCallback(
 		(event: {
 			active: { id: string | number };
@@ -701,17 +802,36 @@ export function IssueListView({
 			const overId = String(event.over.id);
 			// Prefer explicit group drop zone, but also support dropping onto a row
 			// inside the destination group (typical sortable list behavior).
-			const nextStatus = overId.startsWith("group:")
+			const nextGroupKey = overId.startsWith("group:")
 				? overId.slice("group:".length)
-				: issueIdToStatus.get(overId);
-			if (!nextStatus) return;
-			const currentStatus = issueIdToStatus.get(activeId);
-			if (currentStatus === nextStatus) return;
+				: issueIdToGroupKey.get(overId);
+			if (!nextGroupKey) return;
+			const currentGroupKey = issueIdToGroupKey.get(activeId);
+			if (currentGroupKey === nextGroupKey) return;
 			// Request scroll restoration after the status mutation triggers re-render.
 			requestRestoreRef.current = true;
-			void handleStatusChange(activeId as Id<"issues">, nextStatus);
+			if (groupBy === "status") {
+				void handleStatusChange(activeId as Id<"issues">, nextGroupKey);
+			} else if (groupBy === "priority") {
+				void handlePriorityChange(activeId as Id<"issues">, nextGroupKey);
+			} else if (groupBy === "assignee") {
+				if (nextGroupKey === "multiple") return;
+				void handleAssigneeChange(
+					activeId as Id<"issues">,
+					nextGroupKey === "unassigned"
+						? undefined
+						: (nextGroupKey as Id<"users">),
+				);
+			}
 		},
-		[canDragAcrossGroups, handleStatusChange, issueIdToStatus],
+		[
+			canDragAcrossGroups,
+			handleStatusChange,
+			handlePriorityChange,
+			handleAssigneeChange,
+			issueIdToGroupKey,
+			groupBy,
+		],
 	);
 
 	useEffect(() => {
@@ -786,39 +906,6 @@ export function IssueListView({
 			</div>
 		);
 	}
-
-	const handlePriorityChange = useCallback(
-		async (issueId: Id<"issues">, priority: string) => {
-			try {
-				await updateIssue({
-					issueId,
-					priority: priority as
-						| "urgent"
-						| "high"
-						| "medium"
-						| "low"
-						| "no_priority",
-				});
-			} catch {
-				toast.error("Failed to update priority");
-			}
-		},
-		[updateIssue],
-	);
-
-	const handleAssigneeChange = useCallback(
-		async (issueId: Id<"issues">, assigneeId: string | undefined) => {
-			try {
-				await assignIssue({
-					issueId,
-					assigneeId: assigneeId ? (assigneeId as Id<"users">) : undefined,
-				});
-			} catch {
-				toast.error("Failed to update assignee");
-			}
-		},
-		[assignIssue],
-	);
 
 	const handleAssigneesChange = useCallback(
 		async (issueId: Id<"issues">, assigneeIds: string[] | undefined) => {
@@ -1077,107 +1164,99 @@ export function IssueListView({
 		(group: GroupedIssues, parentKey?: string) => {
 			const key = parentKey ? `${parentKey}::${group.key}` : group.key;
 			const isCollapsed = collapsedGroups.has(key);
+			const checkboxState = getGroupCheckboxState(group);
 
 			return (
-				<button
+				<div
 					key={`header-${key}`}
-					type="button"
 					className={cn(
-						"flex items-center gap-2 w-full h-8 px-2 text-xs font-medium text-muted-foreground hover:bg-muted/40 transition-colors border-b border-border/30",
+						"flex items-center gap-2 w-full h-8 px-2 text-xs font-medium text-muted-foreground border-b border-border/30 shrink-0",
 						parentKey && "pl-6",
 					)}
-					onClick={() => toggleGroup(key)}
 				>
-					{isCollapsed ? (
-						<ChevronRight className="h-3.5 w-3.5 shrink-0" />
-					) : (
-						<ChevronDown className="h-3.5 w-3.5 shrink-0" />
-					)}
-					{group.icon}
-					<span className="font-medium text-foreground">{group.label}</span>
-					<span className="text-muted-foreground">{group.count}</span>
-				</button>
-			);
-		},
-		[collapsedGroups, toggleGroup],
-	);
-
-	const renderIssueRow = useCallback(
-		(issue: IssueListData) => {
-			const idx = flatIssueIds.indexOf(issue._id);
-			const props = resolveIssueProps(issue);
-			const issueId = issue._id as string;
-			const issueUrl = `/${workspaceSlug}/issues/${issue.identifier}`;
-
-			return (
-				<SortableIssueRow key={issue._id} issueId={issueId}>
-					<div
-						onClickCapture={(e) => {
-							// Modifier click selects (like ClickUp). Normal click opens.
-							if (e.ctrlKey || e.metaKey || e.shiftKey) {
-								e.preventDefault();
-								e.stopPropagation();
-								handleSelectIssue(issueId, e.shiftKey);
-							}
-						}}
-					>
-						<IssueListRow
-							issue={issue}
-							columns={visibleColumns}
-							isHighlighted={idx === highlightedIndex}
-							issueUrl={issueUrl}
-							onDelete={handleDeleteIssue}
-							memberOptions={memberOptions}
-							labelOptions={labelOptions}
-							projectOptions={projectOptions}
-							milestoneOptions={milestoneOptions}
-							assignee={props.assignee}
-							projectName={props.projectName}
-							milestoneName={props.milestoneName}
-							onStatusChange={handleStatusChange}
-							onPriorityChange={handlePriorityChange}
-							onAssigneeChange={handleAssigneeChange}
-							onAssigneesChange={handleAssigneesChange}
-							onLabelToggle={handleLabelToggle}
-							onMilestoneChange={handleMilestoneChange}
-							onEstimateChange={handleEstimateChange}
-							onDueDateChange={handleDueDateChange}
-							onProjectChange={handleProjectChange}
-							bulkSelect={{
-								selected: selectedIds.has(issueId),
-								onToggle: (shiftKey) => handleSelectIssue(issueId, shiftKey),
+					{/* Checkbox for group selection */}
+					<div className="w-[36px] shrink-0 flex items-center justify-center pl-1">
+						<Checkbox
+							checked={checkboxState}
+							onCheckedChange={() => {
+								toggleSelectGroup(group);
 							}}
-							onClick={() => handleIssueClick(issue.identifier)}
+							onClick={(e) => e.stopPropagation()}
+							aria-label={`Select all issues in ${group.label}`}
 						/>
 					</div>
-				</SortableIssueRow>
+
+					{/* Collapse/expand chevron and label */}
+					<button
+						type="button"
+						className="flex items-center gap-2 flex-1 hover:bg-muted/40 transition-colors rounded px-1 -mx-1"
+						onClick={() => toggleGroup(key)}
+					>
+						{isCollapsed ? (
+							<ChevronRight className="h-3.5 w-3.5 shrink-0" />
+						) : (
+							<ChevronDown className="h-3.5 w-3.5 shrink-0" />
+						)}
+						{group.icon}
+						<span className="font-medium text-foreground">{group.label}</span>
+						<span className="text-muted-foreground ml-auto">{group.count}</span>
+					</button>
+				</div>
 			);
 		},
-		[
-			flatIssueIds,
-			highlightedIndex,
-			workspaceSlug,
-			visibleColumns,
-			memberOptions,
-			labelOptions,
-			projectOptions,
-			milestoneOptions,
-			resolveIssueProps,
-			handleStatusChange,
-			handlePriorityChange,
-			handleAssigneeChange,
-			handleAssigneesChange,
-			handleLabelToggle,
-			handleMilestoneChange,
-			handleEstimateChange,
-			handleDueDateChange,
-			handleProjectChange,
-			handleIssueClick,
-			handleDeleteIssue,
-			selectedIds,
-			handleSelectIssue,
-		],
+		[collapsedGroups, toggleGroup, getGroupCheckboxState, toggleSelectGroup],
 	);
+
+	function renderIssueRow(issue: IssueListData) {
+		const idx = flatIssueIds.indexOf(issue._id);
+		const props = resolveIssueProps(issue);
+		const issueId = issue._id as string;
+		const issueUrl = `/${workspaceSlug}/issues/${issue.identifier}`;
+
+		return (
+			<SortableIssueRow key={issue._id} issueId={issueId}>
+				<div
+					onClickCapture={(e) => {
+						// Modifier click selects (like ClickUp). Normal click opens.
+						if (e.ctrlKey || e.metaKey || e.shiftKey) {
+							e.preventDefault();
+							e.stopPropagation();
+							handleSelectIssue(issueId, e.shiftKey);
+						}
+					}}
+				>
+					<IssueListRow
+						issue={issue}
+						columns={visibleColumns}
+						isHighlighted={idx === highlightedIndex}
+						issueUrl={issueUrl}
+						onDelete={handleDeleteIssue}
+						memberOptions={memberOptions}
+						labelOptions={labelOptions}
+						projectOptions={projectOptions}
+						milestoneOptions={milestoneOptions}
+						assignee={props.assignee}
+						projectName={props.projectName}
+						milestoneName={props.milestoneName}
+						onStatusChange={handleStatusChange}
+						onPriorityChange={handlePriorityChange}
+						onAssigneeChange={handleAssigneeChange}
+						onAssigneesChange={handleAssigneesChange}
+						onLabelToggle={handleLabelToggle}
+						onMilestoneChange={handleMilestoneChange}
+						onEstimateChange={handleEstimateChange}
+						onDueDateChange={handleDueDateChange}
+						onProjectChange={handleProjectChange}
+						bulkSelect={{
+							selected: selectedIds.has(issueId),
+							onToggle: (shiftKey) => handleSelectIssue(issueId, shiftKey),
+						}}
+						onClick={() => handleIssueClick(issue.identifier)}
+					/>
+				</div>
+			</SortableIssueRow>
+		);
+	}
 
 	// ── Empty state ─────────────────────────────────────────────────────
 	if (issues.length === 0) {

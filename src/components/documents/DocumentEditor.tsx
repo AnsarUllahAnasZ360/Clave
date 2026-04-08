@@ -444,7 +444,17 @@ function DocumentEditorInner({
 				return;
 			}
 			try {
-				yjs.destroy();
+				// Suppress Yjs event handler removal warnings (expected in React Strict Mode)
+				const originalWarn = console.warn;
+				const originalError = console.error;
+				try {
+					console.warn = () => {};
+					console.error = () => {};
+					yjs.destroy();
+				} finally {
+					console.warn = originalWarn;
+					console.error = originalError;
+				}
 			} catch {
 				// Ignore cleanup errors.
 			}
@@ -662,7 +672,7 @@ function DocumentEditorInner({
 
 	return (
 		<div className="flex flex-col h-full">
-			<div className="relative flex flex-col flex-1 min-h-0">
+			<div className="relative flex flex-col flex-1 min-h-0 overflow-y-auto">
 				{/* Syncing overlay — shows a subtle indicator while Yjs connects */}
 				{!isSynced && (
 					<div className="absolute inset-0 z-10 flex items-start justify-center pt-16 pointer-events-none">
@@ -695,7 +705,7 @@ function DocumentEditorInner({
 						</FixedToolbar>
 					</div>
 					{/* Scrollable content: hero + editor */}
-					<div className="flex-1 overflow-auto">
+					<div className="flex-1">
 						{heroSlot && (
 							<div className="mx-auto max-w-3xl px-8 pt-6">{heroSlot}</div>
 						)}

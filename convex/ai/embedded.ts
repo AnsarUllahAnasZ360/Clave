@@ -342,6 +342,7 @@ export const embeddedAction = action({
 		prompt: v.optional(v.string()),
 		selectedText: v.optional(v.string()),
 		targetLanguage: v.optional(v.string()),
+		plainText: v.optional(v.boolean()),
 		whiteboard: v.optional(
 			v.object({
 				generation: v.optional(
@@ -642,6 +643,7 @@ export const embeddedAction = action({
 						title,
 						priority: issue?.priority,
 						type: issue?.type,
+						plainText: args.plainText,
 					});
 					const text = await callAI(prompt, { maxOutputTokens: 700 });
 					return { type: args.type, text };

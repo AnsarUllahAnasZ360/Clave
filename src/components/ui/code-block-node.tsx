@@ -13,6 +13,7 @@ import {
 	useReadOnly,
 } from "platejs/react";
 import * as React from "react";
+import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,9 +30,77 @@ import {
 	PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { MermaidRenderer } from "./mermaid-renderer";
+
+// Suppress lowlight warnings for diagram languages that don't support syntax highlighting
+const DIAGRAM_LANGUAGES = new Set(["mermaid"]);
+
+// Suppress warnings for unsupported languages on initial load
+if (typeof window !== "undefined") {
+	const originalWarn = console.warn;
+	const originalError = console.error;
+	const wrapConsole = () => {
+		console.warn = (...args: unknown[]) => {
+			const msg = String(args[0] ?? "");
+			if (!msg.includes("Language") || !msg.includes("not registered")) {
+				originalWarn(...args);
+			}
+		};
+		console.error = (...args: unknown[]) => {
+			const msg = String(args[0] ?? "");
+			if (
+				!msg.includes("Language") ||
+				!msg.includes("could not be registered")
+			) {
+				originalError(...args);
+			}
+		};
+	};
+	wrapConsole();
+}
 
 export function CodeBlockElement(props: PlateElementProps<TCodeBlockElement>) {
 	const { editor, element } = props;
+	const isMermaid = element.lang === "mermaid";
+	// Extract full code content from element's children (all code lines)
+	const codeContent = useMemo(() => {
+		// Try to get code from element's children (CodeLineElements contain the actual text)
+		const lines: string[] = [];
+		const traverse = (node: any): void => {
+			if (!node) return;
+			if (typeof node.text === "string") {
+				lines.push(node.text);
+			}
+			if (Array.isArray(node.children)) {
+				node.children.forEach(traverse);
+			}
+		};
+		traverse(element);
+		return lines.length > 0 ? lines.join("\n") : NodeApi.string(element);
+	}, [element]);
+
+	// Render mermaid diagrams instead of code
+	if (isMermaid) {
+		return (
+			<PlateElement className="py-1" {...props}>
+				<div className="relative rounded-md bg-muted/50" contentEditable={false}>
+					<MermaidRenderer code={codeContent} />
+					<div
+						className="absolute top-4 right-4 z-10 flex select-none gap-0.5 pointer-events-auto"
+						contentEditable={false}
+					>
+						<CodeBlockCombobox />
+						<CopyButton
+							size="icon"
+							variant="ghost"
+							className="size-6 gap-1 text-muted-foreground text-xs"
+							value={codeContent}
+						/>
+					</div>
+				</div>
+			</PlateElement>
+		);
+	}
 
 	return (
 		<PlateElement
@@ -65,7 +134,7 @@ export function CodeBlockElement(props: PlateElementProps<TCodeBlockElement>) {
 						size="icon"
 						variant="ghost"
 						className="size-6 gap-1 text-muted-foreground text-xs"
-						value={() => NodeApi.string(element)}
+						value={codeContent}
 					/>
 				</div>
 			</div>

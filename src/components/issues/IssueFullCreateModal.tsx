@@ -116,7 +116,7 @@ function IssueFullCreateModalContent({
 	onIssueCreated,
 }: Omit<IssueFullCreateModalProps, "open">) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
-	const { formState, updateForm, switchMode, resetFormKeepProperties } =
+	const { formState, updateForm, switchMode, resetFormKeepProperties, preset } =
 		useIssueCreate();
 	const createIssue = useMutation(api.issues.create);
 	const rawProjects = useWorkspaceProjects();
@@ -483,6 +483,7 @@ function IssueFullCreateModalContent({
 									issueType={formState.issueType}
 									priority={formState.priority}
 									hasExistingContent={hasExistingDescription}
+									plainText={preset.source === "document"}
 									onDraft={(text) => {
 										const slate = plainTextToSlate(text);
 										updateForm({

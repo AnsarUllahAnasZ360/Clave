@@ -237,6 +237,18 @@ export function IssueBoardView({
 	const [localIssues, setLocalIssues] = useState<IssueCardData[]>([]);
 	const [activeItem, setActiveItem] = useState<IssueCardData | null>(null);
 
+	function normalizeWheelDeltaY(e: WheelEvent): number {
+		if (e.deltaMode === 1) return e.deltaY * 16;
+		if (e.deltaMode === 2) return e.deltaY * (scrollRef.current?.clientWidth ?? 0);
+		return e.deltaY;
+	}
+
+	function normalizeWheelDeltaX(e: WheelEvent): number {
+		if (e.deltaMode === 1) return e.deltaX * 16;
+		if (e.deltaMode === 2) return e.deltaX * (scrollRef.current?.clientWidth ?? 0);
+		return e.deltaX;
+	}
+
 	// Sync from server data
 	useEffect(() => {
 		if (rawIssues) {
@@ -555,10 +567,15 @@ export function IssueBoardView({
 	);
 
 	// Scroll edge indicators (must be before any early returns — Rules of Hooks)
+	const boardRootRef = useRef<HTMLDivElement>(null);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	// Content wrapper inside the horizontal scroller. We observe this because
 	// scrollWidth changes don't trigger ResizeObserver on the scroller itself.
-	const scrollContentRef = useRef<HTMLDivElement>(null);
+	// Use state+callback ref so we keep observing the *current* node after route
+	// transitions/remounts.
+	const [scrollContentEl, setScrollContentEl] = useState<HTMLDivElement | null>(
+		null,
+	);
 	const [canScrollLeft, setCanScrollLeft] = useState(false);
 	const [canScrollRight, setCanScrollRight] = useState(false);
 
@@ -612,7 +629,7 @@ export function IssueBoardView({
 		// width can change after data loads / hydration even when the container
 		// size doesn't.
 		ro.observe(el);
-		if (scrollContentRef.current) ro.observe(scrollContentRef.current);
+		if (scrollContentEl) ro.observe(scrollContentEl);
 		if (trackRef.current) ro.observe(trackRef.current);
 
 		// Also recalculate on window resize
@@ -640,7 +657,7 @@ export function IssueBoardView({
 			window.removeEventListener("pageshow", handlePageShow);
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 		};
-	}, [updateScrollIndicators]);
+	}, [updateScrollIndicators, scrollContentEl]);
 
 	// When issues/swimlanes change, force a fresh measurement. This covers the
 	// common case where the board mounts before it has real content.
@@ -651,17 +668,22 @@ export function IssueBoardView({
 		return () => cancelAnimationFrame(raf);
 	}, [updateScrollIndicators]);
 
-	// Wheel → horizontal scroll (shift+wheel already works natively,
-	// this also converts plain vertical wheel to horizontal when over the board)
+	// Wheel → horizontal scroll (My issues style).
+	// Implemented at window capture so inner elements can't swallow the event.
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
-		const normalizeWheelDelta = (e: WheelEvent) => {
+		const normalizeWheelDeltaY = (e: WheelEvent) => {
 			// deltaMode: 0=pixel, 1=line, 2=page
 			// Use a conservative line height to keep behavior predictable on Windows.
 			if (e.deltaMode === 1) return e.deltaY * 16;
 			if (e.deltaMode === 2) return e.deltaY * el.clientWidth;
 			return e.deltaY;
+		};
+		const normalizeWheelDeltaX = (e: WheelEvent) => {
+			if (e.deltaMode === 1) return e.deltaX * 16;
+			if (e.deltaMode === 2) return e.deltaX * el.clientWidth;
+			return e.deltaX;
 		};
 		const shouldAllowVerticalWheel = (target: HTMLElement, deltaY: number) => {
 			const columnScrollable = target.closest(".kanban-column-scroll");
@@ -677,22 +699,38 @@ export function IssueBoardView({
 			return false;
 		};
 		const handler = (e: WheelEvent) => {
-			const deltaY = normalizeWheelDelta(e);
-			// If the wheel event is over a column that can scroll in this direction,
-			// keep it vertical. Otherwise, fall through to horizontal board scrolling.
-			const target = e.target as HTMLElement;
-			if (shouldAllowVerticalWheel(target, deltaY)) return;
+			const root = boardRootRef.current;
+			const target = e.target as HTMLElement | null;
+			if (!root || !target) return;
+			if (!root.contains(target)) return;
 
-			// Only intercept vertical wheel events when content overflows horizontally
-			if (el.scrollWidth <= el.clientWidth) return;
-			// Away from columns: treat vertical wheel as horizontal scroll (My issues behavior).
-			if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && e.deltaX === 0) {
-				e.preventDefault();
-				el.scrollLeft += deltaY;
+			// Only intercept when content overflows horizontally.
+			if (el.scrollWidth <= el.clientWidth + 1) return;
+
+			const dy = normalizeWheelDeltaY(e);
+			const dx = normalizeWheelDeltaX(e);
+			// Some mice (or horizontal wheel tilt) emit deltaX instead of deltaY.
+			const primary = dy !== 0 ? dy : dx;
+
+			// If the wheel event is over a column that can scroll in this direction,
+			// keep it vertical. Otherwise, treat vertical wheel as horizontal scroll.
+			if (!e.shiftKey && shouldAllowVerticalWheel(target, dy)) return;
+
+			// Shift+wheel always maps to horizontal.
+			if (primary !== 0) {
+				// Some browsers mark wheel events as non-cancelable; still perform the
+				// horizontal scroll to match "My issues" behavior.
+				if (e.cancelable) e.preventDefault();
+				el.scrollLeft += primary;
 			}
 		};
-		el.addEventListener("wheel", handler, { passive: false });
-		return () => el.removeEventListener("wheel", handler);
+
+		window.addEventListener("wheel", handler, {
+			passive: false,
+			capture: true,
+		});
+		return () =>
+			window.removeEventListener("wheel", handler, { capture: true } as never);
 	}, []);
 
 	// Wheel over the custom scrollbar track should scroll horizontally.
@@ -705,17 +743,20 @@ export function IssueBoardView({
 
 		const handler = (e: WheelEvent) => {
 			if (el.scrollWidth <= el.clientWidth) return;
+			// Normalize deltas for Windows (deltaMode=line/page).
+			const dy = normalizeWheelDeltaY(e);
+			const dx = normalizeWheelDeltaX(e);
 			// Always treat vertical wheel as horizontal scroll while over the track.
-			if (e.deltaY !== 0) {
+			if (dy !== 0) {
 				e.preventDefault();
-				el.scrollLeft += e.deltaY;
-			} else if (e.deltaX !== 0) {
+				el.scrollLeft += dy;
+			} else if (dx !== 0) {
 				e.preventDefault();
-				el.scrollLeft += e.deltaX;
+				el.scrollLeft += dx;
 			}
 		};
 
-		track.addEventListener("wheel", handler, { passive: false });
+		track.addEventListener("wheel", handler, { passive: false, capture: true });
 		return () => track.removeEventListener("wheel", handler);
 	}, []);
 
@@ -873,7 +914,10 @@ export function IssueBoardView({
 			onDragEnd={handleDragEnd}
 			onDragCancel={handleDragCancel}
 		>
-			<div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
+			<div
+				ref={boardRootRef}
+				className="relative flex-1 min-h-0 min-w-0 flex flex-col overscroll-contain"
+			>
 				{/* Scrollable board area */}
 				<div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
 					{/* Left edge fade */}
@@ -898,7 +942,7 @@ export function IssueBoardView({
 						{swimlaneGroups ? (
 							// Swimlane mode: rows of columns
 							<div
-								ref={scrollContentRef}
+								ref={setScrollContentEl}
 								className="px-4 pb-2 pt-2 space-y-4 min-w-max"
 							>
 								{/* Column headers (sticky) */}
@@ -939,7 +983,7 @@ export function IssueBoardView({
 						) : (
 							// Flat mode: simple columns
 							<div
-								ref={scrollContentRef}
+								ref={setScrollContentEl}
 								className="flex gap-3 px-4 pb-2 pt-2 min-w-max h-full"
 							>
 								{STATUS_COLUMNS.map((column) => {

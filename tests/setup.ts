@@ -3,7 +3,9 @@ import "@testing-library/jest-dom/vitest";
 // Some UI dependencies (e.g. cmdk) rely on ResizeObserver.
 if (!("ResizeObserver" in globalThis)) {
 	// Minimal noop polyfill is sufficient for unit tests.
-	(globalThis as any).ResizeObserver = class ResizeObserver {
+	(
+		globalThis as unknown as { ResizeObserver: typeof ResizeObserver }
+	).ResizeObserver = class ResizeObserver {
 		observe() {}
 		unobserve() {}
 		disconnect() {}

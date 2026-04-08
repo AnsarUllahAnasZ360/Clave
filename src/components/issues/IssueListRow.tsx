@@ -440,13 +440,10 @@ export const IssueListRow = memo(function IssueListRow({
 			}}
 		>
 			{bulkSelect ? (
-				<div
+				<button
+					type="button"
 					data-issue-select=""
 					className="w-[36px] shrink-0 flex items-center justify-center pl-1"
-					role="checkbox"
-					aria-checked={bulkSelect.selected}
-					aria-label="Select issue"
-					tabIndex={0}
 					onClick={(e) => {
 						e.stopPropagation();
 						bulkSelect.onToggle(e.shiftKey);
@@ -464,7 +461,7 @@ export const IssueListRow = memo(function IssueListRow({
 						className="pointer-events-none"
 						aria-label="Select issue"
 					/>
-				</div>
+				</button>
 			) : null}
 			{columns.map((col) => {
 				switch (col) {
@@ -543,8 +540,6 @@ export const IssueListRow = memo(function IssueListRow({
 										className={cn(
 											"shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity",
 										)}
-										onClick={(e) => e.stopPropagation()}
-										onKeyDown={(e) => e.stopPropagation()}
 									>
 										<DropdownMenu>
 											<DropdownMenuTrigger asChild>

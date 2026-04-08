@@ -60,7 +60,13 @@ describe("IssueListRow assignees (list view)", () => {
 
 		render(
 			<IssueListRow
-				issue={makeIssue({ assigneeIds: ["user_a" as any] })}
+				issue={makeIssue({
+					assigneeIds: [
+						"user_a" as unknown as NonNullable<
+							IssueListData["assigneeIds"]
+						>[number],
+					],
+				})}
 				columns={["assignee"]}
 				memberOptions={[{ id: "user_a", name: "Ada" }]}
 				labelOptions={[]}
@@ -91,7 +97,16 @@ describe("IssueListRow assignees (list view)", () => {
 
 		render(
 			<IssueListRow
-				issue={makeIssue({ assigneeIds: ["user_a" as any, "user_b" as any] })}
+				issue={makeIssue({
+					assigneeIds: [
+						"user_a" as unknown as NonNullable<
+							IssueListData["assigneeIds"]
+						>[number],
+						"user_b" as unknown as NonNullable<
+							IssueListData["assigneeIds"]
+						>[number],
+					],
+				})}
 				columns={["assignee"]}
 				memberOptions={[
 					{ id: "user_a", name: "Ada" },

@@ -57,7 +57,8 @@ export function UploadAudioModal({
 					</div>
 				</DialogHeader>
 
-				<div
+				<button
+					type="button"
 					className="mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-border p-12 cursor-pointer hover:border-primary/50 transition-colors"
 					onDragOver={(e) => e.preventDefault()}
 					onDrop={handleDrop}
@@ -70,7 +71,7 @@ export function UploadAudioModal({
 					<p className="mt-2 text-xs text-muted-foreground">
 						Supports MP3, WAV, M4A, FLAC, AAC, MP4, MOV, AVI, MKV and more
 					</p>
-				</div>
+				</button>
 				<input
 					ref={fileInputRef}
 					type="file"

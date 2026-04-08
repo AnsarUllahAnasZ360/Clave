@@ -486,7 +486,6 @@ function ProjectIssuesTab({
 	projectId: Id<"projects">;
 	displayOpts: ReturnType<typeof useDisplayOptions>;
 }) {
-	const { workspaceId } = useWorkspace();
 	const { openQuickCreate } = useIssueCreate();
 	const options = displayOpts.options;
 	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(

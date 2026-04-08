@@ -94,7 +94,7 @@ export function SprintDetailPage({
 		filters,
 		setFilter,
 		clearAll: clearAllFilters,
-		activeFilterCount,
+		activeFilterCount: _activeFilterCount,
 		applyFilters,
 	} = useIssueFilters();
 	const [_showFilters, _setShowFilters] = useState(false);
