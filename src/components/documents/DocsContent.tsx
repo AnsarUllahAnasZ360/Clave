@@ -470,11 +470,17 @@ export function DocsContent() {
 											{/* Action button */}
 											<DropdownMenu>
 												<DropdownMenuTrigger
-													className="opacity-0 group-hover:opacity-100 shrink-0 rounded-md p-1 hover:bg-muted transition-opacity"
-													aria-label="Document actions"
+													asChild
 													onClick={(e) => e.stopPropagation()}
 												>
-													<Ellipsis className="h-4 w-4 text-muted-foreground" />
+													<div
+														className="opacity-0 group-hover:opacity-100 shrink-0 rounded-md p-1 hover:bg-muted transition-opacity cursor-pointer"
+														role="button"
+														tabIndex={0}
+														aria-label="Document actions"
+													>
+														<Ellipsis className="h-4 w-4 text-muted-foreground" />
+													</div>
 												</DropdownMenuTrigger>
 												<DropdownMenuContent
 													align="end"

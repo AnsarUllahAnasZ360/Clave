@@ -62,7 +62,7 @@ type EmbeddedResult = {
 
 const AI_GENERATION_TIMEOUT_MS = 120_000;
 const MAX_SCENE_ELEMENTS_IN_PROMPT = 30;
-const MAX_CONTINUE_CONTEXT_CHARS = 8_000;
+const MAX_CONTINUE_CONTEXT_CHARS = 16_000;
 const MAX_SUMMARY_CONTEXT_CHARS = 12_000;
 const EMBEDDED_REASONING_OPTIONS = getReasoningProviderOptions(
 	DEFAULT_CHAT_MODEL_ID,
@@ -400,12 +400,24 @@ export const embeddedAction = action({
 			switch (args.type) {
 				// ── Document actions ──────────────────────────────────
 				case "document_continue": {
-					const inlineContext = normalizeEditorContext(args.prompt);
+					// Parse context BEFORE normalization to preserve separators
+					// Format: "before:::after:::blockType"
+					let currentBlockType: string | null = null;
+					let contentAfter = "";
+					const rawPrompt = args.prompt || "";
+					if (rawPrompt.includes(":::")) {
+						const parts = rawPrompt.split(":::");
+						if (parts.length >= 3) {
+							currentBlockType = parts[2]?.trim() || null;
+							contentAfter = parts[1]?.trim() || "";
+						}
+					}
+
 					const entityContext = await loadWritingEntityContext(
 						ctx,
 						args.context,
 					);
-					if (entityContext.error && !inlineContext) {
+					if (entityContext.error && !rawPrompt) {
 						return {
 							type: args.type,
 							text: "",
@@ -413,10 +425,11 @@ export const embeddedAction = action({
 						};
 					}
 
+					// Use entity content (full document) for context, not the formatted inline context
 					const contentBefore = clampContextWindow(
-						inlineContext || entityContext.content || "",
+						entityContext.content || "",
 						MAX_CONTINUE_CONTEXT_CHARS,
-						{ preferTail: true },
+						{ preferTail: false },
 					);
 					if (!contentBefore) {
 						return {
@@ -429,8 +442,11 @@ export const embeddedAction = action({
 					const prompt = documentContinuePrompt({
 						title: entityContext.title,
 						contentBefore,
+						contentAfter,
+						currentBlockType,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 900 });
+					// Increased to 6000 tokens to allow substantial, complete content
+					const text = await callAI(prompt, { maxOutputTokens: 6000 });
 					return { type: args.type, text };
 				}
 
@@ -453,7 +469,8 @@ export const embeddedAction = action({
 						title: doc?.title ?? "Untitled",
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 600 });
+					// Increased to 1800 tokens to allow complete, substantial improvements
+					const text = await callAI(prompt, { maxOutputTokens: 1800 });
 					return { type: args.type, text };
 				}
 
@@ -487,7 +504,8 @@ export const embeddedAction = action({
 						title: entityContext.title,
 						content,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 500 });
+					// Increased to 2000 tokens to allow complete, substantial summaries
+					const text = await callAI(prompt, { maxOutputTokens: 2000 });
 					return { type: args.type, text };
 				}
 
@@ -510,7 +528,8 @@ export const embeddedAction = action({
 						title: doc?.title ?? "Untitled",
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 600 });
+					// Increased to 1800 tokens to allow complete rewrite with fresh perspective
+					const text = await callAI(prompt, { maxOutputTokens: 1800 });
 					return { type: args.type, text };
 				}
 
@@ -525,7 +544,8 @@ export const embeddedAction = action({
 						selectedText: args.selectedText,
 						targetLanguage: args.targetLanguage ?? "English",
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 600 });
+					// Increased to 1500 tokens to handle complete, full-length translations
+					const text = await callAI(prompt, { maxOutputTokens: 1500 });
 					return { type: args.type, text };
 				}
 
@@ -548,7 +568,8 @@ export const embeddedAction = action({
 						title: doc?.title ?? "Untitled",
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 900 });
+					// Increased to 3500 tokens to allow substantial expansion with detailed examples
+					const text = await callAI(prompt, { maxOutputTokens: 3500 });
 					return { type: args.type, text };
 				}
 
@@ -562,7 +583,8 @@ export const embeddedAction = action({
 					const prompt = documentFixGrammarPrompt({
 						selectedText: args.selectedText,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 500 });
+					// Increased to 1500 tokens to ensure complete grammar and spelling correction
+					const text = await callAI(prompt, { maxOutputTokens: 1500 });
 					return { type: args.type, text };
 				}
 
@@ -594,7 +616,8 @@ export const embeddedAction = action({
 						prompt: args.prompt,
 						contentBefore: entityContext.content ?? undefined,
 					});
-					const text = await callAI(prompt, { maxOutputTokens: 1200 });
+					// Increased to 12000 tokens for substantial, well-developed content from prompts
+					const text = await callAI(prompt, { maxOutputTokens: 12000 });
 					return { type: args.type, text };
 				}
 

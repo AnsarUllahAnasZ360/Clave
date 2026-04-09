@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
+const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td, KEYS.th];
 
 export const BlockDraggable: RenderNodeWrapper = (props) => {
 	const { editor, element, path } = props;
@@ -241,7 +241,7 @@ const DragHandle = React.memo(function DragHandle({
 	const element = useElement();
 
 	const handleClassName = cn(
-		"-left-0 absolute h-6 w-full p-0 cursor-grab !rounded-none bg-transparent text-muted-foreground",
+		"left-0 absolute h-6 w-full p-0 cursor-grab !rounded-none bg-transparent text-muted-foreground",
 		isInColumn && "w-full",
 	);
 

@@ -7,11 +7,12 @@ import {
 	HighlighterIcon,
 	ItalicIcon,
 	PaintBucketIcon,
+	SparklesIcon,
 	StrikethroughIcon,
 	UnderlineIcon,
 } from "lucide-react";
 import { KEYS } from "platejs";
-import { useEditorReadOnly } from "platejs/react";
+import { useEditorReadOnly, useEditorRef } from "platejs/react";
 
 import { AlignToolbarButton } from "./align-toolbar-button";
 import { CommentToolbarButton } from "./comment-toolbar-button";
@@ -37,11 +38,12 @@ import { MarkToolbarButton } from "./mark-toolbar-button";
 import { ModeToolbarButton } from "./mode-toolbar-button";
 import { MoreToolbarButton } from "./more-toolbar-button";
 import { TableToolbarButton } from "./table-toolbar-button";
-import { ToolbarGroup } from "./toolbar";
+import { ToolbarButton, ToolbarGroup } from "./toolbar";
 import { TurnIntoToolbarButton } from "./turn-into-toolbar-button";
 
 export function FixedToolbarButtons() {
 	const readOnly = useEditorReadOnly();
+	const editor = useEditorRef();
 
 	return (
 		<div className="flex w-full flex-nowrap">
@@ -116,6 +118,15 @@ export function FixedToolbarButtons() {
 
 					{/* Group 5 — Insert */}
 					<ToolbarGroup>
+						<ToolbarButton
+							tooltip="Commands (type /)"
+							onClick={() => {
+								editor.tf.focus();
+								editor.tf.insertText("/");
+							}}
+						>
+							<SparklesIcon />
+						</ToolbarButton>
 						<LinkToolbarButton />
 						<TableToolbarButton />
 						<EmojiToolbarButton />

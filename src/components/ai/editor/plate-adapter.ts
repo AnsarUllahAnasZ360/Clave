@@ -8,6 +8,7 @@
 import { NodeApi, nanoid, PathApi } from "platejs";
 import type { PlateEditor } from "platejs/react";
 
+import { markdownToSlate } from "@/lib/content-converters";
 import type {
 	AIEditorAdapter,
 	AISlashCommand,
@@ -46,6 +47,25 @@ export class PlateAdapter implements AIEditorAdapter {
 			if (lines[i]) {
 				this.editor.tf.insertText(lines[i]);
 			}
+		}
+	}
+
+	private insertMarkdown(text: string): boolean {
+		try {
+			const nodes = markdownToSlate(text);
+			if (!nodes || nodes.length === 0) return false;
+			// Insert parsed blocks/inline nodes at the current selection.
+			// Plate will normalize placement depending on selection context.
+			// biome-ignore lint/suspicious/noExplicitAny: Slate node shapes are flexible
+			this.editor.tf.insertNodes(nodes as any, { select: true });
+			return true;
+		} catch (error) {
+			// Log parsing errors but don't completely fail
+			console.warn(
+				"Markdown parsing failed, falling back to plain text:",
+				error,
+			);
+			return false;
 		}
 	}
 
@@ -106,9 +126,78 @@ export class PlateAdapter implements AIEditorAdapter {
 			.join("\n");
 	}
 
+	getCurrentBlockType(): string | null {
+		const { selection } = this.editor;
+		if (!selection) return null;
+
+		const blockPath = selection.focus.path[0];
+		if (typeof blockPath !== "number") return null;
+
+		const block = this.editor.children[blockPath];
+		if (!block || typeof block !== "object" || !("type" in block)) return null;
+
+		return (block.type as string) || "paragraph";
+	}
+
+	getSurroundingContext(
+		beforeChars: number = 3000,
+		afterChars: number = 500,
+	): { before: string; after: string; blockType: string | null } {
+		const { selection } = this.editor;
+		if (!selection) {
+			return {
+				before: "",
+				after: "",
+				blockType: null,
+			};
+		}
+
+		const blockIndex = selection.focus.path[0];
+		if (typeof blockIndex !== "number") {
+			return {
+				before: "",
+				after: "",
+				blockType: null,
+			};
+		}
+
+		// Get content before cursor
+		const before = this.getContentBefore();
+		const clampedBefore =
+			before.length > beforeChars ? before.slice(-beforeChars) : before;
+
+		// Get content after cursor
+		const afterTexts: string[] = [];
+		let charCount = 0;
+
+		for (let i = blockIndex + 1; i < this.editor.children.length; i++) {
+			const child = this.editor.children[i];
+			if (!child) continue;
+
+			const childText = NodeApi.string(child);
+			if (charCount + childText.length > afterChars) {
+				afterTexts.push(childText.slice(0, afterChars - charCount));
+				break;
+			}
+
+			afterTexts.push(childText);
+			charCount += childText.length;
+		}
+
+		const after = afterTexts.join("\n");
+		const blockType = this.getCurrentBlockType();
+
+		return {
+			before: clampedBefore,
+			after,
+			blockType,
+		};
+	}
+
 	// ── Content write ─────────────────────────────────────────────────────
 
 	insertAtCursor(text: string): void {
+		if (this.insertMarkdown(text)) return;
 		this.insertMultilineText(text);
 	}
 
@@ -116,22 +205,155 @@ export class PlateAdapter implements AIEditorAdapter {
 		const { selection } = this.editor;
 		if (!selection) return;
 
-		// Delete the current selection, then insert replacement text as blocks.
 		this.editor.tf.deleteFragment();
+		if (this.insertMarkdown(text)) return;
 		this.insertMultilineText(text);
 	}
 
 	insertBlock(content: string, position: "before" | "after"): void {
 		const block = this.editor.api.block({ highest: true });
-		if (!block) return;
 
-		const [, path] = block;
-		const targetPath = position === "after" ? PathApi.next(path) : [...path];
+		// Determine target path: after current block, or at end of document
+		// biome-ignore lint/suspicious/noExplicitAny: Slate path types are flexible
+		let targetPath: any;
+		if (block) {
+			const [, path] = block;
+			targetPath = position === "after" ? PathApi.next(path) : [...path];
+		} else {
+			// Fallback: insert at end of document
+			console.warn(
+				"[insertBlock] No current block found, inserting at end of document",
+			);
+			targetPath = [this.editor.children.length];
+		}
 
-		this.editor.tf.insertNodes(
-			{ type: "p", children: [{ text: content }] },
-			{ at: targetPath, select: true },
+		// Validate and fix malformed numbered list syntax before processing
+		// This catches issues like "all1" instead of "1. "
+		let correctedContent = content;
+		const malformedListMatch = content.match(/^(all|text)(\d+)/gm);
+		if (malformedListMatch) {
+			console.warn(
+				"[insertBlock] Detected malformed list syntax, attempting correction:",
+				malformedListMatch,
+			);
+			// Try to fix "all1" → "1. ", "text2" → "2. ", etc.
+			correctedContent = content
+				.split("\n")
+				.map((line) => {
+					// Match patterns like "all1", "all2", "text1", etc.
+					const match = line.match(/^(all|text|list)(\d+)\s*(.*)/i);
+					if (match) {
+						const [, , num, rest] = match;
+						console.log(
+							`[insertBlock] Fixing malformed list: "${line}" → "${num}. ${rest}"`,
+						);
+						return `${num}. ${rest}`;
+					}
+					return line;
+				})
+				.join("\n");
+		}
+
+		// ALWAYS try to parse markdown first for rich formatting (tables, code, lists, etc.)
+		// Even if content looks like plain text, it might contain markdown
+		try {
+			const nodes = markdownToSlate(correctedContent);
+			if (nodes && nodes.length > 0) {
+				console.debug(
+					`[insertBlock] Successfully parsed markdown (${nodes.length} nodes):`,
+					nodes.map((n) =>
+						typeof n === "object" && "type" in n ? (n as any).type : typeof n,
+					),
+				);
+				try {
+					// biome-ignore lint/suspicious/noExplicitAny: Slate node shapes are flexible
+					this.editor.tf.insertNodes(nodes as any, {
+						at: targetPath,
+						select: true,
+					});
+					console.log("[insertBlock] Markdown nodes inserted successfully");
+					return;
+				} catch (insertErr) {
+					console.warn(
+						"[insertBlock] Failed to insert markdown at targetPath, trying at document end:",
+						insertErr instanceof Error ? insertErr.message : insertErr,
+					);
+					try {
+						// biome-ignore lint/suspicious/noExplicitAny: Slate node shapes are flexible
+						this.editor.tf.insertNodes(nodes as any, {
+							at: [this.editor.children.length],
+							select: true,
+						});
+						console.log("[insertBlock] Markdown inserted at document end");
+						return;
+					} catch (endErr) {
+						console.error(
+							"[insertBlock] Failed to insert markdown at document end:",
+							endErr,
+						);
+					}
+				}
+			} else {
+				console.warn(
+					"[insertBlock] Markdown parsing returned empty nodes, using plain text fallback",
+				);
+			}
+		} catch (error) {
+			console.error(
+				"[insertBlock] Markdown parsing failed, falling back to plain text:",
+				error instanceof Error ? error.message : error,
+			);
+		}
+
+		// Fallback: insert as plain text
+		// Split into paragraphs if content has line breaks
+		const lines = correctedContent
+			.split("\n")
+			.filter((line) => line.trim().length > 0);
+
+		if (lines.length === 0) {
+			console.warn(
+				"[insertBlock] No content to insert (empty after filtering)",
+			);
+			return;
+		}
+
+		const nodes = lines.map((line) => ({
+			type: "p",
+			children: [{ text: line }],
+		}));
+
+		console.debug(
+			`[insertBlock] Inserting ${lines.length} paragraphs as plain text fallback`,
 		);
+		try {
+			// biome-ignore lint/suspicious/noExplicitAny: Slate node shapes are flexible
+			this.editor.tf.insertNodes(nodes as any, {
+				at: targetPath,
+				select: true,
+			});
+			console.log(
+				"[insertBlock] Plain text inserted successfully at targetPath",
+			);
+		} catch (insertErr) {
+			console.warn(
+				"[insertBlock] Failed to insert plain text at targetPath, trying at document end:",
+				insertErr instanceof Error ? insertErr.message : insertErr,
+			);
+			try {
+				// biome-ignore lint/suspicious/noExplicitAny: Slate node shapes are flexible
+				this.editor.tf.insertNodes(nodes as any, {
+					at: [this.editor.children.length],
+					select: true,
+				});
+				console.log("[insertBlock] Plain text inserted at document end");
+			} catch (endErr) {
+				console.error(
+					"[insertBlock] Failed to insert plain text at document end:",
+					endErr instanceof Error ? endErr.message : endErr,
+				);
+			}
+		}
 	}
 
 	// ── Streaming insertion ───────────────────────────────────────────────

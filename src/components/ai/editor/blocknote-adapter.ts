@@ -39,6 +39,18 @@ export class BlockNoteAdapter implements AIEditorAdapter {
 		throw new Error(NOT_IMPLEMENTED);
 	}
 
+	getCurrentBlockType(): string | null {
+		throw new Error(NOT_IMPLEMENTED);
+	}
+
+	getSurroundingContext(): {
+		before: string;
+		after: string;
+		blockType: string | null;
+	} {
+		throw new Error(NOT_IMPLEMENTED);
+	}
+
 	insertAtCursor(_text: string): void {
 		throw new Error(NOT_IMPLEMENTED);
 	}

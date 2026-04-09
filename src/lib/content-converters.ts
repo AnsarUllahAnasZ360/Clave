@@ -1053,13 +1053,11 @@ function parseInlineMarkdown(text: string): SlateNode[] {
 }
 
 /**
- * Parse a markdown table row into cell strings.
+ * Parse a markdown table row into cell strings, preserving empty cells.
  */
 function parseMdTableRow(line: string): string[] {
-	return line
-		.split("|")
-		.map((c) => c.trim())
-		.filter(Boolean);
+	const cleaned = line.trim().replace(/^\||\|$/g, "");
+	return cleaned.split("|").map((c) => c.trim());
 }
 
 /**

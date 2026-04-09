@@ -55,6 +55,38 @@ export class TipTapAdapter implements AIEditorAdapter {
 		return this.editor.getText();
 	}
 
+	getCurrentBlockType(): string | null {
+		const { state } = this.editor;
+		const { $from } = state.selection;
+		const node = $from.node($from.depth);
+		return node?.type?.name || null;
+	}
+
+	getSurroundingContext(
+		beforeChars: number = 3000,
+		afterChars: number = 500,
+	): { before: string; after: string; blockType: string | null } {
+		const { state } = this.editor;
+		const { from, to } = state.selection;
+
+		const before = state.doc.textBetween(0, from, "\n");
+		const after = state.doc.textBetween(
+			to,
+			Math.min(to + afterChars, state.doc.content.size),
+			"\n",
+		);
+		const blockType = this.getCurrentBlockType();
+
+		const clampedBefore =
+			before.length > beforeChars ? before.slice(-beforeChars) : before;
+
+		return {
+			before: clampedBefore,
+			after,
+			blockType,
+		};
+	}
+
 	// ── Content write ─────────────────────────────────────────────────────
 
 	insertAtCursor(text: string): void {
