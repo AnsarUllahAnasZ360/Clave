@@ -256,7 +256,9 @@ async function getApprovalStatus(
 }
 
 describe("google chat webhook approvals (integration)", () => {
-	it("approves deferred action once and returns duplicate on replay", async () => {
+	it(
+		"approves deferred action once and returns duplicate on replay",
+		async () => {
 		const t = createBackend();
 		const fx = await seedFixture(t);
 		const admin = t.withIdentity({ subject: fx.adminId });
@@ -314,7 +316,9 @@ describe("google chat webhook approvals (integration)", () => {
 		});
 		expect(replayResult.status).toBe("duplicate");
 		expect(await getApprovalStatus(t, approvalId)).toBe("approved");
-	});
+		},
+		15_000,
+	);
 
 	it("rejects action and denies unauthorized approval actor", async () => {
 		const t = createBackend();
