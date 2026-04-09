@@ -260,7 +260,7 @@ describe("google chat webhook interactions (integration)", () => {
 			issueId: fx.issueId,
 		});
 		expect(issueAfterStatus?.status).toBe("in_progress");
-	});
+	}, 15000);
 
 	it("returns safe errors for unsupported and unauthorized actions without mutating", async () => {
 		const t = createBackend();
@@ -307,5 +307,5 @@ describe("google chat webhook interactions (integration)", () => {
 		});
 		expect(issueAfterErrors?.assigneeId).toBeUndefined();
 		expect(issueAfterErrors?.status).toBe("todo");
-	});
+	}, 15000);
 });

@@ -87,7 +87,9 @@ describe("document prompts (integration)", () => {
 		});
 
 		expect(prompt).toContain("API Reference");
-		expect(prompt).toContain("This document describes all available API endpoints.");
+		expect(prompt).toContain(
+			"This document describes all available API endpoints.",
+		);
 	});
 
 	it("documentRewritePrompt includes selected text", () => {
@@ -142,7 +144,10 @@ describe("document prompts (integration)", () => {
 			documentContinuePrompt({ title: "T", contentBefore: "content" }),
 			documentSummarizePrompt({ title: "T", content: "content" }),
 			documentRewritePrompt({ title: "T", selectedText: "text" }),
-			documentTranslatePrompt({ selectedText: "text", targetLanguage: "French" }),
+			documentTranslatePrompt({
+				selectedText: "text",
+				targetLanguage: "French",
+			}),
 			documentExpandPrompt({ title: "T", selectedText: "text" }),
 			documentFixGrammarPrompt({ selectedText: "text" }),
 			documentWriteFromPromptFn({ title: "T", prompt: "Write something." }),
