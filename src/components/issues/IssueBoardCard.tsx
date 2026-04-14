@@ -123,9 +123,14 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 		}
 	};
 
+	// Root is a div+role="button" (not a <button>) because this card contains
+	// an interactive DropdownMenuTrigger, and HTML forbids a button inside a
+	// button. A role-augmented div preserves keyboard/click semantics without
+	// the hydration error.
 	return (
-		<button
-			type="button"
+		<div
+			role="button"
+			tabIndex={0}
 			className={cn(
 				"group border border-border bg-card rounded-lg p-3 cursor-pointer transition-shadow hover:shadow-md w-full text-left",
 				issue.status === "done" && "opacity-70",
@@ -134,6 +139,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 			onClick={onClick}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
 					onClick?.();
 				}
 			}}
@@ -302,7 +308,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 
 				{display.blockingStatus && <BlockingIndicators issueId={issue._id} />}
 			</div>
-		</button>
+		</div>
 	);
 });
 

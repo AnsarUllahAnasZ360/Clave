@@ -3,6 +3,7 @@
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { extractEmbeddedBoardImages } from "./whiteboardVision";
 
 // NOTE: workspaceId and userId can be added to buildContextPrompt signature
 // when dashboard page context is implemented (useAIContext does not yet detect dashboard routes).
@@ -15,6 +16,13 @@ export interface PageContext {
 	entityName: string;
 	summary: string;
 }
+
+/** Rich page context for chat: system prompt suffix + optional vision inputs for the user message. */
+export type ContextPromptBlock = {
+	systemSuffix: string;
+	/** Data URLs or HTTPS URLs — merged into the user message for image-capable models. */
+	visionAttachments?: Array<{ url: string; mediaType: string }>;
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -41,33 +49,56 @@ const COMPLETED_STATUSES = new Set(["done", "cancelled"]);
 /**
  * Build a rich, data-pre-loaded context block for the agent's system prompt.
  * Runs inside the sendMessage action — has full ctx.runQuery access.
- * Returns a delimited context section or empty string on failure.
+ * Whiteboard context may include vision attachments (embedded canvas images).
  */
 export async function buildContextPrompt(
 	ctx: ActionCtx,
 	pageContext: PageContext,
-): Promise<string> {
+): Promise<ContextPromptBlock> {
 	try {
 		switch (pageContext.type) {
 			case "project":
-				return await buildProjectContext(ctx, pageContext.entityId);
+				return {
+					systemSuffix: await buildProjectContext(ctx, pageContext.entityId),
+				};
 			case "issue":
-				return await buildIssueContext(ctx, pageContext.entityId);
+				return {
+					systemSuffix: await buildIssueContext(ctx, pageContext.entityId),
+				};
 			case "document":
-				return await buildDocumentContext(ctx, pageContext.entityId);
+				return {
+					systemSuffix: await buildDocumentContext(ctx, pageContext.entityId),
+				};
 			case "board":
 				return await buildWhiteboardContext(ctx, pageContext.entityId);
 			default:
-				// Unknown page type — fall back to basic summary
-				return buildFallbackContext(pageContext);
+				return { systemSuffix: buildFallbackContext(pageContext) };
 		}
 	} catch (error) {
 		console.error(
 			"[contextPrompts] buildContextPrompt error:",
 			error instanceof Error ? error.message : error,
 		);
-		// Non-fatal: fall back to basic summary
-		return buildFallbackContext(pageContext);
+		return { systemSuffix: buildFallbackContext(pageContext) };
+	}
+}
+
+async function loadFullWhiteboardSceneJson(
+	ctx: ActionCtx,
+	board: { sceneData?: string; sceneDataStorageId?: Id<"_storage"> },
+): Promise<string> {
+	const inline = board.sceneData ?? "[]";
+	if (!board.sceneDataStorageId) return inline;
+	const url = await ctx.runQuery(api.files.getUrl, {
+		storageId: board.sceneDataStorageId,
+	});
+	if (!url) return inline;
+	try {
+		const res = await fetch(url);
+		if (!res.ok) return inline;
+		return await res.text();
+	} catch {
+		return inline;
 	}
 }
 
@@ -297,11 +328,14 @@ const MAX_BOARD_ELEMENTS = 60;
 async function buildWhiteboardContext(
 	ctx: ActionCtx,
 	entityId: string,
-): Promise<string> {
+): Promise<ContextPromptBlock> {
 	const whiteboardId = entityId as Id<"whiteboards">;
 
 	const board = await ctx.runQuery(api.whiteboards.getById, { whiteboardId });
-	if (!board) return "";
+	if (!board) return { systemSuffix: "" };
+
+	const sceneJson = await loadFullWhiteboardSceneJson(ctx, board);
+	const visionAttachments = extractEmbeddedBoardImages(sceneJson);
 
 	const lines: string[] = [`Current context: Whiteboard "${board.title}"`];
 	lines.push(`  Whiteboard ID: ${board._id}`);
@@ -310,8 +344,8 @@ async function buildWhiteboardContext(
 		lines.push(`  Last modified: ${formatRelativeTime(board.updatedAt)}`);
 	}
 
-	// Parse and summarize board content so the AI can "see" what's on the canvas
-	const contentSummary = summarizeBoardContent(board.sceneData);
+	// Parse and summarize board content (full scene when stored in file storage)
+	const contentSummary = summarizeBoardContent(sceneJson);
 	if (contentSummary) {
 		lines.push("");
 		lines.push("  Board contents:");
@@ -320,12 +354,22 @@ async function buildWhiteboardContext(
 		lines.push("  Board contents: Empty canvas (no elements)");
 	}
 
+	if (visionAttachments.length > 0) {
+		lines.push("");
+		lines.push(
+			`  Embedded images: ${visionAttachments.length} image(s) from the canvas are attached to the user message. You can inspect the pixels (diagrams, screenshots, photos).`,
+		);
+	}
+
 	lines.push("");
 	lines.push(
 		`  You are viewing this board (whiteboardId="${board._id}"). To add diagrams: call MCP tool \`read_me\` for element format, generate elements JSON, then call \`addElementsToWhiteboard\` with this board ID. To update metadata: \`updateWhiteboard\`.`,
 	);
 
-	return wrapContextBlock(lines.join("\n"));
+	return {
+		systemSuffix: wrapContextBlock(lines.join("\n")),
+		...(visionAttachments.length > 0 ? { visionAttachments } : {}),
+	};
 }
 
 /**
@@ -337,7 +381,15 @@ function summarizeBoardContent(sceneData?: string): string | null {
 
 	try {
 		const parsed = JSON.parse(sceneData) as unknown;
-		if (!Array.isArray(parsed)) return null;
+		const rawElements: unknown = Array.isArray(parsed)
+			? parsed
+			: parsed &&
+					typeof parsed === "object" &&
+					"elements" in parsed &&
+					Array.isArray((parsed as { elements: unknown }).elements)
+				? (parsed as { elements: unknown }).elements
+				: null;
+		if (!rawElements) return null;
 
 		type SceneElement = {
 			id: string;
@@ -354,7 +406,7 @@ function summarizeBoardContent(sceneData?: string): string | null {
 			endBinding?: { elementId?: string };
 		};
 
-		const elements = (parsed as SceneElement[]).filter(
+		const elements = (rawElements as SceneElement[]).filter(
 			(el) => el && typeof el === "object" && !el.isDeleted && el.type,
 		);
 

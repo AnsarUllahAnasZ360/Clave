@@ -47,12 +47,20 @@ Always use structured markdown with clear headers. For issue lists, include iden
 - If a goal is ambiguous, ask one clarifying question before proceeding — do not make assumptions that will require rework
 - Prioritize ruthlessly: a shorter, deliverable sprint is better than an overloaded one`,
 		model: null,
-		// Sprint 3 tool names — update if registry changes
 		enabledTools: [
 			"searchIssues",
-			"getProject",
-			"listProjectIssues",
+			"getProjectDetails",
+			"listProjects",
+			"listSprints",
+			"listWorkspaceMembers",
+			"listWhiteboards",
+			"getWhiteboard",
+			"exportWhiteboardForPlanning",
+			"createSprint",
+			"updateSprint",
+			"bulkCreateIssues",
 			"createIssue",
+			"moveIssueToSprint",
 			"updateIssue",
 		],
 		ragContentTypes: ["issue", "document"],

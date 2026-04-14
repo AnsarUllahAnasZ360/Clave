@@ -14,7 +14,7 @@ import {
 	User,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
 	AutoTriagePanel,
@@ -47,14 +47,13 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useAutoTriage } from "@/hooks/use-auto-triage";
 import { useDuplicateDetection } from "@/hooks/use-duplicate-detection";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import { extractTextFromContent } from "@/lib/content-converters";
 import {
 	type IssueTypeKey,
 	PRIORITY_ITEMS,
 	type PriorityKey,
-	STATUS_ITEMS,
 	type StatusKey,
-	TYPE_ITEMS,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
@@ -63,9 +62,7 @@ import { useIssueCreate } from "./IssueCreateContext";
 
 // ── Issue config (from centralized module) ────────────────────────────────
 
-const STATUS_OPTIONS = STATUS_ITEMS;
 const PRIORITY_OPTIONS = PRIORITY_ITEMS;
-const TYPE_OPTIONS = TYPE_ITEMS;
 
 const ESTIMATE_OPTIONS = [
 	{ id: "0", label: "No estimate" },
@@ -95,11 +92,44 @@ export function IssueQuickCreateModal({
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { formState, updateForm, switchMode, resetFormKeepProperties, preset } =
 		useIssueCreate();
+
+	// Local text state so typing doesn't cascade into the shared form context
+	// (which would re-render every consumer of `useIssueCreate` per keystroke).
+	// Context is flushed on submit, mode switch, and when the AI drafter runs.
+	const [localTitle, setLocalTitle] = useState(formState.title);
+	const [localDescription, setLocalDescription] = useState(
+		formState.description,
+	);
+
+	// Reset local text state when the modal (re)opens — the provider sets the
+	// context fields to "" via applyPreset, so we just mirror that.
+	useEffect(() => {
+		if (open) {
+			setLocalTitle(formState.title);
+			setLocalDescription(formState.description);
+		}
+		// Intentionally not depending on formState — we only seed on open.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [open, preset]);
 	const createIssue = useMutation(api.issues.create);
 	const rawProjects = useWorkspaceProjects();
 	const workspaceMembers = useWorkspaceMembers();
 	const allLabels = useWorkspaceLabels();
 	const settings = useQuery(api.workspaceSettings.get, { workspaceId });
+
+	// Effective statuses for currently selected project.
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		formState.projectId
+			? { projectId: formState.projectId as Id<"projects"> }
+			: "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
+	const STATUS_OPTIONS = effective.statusItems;
+	const TYPE_OPTIONS = effective.typeItems;
 
 	// Sprint query based on selected project
 	const activeSprints = useQuery(
@@ -114,10 +144,10 @@ export function IssueQuickCreateModal({
 		loading: triageLoading,
 		dismissed: triageDismissed,
 		dismiss: dismissTriage,
-	} = useAutoTriage(formState.title, workspaceId);
+	} = useAutoTriage(localTitle, workspaceId);
 
 	const { duplicates, loading: duplicatesLoading } = useDuplicateDetection(
-		formState.title,
+		localTitle,
 		workspaceId,
 	);
 
@@ -184,8 +214,8 @@ export function IssueQuickCreateModal({
 	}, [activeSprints]);
 
 	const quickDescriptionText = useMemo(
-		() => extractTextFromContent(formState.description),
-		[formState.description],
+		() => extractTextFromContent(localDescription),
+		[localDescription],
 	);
 
 	// Focus title on open
@@ -205,7 +235,7 @@ export function IssueQuickCreateModal({
 
 	const handleSubmit = useCallback(async () => {
 		if (submittingRef.current) return;
-		const trimmed = formState.title.trim();
+		const trimmed = localTitle.trim();
 		if (!trimmed) {
 			toast.error("Title is required");
 			titleRef.current?.focus();
@@ -215,13 +245,11 @@ export function IssueQuickCreateModal({
 		submittingRef.current = true;
 		try {
 			const estimateVal = Number.parseFloat(formState.estimate);
-			const descriptionText = extractTextFromContent(
-				formState.description,
-			).trim();
+			const descriptionText = extractTextFromContent(localDescription).trim();
 			const result = await createIssue({
 				workspaceId,
 				title: trimmed,
-				description: descriptionText ? formState.description : undefined,
+				description: descriptionText ? localDescription : undefined,
 				status: formState.status as
 					| "triage"
 					| "backlog"
@@ -236,11 +264,7 @@ export function IssueQuickCreateModal({
 					| "medium"
 					| "low"
 					| "no_priority",
-				type: formState.issueType as
-					| "issue"
-					| "bug"
-					| "improvement"
-					| "feature",
+				type: formState.issueType,
 				projectId: formState.projectId
 					? (formState.projectId as Id<"projects">)
 					: undefined,
@@ -266,6 +290,8 @@ export function IssueQuickCreateModal({
 
 			if (formState.createMore) {
 				toast.success(`${result.identifier} created`);
+				setLocalTitle("");
+				setLocalDescription("");
 				resetFormKeepProperties();
 				titleRef.current?.focus();
 				return;
@@ -280,6 +306,8 @@ export function IssueQuickCreateModal({
 		}
 	}, [
 		formState,
+		localTitle,
+		localDescription,
 		workspaceId,
 		createIssue,
 		onIssueCreated,
@@ -375,7 +403,15 @@ export function IssueQuickCreateModal({
 								type="button"
 								variant="ghost"
 								size="icon"
-								onClick={() => switchMode("full")}
+								onClick={() => {
+									// Flush local text to context so the full modal picks
+									// up whatever the user has typed so far.
+									updateForm({
+										title: localTitle,
+										description: localDescription,
+									});
+									switchMode("full");
+								}}
 								className="h-7 w-7 rounded-full"
 								title="Expand to full view"
 							>
@@ -407,14 +443,15 @@ export function IssueQuickCreateModal({
 							}}
 						>
 							<currentStatus.icon
-								className={cn("h-5 w-5", currentStatus.color)}
+								className="h-5 w-5"
+								style={{ color: currentStatus.colorHex }}
 							/>
 						</button>
 						<input
 							ref={titleRef}
 							type="text"
-							value={formState.title}
-							onChange={(e) => updateForm({ title: e.target.value })}
+							value={localTitle}
+							onChange={(e) => setLocalTitle(e.target.value)}
 							placeholder="Issue title"
 							className="flex-1 text-lg font-medium text-foreground placeholder:text-muted-foreground outline-none bg-transparent border-none"
 							autoComplete="off"
@@ -426,14 +463,14 @@ export function IssueQuickCreateModal({
 						<div className="flex items-center justify-between">
 							<span className="text-xs text-muted-foreground">Description</span>
 							<DraftDescriptionButton
-								title={formState.title}
+								title={localTitle}
 								workspaceId={workspaceId}
 								issueType={formState.issueType}
 								priority={formState.priority}
 								hasExistingContent={quickDescriptionText.length > 0}
 								plainText={preset.source === "document"}
 								onDraft={(text) => {
-									updateForm({ description: text });
+									setLocalDescription(text);
 									setTimeout(() => {
 										if (descriptionRef.current) {
 											descriptionRef.current.style.height = "auto";
@@ -447,7 +484,7 @@ export function IssueQuickCreateModal({
 							ref={descriptionRef}
 							value={quickDescriptionText}
 							onChange={(e) => {
-								updateForm({ description: e.target.value });
+								setLocalDescription(e.target.value);
 								const el = e.target;
 								el.style.height = "auto";
 								el.style.height = `${el.scrollHeight}px`;
@@ -486,12 +523,7 @@ export function IssueQuickCreateModal({
 					<div className="flex flex-wrap gap-1.5 items-center">
 						{/* Status */}
 						<GenericPicker
-							items={STATUS_OPTIONS.map((s) => ({
-								id: s.id,
-								label: s.label,
-								icon: s.icon,
-								color: s.color,
-							}))}
+							items={STATUS_OPTIONS}
 							onSelect={(item) => updateForm({ status: item.id as StatusKey })}
 							selectedId={formState.status}
 							placeholder="Set status..."
@@ -499,7 +531,10 @@ export function IssueQuickCreateModal({
 								const Icon = item.icon;
 								return (
 									<div className="flex items-center gap-2 w-full">
-										<Icon className={cn("h-4 w-4", item.color)} />
+										<Icon
+											className="h-4 w-4"
+											style={{ color: item.colorHex }}
+										/>
 										<span className="flex-1">{item.label}</span>
 									</div>
 								);
@@ -510,7 +545,8 @@ export function IssueQuickCreateModal({
 									className="flex items-center gap-1.5 h-7 px-2 rounded-md border border-border hover:bg-muted transition-colors text-xs"
 								>
 									<currentStatus.icon
-										className={cn("h-3.5 w-3.5", currentStatus.color)}
+										className="h-3.5 w-3.5"
+										style={{ color: currentStatus.colorHex }}
 									/>
 									<span>{currentStatus.label}</span>
 								</button>
@@ -642,23 +678,33 @@ export function IssueQuickCreateModal({
 
 						{/* Type */}
 						<GenericPicker
-							items={TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
+							items={TYPE_OPTIONS}
 							onSelect={(item) =>
 								updateForm({ issueType: item.id as IssueTypeKey })
 							}
 							selectedId={formState.issueType}
 							placeholder="Set type..."
-							renderItem={(item) => (
-								<div className="flex items-center gap-2 w-full">
-									<span className="flex-1">{item.label}</span>
-								</div>
-							)}
+							renderItem={(item) => {
+								const Icon = item.icon;
+								return (
+									<div className="flex items-center gap-2 w-full">
+										<Icon
+											className="h-4 w-4"
+											style={{ color: item.colorHex }}
+										/>
+										<span className="flex-1">{item.label}</span>
+									</div>
+								);
+							}}
 							trigger={
 								<button
 									type="button"
 									className="flex items-center gap-1.5 h-7 px-2 rounded-md border border-border hover:bg-muted transition-colors text-xs"
 								>
-									<Tag className="h-3.5 w-3.5 text-muted-foreground" />
+									<currentType.icon
+										className="h-3.5 w-3.5"
+										style={{ color: currentType.colorHex }}
+									/>
 									<span>{currentType.label}</span>
 								</button>
 							}

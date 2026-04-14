@@ -32,6 +32,10 @@ import {
 	InboxFilterPopover,
 	type InboxFilters,
 } from "@/components/inbox/InboxFilterPopover";
+import {
+	effectiveAssigneeIds,
+	MultiAssigneePicker,
+} from "@/components/issues/MultiAssigneePicker";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -55,20 +59,19 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+	type EffectivePickerItem,
+	useEffectiveIssueConfig,
+} from "@/hooks/use-effective-issue-config";
 import { useShortcutsOptional } from "@/hooks/use-shortcuts";
 import { extractTextFromContent } from "@/lib/content-converters";
-import {
-	PRIORITY_ITEMS,
-	STATUS_ITEMS,
-	type StatusKey,
-} from "@/lib/issue-config";
+import { PRIORITY_ITEMS, type StatusKey } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Status / Priority config (from centralized module) ───────────────────
 
-const STATUS_CONFIG = STATUS_ITEMS;
 const PRIORITY_CONFIG = PRIORITY_ITEMS;
 const LOADING_SKELETON_ROWS = [
 	"row-1",
@@ -83,15 +86,22 @@ const LOADING_SKELETON_ROWS = [
 
 function StatusIcon({
 	statusId,
+	statusItems,
 	className,
 }: {
 	statusId: string;
+	statusItems: EffectivePickerItem[];
 	className?: string;
 }) {
-	const config = STATUS_CONFIG.find((s) => s.id === statusId);
+	const config = statusItems.find((s) => s.id === statusId);
 	if (!config) return null;
 	const Icon = config.icon;
-	return <Icon className={cn("h-4 w-4", config.color, className)} />;
+	return (
+		<Icon
+			className={cn("h-4 w-4", className)}
+			style={{ color: config.colorHex }}
+		/>
+	);
 }
 
 function getActionDescription(type: string): string {
@@ -332,7 +342,7 @@ function NotificationListItem({
 
 function IssuePreviewPanel({
 	notification,
-	workspaceId: _workspaceId,
+	workspaceId,
 	workspaceSlug,
 }: {
 	notification: NotificationItem;
@@ -346,6 +356,15 @@ function IssuePreviewPanel({
 	const members = useWorkspaceMembers();
 	const labels = useWorkspaceLabels();
 	const projects = useWorkspaceProjects();
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		issue?.projectId ? { projectId: issue.projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
+	const STATUS_CONFIG = effective.statusItems;
 
 	const updateMut = useMutation(api.issues.update);
 	const updateStatusMut = useMutation(api.issues.updateStatus);
@@ -422,11 +441,11 @@ function IssuePreviewPanel({
 		}
 	};
 
-	const handleAssigneeChange = (option: { id: string }) => {
+	const handleAssigneesChange = (nextIds: string[]) => {
 		if (issue) {
 			assignMut({
 				issueId: issue._id,
-				assigneeId: option.id as Id<"users">,
+				assigneeIds: nextIds.map((id) => id as Id<"users">),
 			});
 		}
 	};
@@ -440,7 +459,6 @@ function IssuePreviewPanel({
 		}
 	};
 
-	const assignee = memberOptions.find((m) => m.id === issue.assigneeId);
 	const currentStatus = STATUS_CONFIG.find((s) => s.id === issue.status);
 	const currentPriority = PRIORITY_CONFIG.find((p) => p.id === issue.priority);
 	const currentProject = projects?.find((p) => p._id === issue.projectId);
@@ -450,7 +468,7 @@ function IssuePreviewPanel({
 			{/* Header */}
 			<div className="flex items-center justify-between px-6 py-3 border-b border-border/40">
 				<div className="flex items-center gap-2">
-					<StatusIcon statusId={issue.status} />
+					<StatusIcon statusId={issue.status} statusItems={STATUS_CONFIG} />
 					<span className="font-mono text-xs text-muted-foreground">
 						{issue.identifier}
 					</span>
@@ -518,7 +536,10 @@ function IssuePreviewPanel({
 								const Icon = item.icon;
 								return (
 									<div className="flex items-center gap-2 w-full">
-										<Icon className={cn("h-4 w-4", item.color)} />
+										<Icon
+											className="h-4 w-4"
+											style={{ color: item.colorHex }}
+										/>
 										<span className="flex-1">{item.label}</span>
 									</div>
 								);
@@ -528,7 +549,10 @@ function IssuePreviewPanel({
 									type="button"
 									className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
 								>
-									<StatusIcon statusId={issue.status} />
+									<StatusIcon
+										statusId={issue.status}
+										statusItems={STATUS_CONFIG}
+									/>
 									<span>{currentStatus?.label ?? "No status"}</span>
 								</button>
 							}
@@ -570,40 +594,15 @@ function IssuePreviewPanel({
 						/>
 					</PropertyRow>
 
-					<PropertyRow icon={User} label="Assignee">
-						<GenericPicker
-							items={memberOptions}
-							onSelect={handleAssigneeChange}
-							selectedId={issue.assigneeId ?? undefined}
-							placeholder="Assign to..."
-							renderItem={(item) => (
-								<div className="flex items-center gap-2 w-full">
-									<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">
-										{item.name.charAt(0)}
-									</div>
-									<span className="flex-1">{item.name}</span>
-								</div>
-							)}
-							trigger={
-								<button
-									type="button"
-									className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
-								>
-									{assignee ? (
-										<>
-											<Avatar className="size-5">
-												{assignee.image && <AvatarImage src={assignee.image} />}
-												<AvatarFallback className="text-[10px]">
-													{assignee.name.charAt(0)}
-												</AvatarFallback>
-											</Avatar>
-											<span>{assignee.name}</span>
-										</>
-									) : (
-										<span className="text-muted-foreground">Unassigned</span>
-									)}
-								</button>
-							}
+					<PropertyRow icon={User} label="Assignees">
+						<MultiAssigneePicker
+							members={memberOptions.map((m) => ({
+								id: m.id,
+								name: m.name,
+								image: m.image,
+							}))}
+							selectedIds={effectiveAssigneeIds(issue)}
+							onChange={handleAssigneesChange}
 						/>
 					</PropertyRow>
 

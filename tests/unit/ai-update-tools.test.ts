@@ -13,6 +13,7 @@ describe("AI update tools", () => {
 
 		it("still includes all original tools", () => {
 			const expectedTools = [
+				"bulkCreateIssues",
 				"createIssue",
 				"updateIssue",
 				"addComment",

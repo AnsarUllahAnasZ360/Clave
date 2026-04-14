@@ -20,7 +20,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery } from "convex/react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, type LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -37,11 +37,8 @@ import {
 } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-	PRIORITY_LABELS,
-	STATUS_ITEMS,
-	type StatusKey,
-} from "@/lib/issue-config";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import { PRIORITY_LABELS, type StatusKey } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -50,9 +47,12 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 export type IssueStatus = StatusKey;
 
-type StatusColumnConfig = (typeof STATUS_ITEMS)[number];
-
-const STATUS_COLUMNS = STATUS_ITEMS;
+type StatusColumnConfig = {
+	id: string;
+	label: string;
+	icon: LucideIcon;
+	colorHex: string;
+};
 
 // ── Swimlane grouping ─────────────────────────────────────────────────────
 
@@ -143,6 +143,14 @@ export function IssueBoardView({
 }: IssueBoardViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
+
+	// Load project for custom status merge (if project-scoped board).
+	const project = useQuery(
+		api.projects.getById,
+		projectId ? { projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
+	const STATUS_COLUMNS = effective.statusItems;
 
 	const hasExternalIssues = externalIssues !== undefined;
 
@@ -261,7 +269,10 @@ export function IssueBoardView({
 					title: issue.title,
 					status: issue.status,
 					priority: issue.priority,
+					// Carry both assignee fields so the card can show multi-assignee
+					// avatars and the dnd copy stays truthful to the doc.
 					assigneeId: issue.assigneeId ?? undefined,
+					assigneeIds: issue.assigneeIds ?? undefined,
 					labelIds: issue.labelIds ?? undefined,
 					dueDate: issue.dueDate ?? undefined,
 					estimate: issue.estimate ?? undefined,
@@ -288,19 +299,22 @@ export function IssueBoardView({
 		for (const col of STATUS_COLUMNS) {
 			groups.set(col.id, []);
 		}
+		const fallbackId =
+			STATUS_COLUMNS.find((c) => c.id === "backlog")?.id ??
+			STATUS_COLUMNS[0]?.id;
 		for (const issue of localIssues) {
 			const col = groups.get(issue.status as IssueStatus);
 			if (col) {
 				col.push(issue);
-			} else {
-				groups.get("backlog")?.push(issue);
+			} else if (fallbackId) {
+				groups.get(fallbackId)?.push(issue);
 			}
 		}
 		for (const col of groups.values()) {
 			col.sort((a, b) => a.sortOrder - b.sortOrder);
 		}
 		return groups;
-	}, [localIssues]);
+	}, [localIssues, STATUS_COLUMNS]);
 
 	// Find which column an item is in
 	const findItemColumn = useCallback(
@@ -1066,11 +1080,13 @@ export function IssueBoardView({
 							onDelete={() =>
 								onDeleteIssue(activeItem._id, activeItem.identifier)
 							}
-							assignee={
-								activeItem.assigneeId
-									? memberLookup.get(activeItem.assigneeId)
-									: null
-							}
+							assignee={(() => {
+								const id =
+									activeItem.assigneeId ??
+									activeItem.assigneeIds?.[0] ??
+									undefined;
+								return id ? (memberLookup.get(id) ?? null) : null;
+							})()}
 							labels={resolveLabels(activeItem, labelLookup)}
 						/>
 					</div>
@@ -1092,7 +1108,7 @@ function ColumnHeader({
 	const Icon = column.icon;
 	return (
 		<div className="flex items-center gap-1.5 py-1.5">
-			<Icon className={cn("h-4 w-4", column.color)} />
+			<Icon className="h-4 w-4" style={{ color: column.colorHex }} />
 			<span className="text-sm font-medium">{column.label}</span>
 			<span className="text-xs text-muted-foreground ml-0.5">{count}</span>
 		</div>
@@ -1369,8 +1385,13 @@ function SortableCard({
 		transition,
 	};
 
-	const assignee = issue.assigneeId
-		? (memberLookup.get(issue.assigneeId) ?? null)
+	// Prefer the legacy single field (which we mirror on every write), but
+	// fall back to the first id in `assigneeIds` so half-migrated records
+	// still render an avatar on the card.
+	const primaryAssigneeId =
+		issue.assigneeId ?? issue.assigneeIds?.[0] ?? undefined;
+	const assignee = primaryAssigneeId
+		? (memberLookup.get(primaryAssigneeId) ?? null)
 		: null;
 
 	const labels = resolveLabels(issue, labelLookup);
@@ -1412,9 +1433,9 @@ function BoardSkeleton() {
 	return (
 		<div className="overflow-x-auto flex-1 min-h-0 min-w-0">
 			<div className="flex gap-3 px-4 pb-4 pt-2 min-w-max h-full">
-				{STATUS_COLUMNS.slice(0, 5).map((column) => (
+				{[0, 1, 2, 3, 4].map((col) => (
 					<div
-						key={column.id}
+						key={col}
 						className="shrink-0 w-[272px] p-2 space-y-3 border-r border-border/20 last:border-r-0"
 					>
 						<div className="flex items-center gap-2">
@@ -1424,10 +1445,7 @@ function BoardSkeleton() {
 						</div>
 						<div className="space-y-1.5">
 							{Array.from({ length: 3 }).map((_, i) => (
-								<Skeleton
-									key={`${column.id}-${i}`}
-									className="h-24 rounded-lg"
-								/>
+								<Skeleton key={`${col}-${i}`} className="h-24 rounded-lg" />
 							))}
 						</div>
 					</div>

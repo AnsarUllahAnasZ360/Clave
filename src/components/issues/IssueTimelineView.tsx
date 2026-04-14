@@ -42,6 +42,7 @@ import {
 	TooltipProvider,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import {
 	getStatusConfig as getCentralizedStatusConfig,
 	TIMELINE_BAR_COLORS,
@@ -52,14 +53,27 @@ import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Status configuration (from centralized module) ───────────────────────
 
-function getStatusConfig(status: string) {
-	const item = getCentralizedStatusConfig(status);
-	return {
-		id: item.key,
-		label: item.name,
-		icon: item.icon,
-		color: item.color,
-		barColor: TIMELINE_BAR_COLORS[item.key] ?? "bg-muted border-border",
+type StatusConfigLookup = (status: string) => {
+	id: string;
+	label: string;
+	icon: ReturnType<typeof getCentralizedStatusConfig>["icon"];
+	colorHex: string;
+	barColor: string;
+};
+
+function makeGetStatusConfig(
+	lookup: Map<string, { name: string; color: string }>,
+): StatusConfigLookup {
+	return (status: string) => {
+		const merged = lookup.get(status);
+		const fallback = getCentralizedStatusConfig(status);
+		return {
+			id: status,
+			label: merged?.name ?? fallback.name,
+			icon: fallback.icon,
+			colorHex: merged?.color ?? "#6b7280",
+			barColor: TIMELINE_BAR_COLORS[status] ?? "bg-muted border-border",
+		};
 	};
 }
 
@@ -127,6 +141,20 @@ export function IssueTimelineView({
 	onIssueClick,
 }: IssueTimelineViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
+
+	// Effective statuses for this project — used by nested sub-components.
+	const projectForStatuses = useQuery(api.projects.getById, { projectId });
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
+	const getStatusConfig = useMemo(() => {
+		const map = new Map<string, { name: string; color: string }>();
+		for (const s of effective.statuses) {
+			map.set(s.key, { name: s.name, color: s.color });
+		}
+		return makeGetStatusConfig(map);
+	}, [effective.statuses]);
 
 	// ── Data queries ────────────────────────────────────────────────────
 	const fetchedIssues = useQuery(
@@ -803,6 +831,7 @@ export function IssueTimelineView({
 										workspaceSlug={workspaceSlug}
 										onDragEnd={handleDragEnd}
 										onIssueClick={onIssueClick}
+										getStatusConfig={getStatusConfig}
 									/>
 								))}
 
@@ -898,6 +927,7 @@ export function IssueTimelineView({
 										handleDragEnd(issueId, startDate, dueDate)
 									}
 									onIssueClick={onIssueClick}
+									getStatusConfig={getStatusConfig}
 								/>
 							))}
 					</div>
@@ -959,6 +989,7 @@ function IssueTimelineRow({
 	workspaceSlug,
 	onDragEnd,
 	onIssueClick,
+	getStatusConfig,
 }: {
 	issue: IssueTimelineData & { startDate: number; dueDate: number };
 	dates: Date[];
@@ -974,6 +1005,7 @@ function IssueTimelineRow({
 		newDueDate: number,
 	) => void;
 	onIssueClick?: (issueId: string) => void;
+	getStatusConfig: StatusConfigLookup;
 }) {
 	const sc = getStatusConfig(issue.status);
 	const StatusIcon = sc.icon;
@@ -1079,7 +1111,10 @@ function IssueTimelineRow({
 				className="shrink-0 sticky left-0 z-10 bg-background border-r border-border/20 flex items-center gap-2 px-4"
 				style={{ width: sidebarWidth }}
 			>
-				<StatusIcon className={cn("h-3.5 w-3.5 shrink-0", sc.color)} />
+				<StatusIcon
+					className="h-3.5 w-3.5 shrink-0"
+					style={{ color: sc.colorHex }}
+				/>
 				<span className="text-xs font-mono text-muted-foreground shrink-0">
 					{issue.identifier}
 				</span>
@@ -1164,7 +1199,10 @@ function IssueTimelineRow({
 							<div className="space-y-1">
 								<p className="font-medium">{issue.title}</p>
 								<div className="flex items-center gap-2 text-muted-foreground">
-									<StatusIcon className={cn("h-3 w-3", sc.color)} />
+									<StatusIcon
+										className="h-3 w-3"
+										style={{ color: sc.colorHex }}
+									/>
 									<span>{sc.label}</span>
 								</div>
 								<p className="text-muted-foreground">
@@ -1346,6 +1384,7 @@ function UnscheduledIssueRow({
 	workspaceSlug,
 	onDateSet,
 	onIssueClick,
+	getStatusConfig,
 }: {
 	issue: IssueTimelineData;
 	dates: Date[];
@@ -1360,6 +1399,7 @@ function UnscheduledIssueRow({
 		dueDate: number,
 	) => void;
 	onIssueClick?: (issueId: string) => void;
+	getStatusConfig: StatusConfigLookup;
 }) {
 	const sc = getStatusConfig(issue.status);
 	const StatusIcon = sc.icon;
@@ -1430,7 +1470,10 @@ function UnscheduledIssueRow({
 				className="shrink-0 sticky left-0 z-10 bg-background group-hover:bg-accent/5 border-r border-border/20 flex items-center gap-2 pl-8 pr-4"
 				style={{ width: sidebarWidth, height: ROW_HEIGHT }}
 			>
-				<StatusIcon className={cn("h-3.5 w-3.5 shrink-0", sc.color)} />
+				<StatusIcon
+					className="h-3.5 w-3.5 shrink-0"
+					style={{ color: sc.colorHex }}
+				/>
 				{onIssueClick ? (
 					<button
 						type="button"

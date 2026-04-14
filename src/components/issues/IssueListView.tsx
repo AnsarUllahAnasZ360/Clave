@@ -44,6 +44,7 @@ import {
 	useWorkspaceProjects,
 } from "@/components/providers/workspace-data-context";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import type {
 	DisplayPropertyId,
 	GroupByOption,
@@ -53,11 +54,8 @@ import type {
 import { displayPropertiesToColumns } from "@/lib/display-options";
 import {
 	DEFAULT_PRIORITIES,
-	DEFAULT_STATUSES,
 	PRIORITY_ITEMS as PRIORITY_CONFIG,
 	PRIORITY_ORDER,
-	STATUS_ITEMS as STATUS_CONFIG,
-	STATUS_ORDER,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
@@ -121,14 +119,7 @@ const COLUMN_WIDTHS: Record<ListColumnId, string> = {
 	dueDate: "w-[90px]",
 };
 
-// ── Status/Priority icons for group headers (from centralized module) ────
-
-const STATUS_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
-	DEFAULT_STATUSES.map((s) => {
-		const Icon = s.icon;
-		return [s.key, <Icon key={s.key} className={`h-4 w-4 ${s.color}`} />];
-	}),
-);
+// ── Priority icons for group headers (status icons resolved dynamically) ─
 
 const PRIORITY_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
 	DEFAULT_PRIORITIES.map((p) => {
@@ -142,13 +133,13 @@ const PRIORITY_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
 function sortIssues(
 	issues: IssueListData[],
 	sortBy: ListSortBy,
+	statusOrder: Record<string, number>,
 ): IssueListData[] {
 	const sorted = [...issues];
 	switch (sortBy) {
 		case "status":
 			sorted.sort(
-				(a, b) =>
-					(STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99),
+				(a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99),
 			);
 			break;
 		case "priority":
@@ -184,12 +175,19 @@ function sortIssues(
 
 // ── Grouping ───────────────────────────────────────────────────────────────
 
+type StatusDescriptor = {
+	id: string;
+	label: string;
+	icon: React.ReactNode;
+};
+
 function groupIssues(
 	issues: IssueListData[],
 	groupBy: ListGroupBy,
 	memberMap: Map<string, MemberOption>,
 	projectMap: Map<string, string>,
 	milestoneMap: Map<string, string>,
+	statusDescriptors: StatusDescriptor[],
 ): GroupedIssues[] {
 	if (groupBy === "none") {
 		return [{ key: "all", label: "All issues", count: issues.length, issues }];
@@ -249,13 +247,13 @@ function groupIssues(
 
 	// Order groups based on the groupBy dimension
 	if (groupBy === "status") {
-		for (const sc of STATUS_CONFIG) {
+		for (const sc of statusDescriptors) {
 			const items = groups.get(sc.id);
 			if (items) {
 				result.push({
 					key: sc.id,
 					label: sc.label,
-					icon: STATUS_ICONS[sc.id],
+					icon: sc.icon,
 					count: items.length,
 					issues: items,
 				});
@@ -385,8 +383,32 @@ export function IssueListView({
 	hideFilter,
 	onIssueClick,
 }: IssueListViewProps) {
-	const { workspaceSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
+
+	// Load effective statuses (workspace + optional project override).
+	const project = useQuery(
+		api.projects.getById,
+		projectId ? { projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
+	const statusItems = effective.statusItems;
+	const statusOrder = effective.statusOrder;
+	const statusDescriptors = useMemo<StatusDescriptor[]>(
+		() =>
+			statusItems.map((s) => ({
+				id: s.id,
+				label: s.label,
+				icon: (
+					<s.icon
+						key={s.id}
+						className="h-4 w-4"
+						style={{ color: s.colorHex }}
+					/>
+				),
+			})),
+		[statusItems],
+	);
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
 	);
@@ -528,8 +550,8 @@ export function IssueListView({
 	);
 
 	const sortedIssues = useMemo(
-		() => sortIssues(filteredIssues, sortBy),
-		[filteredIssues, sortBy],
+		() => sortIssues(filteredIssues, sortBy, statusOrder),
+		[filteredIssues, sortBy, statusOrder],
 	);
 
 	const groupedIssues = useMemo(() => {
@@ -539,6 +561,7 @@ export function IssueListView({
 			memberMap,
 			projectMap,
 			milestoneMap,
+			statusDescriptors,
 		);
 
 		// Apply sub-grouping
@@ -550,12 +573,21 @@ export function IssueListView({
 					memberMap,
 					projectMap,
 					milestoneMap,
+					statusDescriptors,
 				);
 			}
 		}
 
 		return groups;
-	}, [sortedIssues, groupBy, subGroupBy, memberMap, projectMap, milestoneMap]);
+	}, [
+		sortedIssues,
+		groupBy,
+		subGroupBy,
+		memberMap,
+		projectMap,
+		milestoneMap,
+		statusDescriptors,
+	]);
 
 	// ── Flat list of visible issue IDs for keyboard nav ──────────────────
 	const flatIssueIds = useMemo(() => {
@@ -584,44 +616,69 @@ export function IssueListView({
 		[flatIssueIds],
 	);
 
-	// Keep selection in sync when visible set changes (filters/grouping/collapse)
+	// Full id set across every group, *ignoring* collapse state. Collapsing
+	// a group is a display toggle, not a data-set change — the selection
+	// should survive it. We use this (not `visibleIssueIds`) to prune the
+	// selection when the underlying data actually changes (filters, groups,
+	// sorting, server updates).
+	const allGroupedIssueIds = useMemo(() => {
+		const ids: string[] = [];
+		for (const group of groupedIssues) {
+			if (group.subGroups) {
+				for (const sub of group.subGroups) {
+					for (const issue of sub.issues) ids.push(issue._id as string);
+				}
+			} else {
+				for (const issue of group.issues) ids.push(issue._id as string);
+			}
+		}
+		return ids;
+	}, [groupedIssues]);
+
+	// Prune selection to the currently-grouped set (not the visible set). This
+	// keeps ids inside collapsed groups selected, so (a) toggling the group
+	// checkbox while collapsed correctly selects all children, and (b) a
+	// collapse/expand cycle doesn't clear prior selections.
 	useEffect(() => {
 		setSelectedIds((prev) => {
 			if (prev.size === 0) return prev;
-			const visible = new Set(visibleIssueIds);
+			const live = new Set(allGroupedIssueIds);
 			const next = new Set<string>();
 			for (const id of prev) {
-				if (visible.has(id)) next.add(id);
+				if (live.has(id)) next.add(id);
 			}
 			return next;
 		});
-	}, [visibleIssueIds]);
+	}, [allGroupedIssueIds]);
 
+	// Master checkbox operates on the full grouped set, *including* items
+	// inside collapsed groups — otherwise "Select all" would silently skip
+	// everything the user can't currently see, which reads as a bug.
 	const headerCheckboxState = useMemo<boolean | "indeterminate">(() => {
-		if (visibleIssueIds.length === 0) return false;
-		let selectedVisible = 0;
-		for (const id of visibleIssueIds) {
-			if (selectedIds.has(id)) selectedVisible++;
+		if (allGroupedIssueIds.length === 0) return false;
+		let selected = 0;
+		for (const id of allGroupedIssueIds) {
+			if (selectedIds.has(id)) selected++;
 		}
-		if (selectedVisible === 0) return false;
-		if (selectedVisible === visibleIssueIds.length) return true;
+		if (selected === 0) return false;
+		if (selected === allGroupedIssueIds.length) return true;
 		return "indeterminate";
-	}, [visibleIssueIds, selectedIds]);
+	}, [allGroupedIssueIds, selectedIds]);
 
 	const toggleSelectAllVisible = useCallback(() => {
 		setSelectedIds((prev) => {
-			if (visibleIssueIds.length === 0) return prev;
-			const allSelected = visibleIssueIds.every((id) => prev.has(id));
+			if (allGroupedIssueIds.length === 0) return prev;
+			const allSelected = allGroupedIssueIds.every((id) => prev.has(id));
 			const next = new Set(prev);
 			if (allSelected) {
-				for (const id of visibleIssueIds) next.delete(id);
+				for (const id of allGroupedIssueIds) next.delete(id);
 			} else {
-				for (const id of visibleIssueIds) next.add(id);
+				for (const id of allGroupedIssueIds) next.add(id);
 			}
 			return next;
 		});
 		setLastClickedId(null);
-	}, [visibleIssueIds]);
+	}, [allGroupedIssueIds]);
 
 	const handleSelectIssue = useCallback(
 		(issueId: string, shiftKey: boolean) => {
@@ -1228,6 +1285,7 @@ export function IssueListView({
 					<IssueListRow
 						issue={issue}
 						columns={visibleColumns}
+						statusItems={statusItems}
 						isHighlighted={idx === highlightedIndex}
 						issueUrl={issueUrl}
 						onDelete={handleDeleteIssue}
@@ -1400,6 +1458,7 @@ export function IssueListView({
 			<IssueBulkActionBar
 				selectedIds={selectedIds}
 				onClearSelection={() => setSelectedIds(new Set())}
+				projectId={projectId}
 				sprintOptions={(allSprints ?? []).map((s) => ({
 					id: s._id as string,
 					name: s.name,

@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+
+/** Max UTF-8 bytes for `sceneData` stored on the whiteboard document (Convex 1 MiB doc limit). */
+const MAX_SCENE_DATA_UTF8_BYTES = 950_000;
+
 import { logActivity } from "./lib/activity";
 import {
 	canAccessProject,
@@ -276,12 +280,20 @@ export const create = mutation({
 	},
 });
 
-/** Update whiteboard scene data -- uses write access check for shared editors */
+/**
+ * Update whiteboard scene data -- uses write access check for shared editors.
+ *
+ * - `mode: "inline"` — full scene JSON in `sceneData` (under size limit).
+ * - `mode: "full_in_storage"` — full scene JSON is in Convex file storage at `sceneDataStorageId`;
+ *   `sceneData` must hold a lean `"database"` serialization (elements + refs, no embedded image bytes).
+ */
 export const updateScene = mutation({
 	args: {
 		whiteboardId: v.id("whiteboards"),
+		mode: v.union(v.literal("inline"), v.literal("full_in_storage")),
 		sceneData: v.string(),
 		appState: v.string(),
+		sceneDataStorageId: v.optional(v.id("_storage")),
 	},
 	handler: async (ctx, args) => {
 		const whiteboard = await ctx.db.get(args.whiteboardId);
@@ -294,9 +306,42 @@ export const updateScene = mutation({
 		);
 		if (!canWrite) throw new Error("No write access");
 
+		const sceneDataBytes = new TextEncoder().encode(args.sceneData).length;
+		if (sceneDataBytes > MAX_SCENE_DATA_UTF8_BYTES) {
+			throw new Error(
+				`Whiteboard scene data is too large (${sceneDataBytes} bytes). Try removing or shrinking images.`,
+			);
+		}
+
+		const prevStorageId = whiteboard.sceneDataStorageId;
+
+		if (args.mode === "inline") {
+			const updates: Record<string, unknown> = {
+				sceneData: args.sceneData,
+				appState: args.appState,
+				sceneDataStorageId: undefined,
+				updatedAt: Date.now(),
+			};
+			if (userId) {
+				updates.lastEditedBy = userId;
+			}
+
+			await ctx.db.patch(args.whiteboardId, updates);
+
+			if (prevStorageId) {
+				await ctx.storage.delete(prevStorageId);
+			}
+			return;
+		}
+
+		if (!args.sceneDataStorageId) {
+			throw new Error("full_in_storage requires sceneDataStorageId");
+		}
+
 		const updates: Record<string, unknown> = {
 			sceneData: args.sceneData,
 			appState: args.appState,
+			sceneDataStorageId: args.sceneDataStorageId,
 			updatedAt: Date.now(),
 		};
 		if (userId) {
@@ -304,6 +349,10 @@ export const updateScene = mutation({
 		}
 
 		await ctx.db.patch(args.whiteboardId, updates);
+
+		if (prevStorageId && prevStorageId !== args.sceneDataStorageId) {
+			await ctx.storage.delete(prevStorageId);
+		}
 	},
 });
 
@@ -370,6 +419,7 @@ export const duplicate = mutation({
 			title: `${whiteboard.title} (copy)`,
 			icon: whiteboard.icon ?? getRandomEmoji(),
 			sceneData: whiteboard.sceneData,
+			sceneDataStorageId: whiteboard.sceneDataStorageId,
 			appState: whiteboard.appState,
 			sortOrder: Date.now(),
 			createdBy: userId,
@@ -508,6 +558,7 @@ export const getByShareToken = query({
 				title: whiteboard.title,
 				icon: whiteboard.icon,
 				sceneData: whiteboard.sceneData,
+				sceneDataStorageId: whiteboard.sceneDataStorageId,
 				appState: whiteboard.appState,
 				visibility: whiteboard.visibility,
 				defaultPermission: whiteboard.defaultPermission,
@@ -526,6 +577,7 @@ export const getByShareToken = query({
 					title: whiteboard.title,
 					icon: whiteboard.icon,
 					sceneData: whiteboard.sceneData,
+					sceneDataStorageId: whiteboard.sceneDataStorageId,
 					appState: whiteboard.appState,
 					visibility: whiteboard.visibility,
 					defaultPermission: whiteboard.defaultPermission,
@@ -543,6 +595,7 @@ export const getByShareToken = query({
 					title: whiteboard.title,
 					icon: whiteboard.icon,
 					sceneData: whiteboard.sceneData,
+					sceneDataStorageId: whiteboard.sceneDataStorageId,
 					appState: whiteboard.appState,
 					visibility: whiteboard.visibility,
 					defaultPermission: whiteboard.defaultPermission,

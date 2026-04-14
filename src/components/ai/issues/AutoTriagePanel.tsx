@@ -1,8 +1,10 @@
 "use client";
 
 import { SparklesIcon, X } from "lucide-react";
+import { useWorkspace } from "@/components/providers/workspace-context";
 import { Button } from "@/components/ui/button";
 import type { TriageSuggestions } from "@/hooks/use-auto-triage";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import {
 	getPriorityConfig,
 	getTypeConfig,
@@ -62,12 +64,18 @@ export function AutoTriagePanel({
 	onDismiss,
 	compact = false,
 }: AutoTriagePanelProps) {
+	const { workspaceId } = useWorkspace();
+	const effective = useEffectiveIssueConfig(workspaceId);
+
 	const priority = normalizePriority(suggestions.priority);
 	const issueType = normalizeType(suggestions.type);
 	const priorityCfg = getPriorityConfig(priority);
-	const typeCfg = getTypeConfig(issueType);
+	const typeFromHook = effective.typeItems.find((t) => t.id === issueType);
+	const typeFallback = getTypeConfig(issueType);
+	const TypeIcon = typeFromHook?.icon ?? typeFallback.icon;
+	const typeLabel = typeFromHook?.label ?? typeFallback.name;
+	const typeColorHex = typeFromHook?.colorHex;
 	const PriorityIcon = priorityCfg.icon;
-	const TypeIcon = typeCfg.icon;
 
 	return (
 		<div
@@ -106,8 +114,11 @@ export function AutoTriagePanel({
 
 				{/* Type */}
 				<div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-background border border-border text-xs">
-					<TypeIcon className={cn("h-3 w-3", typeCfg.color)} />
-					<span>{typeCfg.name}</span>
+					<TypeIcon
+						className={cn("h-3 w-3", !typeColorHex && typeFallback.color)}
+						style={typeColorHex ? { color: typeColorHex } : undefined}
+					/>
+					<span>{typeLabel}</span>
 				</div>
 
 				{/* Labels */}

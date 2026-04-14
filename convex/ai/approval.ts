@@ -16,6 +16,18 @@ type DeferredApprovalPayload = {
 	type: string;
 	issueId?: string;
 	issueIds?: string[];
+	/** `bulkCreateIssues` tool — rows approved in one step */
+	issues?: Array<{
+		title: string;
+		description?: string;
+		status?: string;
+		priority?: string;
+		type?: string;
+		assigneeId?: string;
+		projectId?: string;
+		sprintId?: string;
+		labelIds?: string[];
+	}>;
 	workspaceId?: string;
 	args?: Record<string, unknown>;
 	updates?: Record<string, unknown>;
@@ -183,6 +195,61 @@ async function executeDeferredApprovalMutation(
 			labelIds: args.labelIds as Array<Id<"labels">> | undefined,
 		});
 		resultMessage = `Created issue ${result.identifier}: "${args.title}"`;
+	} else if (payload.type === "bulkCreateIssues") {
+		const workspaceId = payload.workspaceId as Id<"workspaces">;
+		const rawIssues = payload.issues as
+			| Array<{
+					title: string;
+					description?: string;
+					status?: string;
+					priority?: string;
+					type?: string;
+					assigneeId?: string;
+					projectId?: string;
+					sprintId?: string;
+					labelIds?: string[];
+			  }>
+			| undefined;
+		if (!rawIssues?.length) {
+			throw new ConvexError("bulkCreateIssues: no issues in payload");
+		}
+		const identifiers: string[] = [];
+		for (const args of rawIssues) {
+			if (!args.title?.trim()) continue;
+			const result = await ctx.runMutation(api.issues.create, {
+				workspaceId,
+				title: args.title.trim(),
+				description: args.description,
+				status: args.status as
+					| "triage"
+					| "backlog"
+					| "todo"
+					| "in_progress"
+					| "in_review"
+					| "done"
+					| "cancelled"
+					| undefined,
+				priority: args.priority as
+					| "urgent"
+					| "high"
+					| "medium"
+					| "low"
+					| "no_priority"
+					| undefined,
+				type: args.type as
+					| "issue"
+					| "bug"
+					| "improvement"
+					| "feature"
+					| undefined,
+				assigneeId: args.assigneeId as Id<"users"> | undefined,
+				projectId: args.projectId as Id<"projects"> | undefined,
+				sprintId: args.sprintId as Id<"sprints"> | undefined,
+				labelIds: args.labelIds as Array<Id<"labels">> | undefined,
+			});
+			identifiers.push(result.identifier);
+		}
+		resultMessage = `Created ${identifiers.length} issues: ${identifiers.join(", ")}`;
 	} else if (payload.type === "updateIssue") {
 		// Route through api.issues.update for full RBAC, activity logging, and notifications
 		await ctx.runMutation(api.issues.update, {
@@ -319,6 +386,13 @@ async function executeDeferredApprovalMutationForGoogleChat(
 		if (!issueId) {
 			throw new ConvexError("Failed to create issue");
 		}
+	} else if (payload.type === "bulkCreateIssues") {
+		const workspaceId = payload.workspaceId as Id<"workspaces">;
+		if (!workspaceId) {
+			throw new ConvexError("bulkCreateIssues payload missing workspaceId");
+		}
+		await assertWorkspaceMember(ctx, workspaceId, actorUserId);
+		return await executeDeferredApprovalMutation(ctx, payload);
 	} else if (payload.type === "updateIssue") {
 		const issueId = payload.issueId as Id<"issues">;
 		if (!issueId) {

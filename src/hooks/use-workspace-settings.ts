@@ -57,6 +57,37 @@ function mergeDefaults(
 	return [...merged, ...customOnly];
 }
 
+/**
+ * Reorder a merged item list by a persisted key ordering. Keys present in the
+ * order array come first in that order; any items whose keys are missing from
+ * the order array fall back to their natural position at the end (preserving
+ * the input list's relative order). Returns `items` unchanged when the order
+ * array is missing or empty.
+ *
+ * Generic over the item shape so callers can sort extended types (e.g. with
+ * `isDefault`) without losing fields.
+ */
+export function applyOrder<T extends { key: string }>(
+	items: T[],
+	order: string[] | undefined,
+): T[] {
+	if (!order || order.length === 0) return items;
+	const byKey = new Map(items.map((i) => [i.key, i] as const));
+	const ordered: T[] = [];
+	const seen = new Set<string>();
+	for (const key of order) {
+		const item = byKey.get(key);
+		if (item) {
+			ordered.push(item);
+			seen.add(key);
+		}
+	}
+	for (const item of items) {
+		if (!seen.has(item.key)) ordered.push(item);
+	}
+	return ordered;
+}
+
 export function useWorkspaceSettings(
 	workspaceId: Id<"workspaces"> | undefined,
 ) {
@@ -83,7 +114,11 @@ export function useWorkspaceSettings(
 		}));
 
 		const types = mergeDefaults(issueTypeDefaults, settings?.customTypes);
-		const statuses = mergeDefaults(statusDefaults, settings?.customStatuses);
+		const statusesUnordered = mergeDefaults(
+			statusDefaults,
+			settings?.customStatuses,
+		);
+		const statuses = applyOrder(statusesUnordered, settings?.customStatusOrder);
 		const priorities = mergeDefaults(
 			priorityDefaults,
 			settings?.customPriorities,

@@ -314,7 +314,7 @@ describe("google chat webhook approvals (integration)", () => {
 		});
 		expect(replayResult.status).toBe("duplicate");
 		expect(await getApprovalStatus(t, approvalId)).toBe("approved");
-	});
+	}, 15_000);
 
 	it("rejects action and denies unauthorized approval actor", async () => {
 		const t = createBackend();

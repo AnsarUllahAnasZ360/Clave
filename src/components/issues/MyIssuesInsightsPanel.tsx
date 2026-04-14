@@ -3,14 +3,11 @@
 import { X } from "lucide-react";
 import { useMemo } from "react";
 
+import { useWorkspace } from "@/components/providers/workspace-context";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import {
-	DEFAULT_PRIORITIES,
-	DEFAULT_STATUSES,
-	PRIORITY_LABELS,
-} from "@/lib/issue-config";
-import { cn } from "@/lib/utils";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import { DEFAULT_PRIORITIES, PRIORITY_LABELS } from "@/lib/issue-config";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,31 +19,6 @@ type InsightIssue = {
 type MyIssuesInsightsPanelProps = {
 	issues: InsightIssue[];
 	onClose: () => void;
-};
-
-// ── Status config (derived from centralized module) ──────────────────────
-
-const STATUS_ORDER = DEFAULT_STATUSES.map((s) => s.key);
-
-const STATUS_LABELS: Record<string, string> = Object.fromEntries(
-	DEFAULT_STATUSES.map((s) => [s.key, s.name]),
-);
-
-const STATUS_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
-	DEFAULT_STATUSES.map((s) => {
-		const Icon = s.icon;
-		return [s.key, <Icon key={s.key} className={`h-3.5 w-3.5 ${s.color}`} />];
-	}),
-);
-
-const STATUS_BAR_COLORS: Record<string, string> = {
-	triage: "bg-orange-500",
-	backlog: "bg-muted-foreground/50",
-	todo: "bg-blue-500",
-	in_progress: "bg-yellow-500",
-	in_review: "bg-blue-400",
-	done: "bg-emerald-500",
-	cancelled: "bg-muted-foreground/30",
 };
 
 // ── Priority config (derived from centralized module) ────────────────────
@@ -66,6 +38,36 @@ export function MyIssuesInsightsPanel({
 	issues,
 	onClose,
 }: MyIssuesInsightsPanelProps) {
+	const { workspaceId } = useWorkspace();
+	const effective = useEffectiveIssueConfig(workspaceId);
+	const statusItems = effective.statusItems;
+	const STATUS_ORDER = useMemo(
+		() => statusItems.map((s) => s.id),
+		[statusItems],
+	);
+	const STATUS_LABELS = useMemo<Record<string, string>>(
+		() => Object.fromEntries(statusItems.map((s) => [s.id, s.label])),
+		[statusItems],
+	);
+	const STATUS_ICONS = useMemo<Record<string, React.ReactNode>>(
+		() =>
+			Object.fromEntries(
+				statusItems.map((s) => [
+					s.id,
+					<s.icon
+						key={s.id}
+						className="h-3.5 w-3.5"
+						style={{ color: s.colorHex }}
+					/>,
+				]),
+			),
+		[statusItems],
+	);
+	const STATUS_COLOR_HEX = useMemo<Record<string, string>>(
+		() => Object.fromEntries(statusItems.map((s) => [s.id, s.colorHex])),
+		[statusItems],
+	);
+
 	const total = issues.length;
 
 	// Compute status breakdown
@@ -78,7 +80,7 @@ export function MyIssuesInsightsPanel({
 			status,
 			count: counts.get(status) ?? 0,
 		})).filter((s) => s.count > 0);
-	}, [issues]);
+	}, [issues, STATUS_ORDER]);
 
 	// Compute priority breakdown
 	const priorityBreakdown = useMemo(() => {
@@ -130,11 +132,12 @@ export function MyIssuesInsightsPanel({
 								return (
 									<div
 										key={item.status}
-										className={cn(
-											"h-full transition-all",
-											STATUS_BAR_COLORS[item.status],
-										)}
-										style={{ width: `${pct}%` }}
+										className="h-full transition-all"
+										style={{
+											width: `${pct}%`,
+											backgroundColor:
+												STATUS_COLOR_HEX[item.status] ?? "#6b7280",
+										}}
 										title={`${STATUS_LABELS[item.status]}: ${item.count}`}
 									/>
 								);

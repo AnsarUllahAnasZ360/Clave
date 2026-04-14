@@ -38,12 +38,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DatePicker, GenericPicker } from "@/components/ui/pickers";
 import { Separator } from "@/components/ui/separator";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import { extractTextFromContent } from "@/lib/content-converters";
-import {
-	DEFAULT_ISSUE_TYPES,
-	DEFAULT_PRIORITIES,
-	DEFAULT_STATUSES,
-} from "@/lib/issue-config";
+import { DEFAULT_PRIORITIES } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -82,11 +79,20 @@ function EditableProperty<T extends string>({
 	icon: LucideIcon;
 	label: string;
 	value: T;
-	options: { key: T; label: string; icon?: LucideIcon; color?: string }[];
+	options: {
+		key: T;
+		label: string;
+		icon?: LucideIcon;
+		color?: string;
+		colorHex?: string;
+	}[];
 	onChange: (value: T) => void;
 }) {
 	const current = options.find((o) => o.key === value);
 	const CurrentIcon = current?.icon;
+	const currentStyle = current?.colorHex
+		? { color: current.colorHex }
+		: undefined;
 
 	return (
 		<div className="flex items-center gap-3 min-h-[32px] py-0.5">
@@ -102,7 +108,11 @@ function EditableProperty<T extends string>({
 					>
 						{CurrentIcon && (
 							<CurrentIcon
-								className={cn("h-3.5 w-3.5 shrink-0", current?.color)}
+								className={cn(
+									"h-3.5 w-3.5 shrink-0",
+									!current?.colorHex && current?.color,
+								)}
+								style={currentStyle}
 							/>
 						)}
 						<span className="truncate">{current?.label ?? value}</span>
@@ -111,6 +121,7 @@ function EditableProperty<T extends string>({
 				<DropdownMenuContent align="start" className="w-44">
 					{options.map((opt) => {
 						const OptIcon = opt.icon;
+						const optStyle = opt.colorHex ? { color: opt.colorHex } : undefined;
 						return (
 							<DropdownMenuItem
 								key={opt.key}
@@ -121,7 +132,10 @@ function EditableProperty<T extends string>({
 								)}
 							>
 								{OptIcon && (
-									<OptIcon className={cn("h-3.5 w-3.5", opt.color)} />
+									<OptIcon
+										className={cn("h-3.5 w-3.5", !opt.colorHex && opt.color)}
+										style={optStyle}
+									/>
 								)}
 								{opt.label}
 							</DropdownMenuItem>
@@ -142,7 +156,7 @@ export function IssuePreviewSidebar({
 	issueId: Id<"issues">;
 	onClose: () => void;
 }) {
-	const { workspaceSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
 	const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 	const [createBranchOpen, setCreateBranchOpen] = useState(false);
@@ -157,6 +171,16 @@ export function IssuePreviewSidebar({
 
 	// Fetch issue data
 	const issue = useQuery(api.issues.getById, { issueId });
+
+	// Fetch project for custom status merge
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		issue?.projectId ? { projectId: issue.projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
 
 	// Lookup data
 	const members = useWorkspaceMembers();
@@ -380,11 +404,11 @@ export function IssuePreviewSidebar({
 							icon={CircleDashed}
 							label="Status"
 							value={issue.status}
-							options={DEFAULT_STATUSES.map((s) => ({
-								key: s.key,
-								label: s.name,
+							options={effective.statusItems.map((s) => ({
+								key: s.id,
+								label: s.label,
 								icon: s.icon,
-								color: s.color,
+								colorHex: s.colorHex,
 							}))}
 							onChange={(v) => handleUpdate("status", v)}
 						/>
@@ -441,16 +465,23 @@ export function IssuePreviewSidebar({
 									align="start"
 									className="w-48 max-h-60 overflow-y-auto"
 								>
-									{members?.map((m) =>
-										m.user ? (
+									{members?.map((m) => {
+										// Canonical assignee set: merge legacy `assigneeId` with the
+										// `assigneeIds[]` array so toggle works no matter which path
+										// the record was last written through.
+										const currentSet = new Set<string>([
+											...((issue.assigneeIds as string[] | undefined) ?? []),
+											...(issue.assigneeId ? [issue.assigneeId as string] : []),
+										]);
+										const isAssigned = currentSet.has(m.userId);
+										return m.user ? (
 											<DropdownMenuItem
 												key={m.userId}
 												onClick={() => {
-													const newIds = issue.assigneeIds?.includes(m.userId)
-														? (issue.assigneeIds ?? []).filter(
-																(id) => id !== m.userId,
-															)
-														: [...(issue.assigneeIds ?? []), m.userId];
+													const next = new Set(currentSet);
+													if (isAssigned) next.delete(m.userId);
+													else next.add(m.userId);
+													const newIds = [...next];
 													handleUpdate(
 														"assigneeIds",
 														newIds.length > 0 ? newIds : undefined,
@@ -458,7 +489,7 @@ export function IssuePreviewSidebar({
 												}}
 												className={cn(
 													"gap-2 text-xs",
-													issue.assigneeIds?.includes(m.userId) && "bg-accent",
+													isAssigned && "bg-accent",
 												)}
 											>
 												<Avatar className="h-4 w-4">
@@ -469,8 +500,8 @@ export function IssuePreviewSidebar({
 												</Avatar>
 												{m.user.name ?? "Unknown"}
 											</DropdownMenuItem>
-										) : null,
-									)}
+										) : null;
+									})}
 								</DropdownMenuContent>
 							</DropdownMenu>
 						</div>
@@ -641,11 +672,11 @@ export function IssuePreviewSidebar({
 							icon={CircleDot}
 							label="Type"
 							value={issue.type ?? "issue"}
-							options={DEFAULT_ISSUE_TYPES.map((t) => ({
-								key: t.key,
-								label: t.name,
+							options={effective.typeItems.map((t) => ({
+								key: t.id,
+								label: t.label,
 								icon: t.icon,
-								color: t.color,
+								colorHex: t.colorHex,
 							}))}
 							onChange={(v) => handleUpdate("type", v)}
 						/>

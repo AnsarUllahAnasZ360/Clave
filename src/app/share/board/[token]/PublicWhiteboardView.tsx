@@ -5,6 +5,8 @@ import { Moon, PenTool, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WhiteboardEditorSkeleton } from "@/components/whiteboards/WhiteboardEditor";
+import { useResolvedWhiteboardSceneJson } from "@/hooks/use-resolved-whiteboard-scene";
 import { api } from "../../../../../convex/_generated/api";
 import { WhiteboardEditorDynamic } from "./WhiteboardEditorDynamic";
 import { WhiteboardReadOnlyDynamic } from "./WhiteboardReadOnlyDynamic";
@@ -15,6 +17,8 @@ type PublicWhiteboardViewProps = {
 
 export function PublicWhiteboardView({ token }: PublicWhiteboardViewProps) {
 	const whiteboard = useQuery(api.whiteboards.getByShareToken, { token });
+	const { sceneJson: resolvedSceneJson, isSceneLoading } =
+		useResolvedWhiteboardSceneJson(whiteboard ?? undefined);
 	const { setTheme, resolvedTheme } = useTheme();
 
 	// Loading state
@@ -43,6 +47,9 @@ export function PublicWhiteboardView({ token }: PublicWhiteboardViewProps) {
 	}
 
 	const canEdit = whiteboard.defaultPermission === "edit";
+
+	const readOnlySceneLoading =
+		!canEdit && Boolean(whiteboard.sceneDataStorageId) && isSceneLoading;
 
 	return (
 		<>
@@ -94,10 +101,14 @@ export function PublicWhiteboardView({ token }: PublicWhiteboardViewProps) {
 				<main className="relative flex-1 min-h-0">
 					<WhiteboardEditorDynamic whiteboardId={whiteboard._id} shareMode />
 				</main>
+			) : readOnlySceneLoading ? (
+				<main className="relative flex-1 min-h-0">
+					<WhiteboardEditorSkeleton />
+				</main>
 			) : (
 				<main className="relative flex-1 min-h-0">
 					<WhiteboardReadOnlyDynamic
-						sceneData={whiteboard.sceneData}
+						sceneData={resolvedSceneJson ?? whiteboard.sceneData}
 						appState={whiteboard.appState}
 					/>
 				</main>

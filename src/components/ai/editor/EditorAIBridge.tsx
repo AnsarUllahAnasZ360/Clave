@@ -142,7 +142,20 @@ export function EditorAIBridge({ context }: EditorAIBridgeProps) {
 				}
 
 				if (!prompt) {
-					prompt = fallbackContent;
+					// For continue writing, include surrounding context (before/after/blockType)
+					if (actionType === "document_continue") {
+						const context = adapter.getSurroundingContext(3000, 500);
+						// Format: "before:::after:::blockType" - embedded.ts will parse this
+						prompt = `${context.before}:::${context.after}:::${context.blockType || ""}`;
+						console.log("[EditorAIBridge] Continue context:", {
+							beforeLen: context.before.length,
+							afterLen: context.after.length,
+							blockType: context.blockType,
+							promptLen: prompt.length,
+						});
+					} else {
+						prompt = fallbackContent;
+					}
 				}
 			}
 
@@ -175,7 +188,18 @@ export function EditorAIBridge({ context }: EditorAIBridgeProps) {
 					return;
 				}
 
-				adapter.insertAtCursor(result.text);
+				if (SELECTION_REQUIRED_ACTIONS.has(actionType)) {
+					adapter.replaceSelection(result.text);
+				} else if (actionType === "document_continue") {
+					// For continue writing: insert after current block (not inside tables)
+					console.log("[EditorAIBridge] Inserting continue result:", {
+						contentLength: result.text?.length,
+						preview: result.text?.slice(0, 100),
+					});
+					adapter.insertBlock(result.text, "after");
+				} else {
+					adapter.insertAtCursor(result.text);
+				}
 			} catch (error) {
 				const message =
 					error instanceof Error ? error.message : "AI request failed.";
@@ -231,7 +255,9 @@ export function EditorAIBridge({ context }: EditorAIBridgeProps) {
 			} else {
 				// Run after slash input cleanup settles selection/cursor.
 				requestAnimationFrame(() => {
-					void runSlashAction(detail.actionType);
+					requestAnimationFrame(() => {
+						void runSlashAction(detail.actionType);
+					});
 				});
 			}
 		};
@@ -258,7 +284,7 @@ export function EditorAIBridge({ context }: EditorAIBridgeProps) {
 				onCancel={handlePromptCancel}
 			/>
 			{slashBusyLabel && (
-				<div className="pointer-events-none fixed bottom-6 right-6 z-[70] animate-in fade-in slide-in-from-bottom-2 duration-200">
+				<div className="pointer-events-none fixed bottom-6 right-6 z-70 animate-in fade-in slide-in-from-bottom-2 duration-200">
 					<div className="flex items-center gap-2 rounded-full border bg-popover px-3 py-1.5 text-xs text-muted-foreground shadow-lg">
 						<Loader2Icon className="size-3.5 animate-spin" />
 						<span>{slashBusyLabel}</span>

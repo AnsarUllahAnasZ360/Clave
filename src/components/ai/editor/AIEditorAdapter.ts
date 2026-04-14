@@ -74,6 +74,15 @@ export interface AIEditorAdapter {
 	/** Return the full document as plain text. */
 	getFullContent(): string;
 
+	/** Return the type of the current block (table, heading, list, paragraph, etc.). */
+	getCurrentBlockType(): string | null;
+
+	/** Return content around the cursor for context (before + after). */
+	getSurroundingContext(
+		beforeChars?: number,
+		afterChars?: number,
+	): { before: string; after: string; blockType: string | null };
+
 	// ── Content write operations ─────────────────────────────────────────
 
 	/** Insert plain text at the current cursor position. */

@@ -5,6 +5,7 @@ import { Check, Diamond, FolderOpen, type LucideIcon, Tag } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
 	useWorkspaceMembers,
@@ -16,8 +17,9 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import { type PropertyPickerType, useShortcuts } from "@/hooks/use-shortcuts";
-import { PRIORITY_ITEMS, STATUS_ITEMS } from "@/lib/issue-config";
+import { PRIORITY_ITEMS } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -29,10 +31,10 @@ interface PickerOption {
 	label: string;
 	icon?: LucideIcon;
 	color?: string;
+	colorHex?: string;
 	image?: string;
 }
 
-const STATUS_OPTIONS: PickerOption[] = STATUS_ITEMS;
 const PRIORITY_OPTIONS: PickerOption[] = PRIORITY_ITEMS;
 
 // ── Picker Dialog ─────────────────────────────────────────────────────────
@@ -150,7 +152,15 @@ function PickerDialog({
 									onMouseEnter={() => setHighlightedIndex(index)}
 								>
 									{Icon && (
-										<Icon className={cn("h-4 w-4 shrink-0", option.color)} />
+										<Icon
+											className={cn(
+												"h-4 w-4 shrink-0",
+												!option.colorHex && option.color,
+											)}
+											style={
+												option.colorHex ? { color: option.colorHex } : undefined
+											}
+										/>
 									)}
 									{option.image && (
 										<Image
@@ -185,6 +195,7 @@ function PickerDialog({
 
 export function PropertyShortcutPicker() {
 	const { propertyPicker, activeIssueId, closePropertyPicker } = useShortcuts();
+	const { workspaceId } = useWorkspace();
 
 	const issue = useQuery(
 		api.issues.getById,
@@ -196,6 +207,20 @@ export function PropertyShortcutPicker() {
 	const projects = useWorkspaceProjects();
 
 	const projectId = issue?.projectId;
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		projectId ? { projectId: projectId as Id<"projects"> } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
+	const STATUS_OPTIONS: PickerOption[] = effective.statusItems.map((s) => ({
+		id: s.id,
+		label: s.label,
+		icon: s.icon,
+		colorHex: s.colorHex,
+	}));
 	const sprints = useQuery(
 		api.sprints.listByProject,
 		projectId ? { projectId: projectId as Id<"projects"> } : "skip",
@@ -210,20 +235,13 @@ export function PropertyShortcutPicker() {
 			if (!activeIssueId) return;
 			updateStatusMut({
 				issueId: activeIssueId as Id<"issues">,
-				status: statusId as
-					| "triage"
-					| "backlog"
-					| "todo"
-					| "in_progress"
-					| "in_review"
-					| "done"
-					| "cancelled",
+				status: statusId,
 			});
 			toast.success(
-				`Status set to ${STATUS_OPTIONS.find((s) => s.id === statusId)?.label}`,
+				`Status set to ${effective.statusItems.find((s) => s.id === statusId)?.label ?? statusId}`,
 			);
 		},
-		[activeIssueId, updateStatusMut],
+		[activeIssueId, updateStatusMut, effective.statusItems],
 	);
 
 	const handlePrioritySelect = useCallback(
@@ -245,17 +263,30 @@ export function PropertyShortcutPicker() {
 		[activeIssueId, updateMut],
 	);
 
-	const handleAssigneeSelect = useCallback(
+	const handleAssigneeToggle = useCallback(
 		(userId: string) => {
-			if (!activeIssueId) return;
+			if (!activeIssueId || !issue) return;
+			const current = new Set<Id<"users">>([
+				...((issue.assigneeIds ?? []) as Id<"users">[]),
+				...(issue.assigneeId ? [issue.assigneeId as Id<"users">] : []),
+			]);
+			const userIdTyped = userId as Id<"users">;
+			const wasAssigned = current.has(userIdTyped);
+			if (wasAssigned) current.delete(userIdTyped);
+			else current.add(userIdTyped);
+			const next = [...current];
 			assignMut({
 				issueId: activeIssueId as Id<"issues">,
-				assigneeId: userId as Id<"users">,
+				assigneeIds: next,
 			});
 			const member = members?.find((m) => m.userId === userId);
-			toast.success(`Assigned to ${member?.user?.name ?? "user"}`);
+			toast.success(
+				wasAssigned
+					? `Unassigned ${member?.user?.name ?? "user"}`
+					: `Assigned ${member?.user?.name ?? "user"}`,
+			);
 		},
-		[activeIssueId, assignMut, members],
+		[activeIssueId, issue, assignMut, members],
 	);
 
 	const handleLabelToggle = useCallback(
@@ -326,14 +357,21 @@ export function PropertyShortcutPicker() {
 			onSelect: handlePrioritySelect,
 		},
 		assignee: {
-			title: "Set assignee",
+			title: "Set assignees",
 			options: (members ?? []).map((m) => ({
 				id: m.userId as string,
 				label: m.user?.name ?? m.user?.email ?? "Unknown",
 				image: m.user?.avatarUrl ?? m.user?.image ?? undefined,
 			})),
-			currentValue: issue?.assigneeId ?? undefined,
-			onSelect: handleAssigneeSelect,
+			currentValue: [
+				...((issue?.assigneeIds as string[] | undefined) ?? []),
+				...(issue?.assigneeId &&
+				!(issue?.assigneeIds ?? []).includes(issue.assigneeId)
+					? [issue.assigneeId as string]
+					: []),
+			],
+			onSelect: handleAssigneeToggle,
+			multi: true,
 		},
 		labels: {
 			title: "Set labels",

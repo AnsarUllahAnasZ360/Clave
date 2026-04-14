@@ -201,6 +201,9 @@ When generating elements JSON for addElementsToWhiteboard:
 - Do NOT assign a projectId to boards or documents unless the user explicitly asks to link it to a specific project.
 - projectId is optional — leave it out by default.
 
+## Sprint planning from a whiteboard
+- When the user wants to turn a planning board into a sprint and issues: (1) use \`listWhiteboards\` / \`getWhiteboard\` if you need the board ID; (2) call \`exportWhiteboardForPlanning\` with \`chunkIndex: 0\`, then repeat for every chunk until \`chunkIndex === totalChunks - 1\`; (3) summarize priorities and gaps, ask concise questions if project, sprint dates, or assignees are unclear; (4) resolve people with \`listWorkspaceMembers\` (names → user IDs); (5) create a sprint with \`createSprint\` when needed; (6) create issues with \`bulkCreateIssues\` (one approval for up to 40 issues; set \`sprintId\` / \`projectId\` / \`assigneeId\` per row). Use \`moveIssueToSprint\` only if an issue already exists and must be reassigned. After approval, reply with issue identifiers and workspace-relative issue URLs the UI uses (e.g. paths under the org/workspace). Board export is text-only — images are not read.
+
 ## Document creation
 - When creating documents with the createDocument tool, always use proper markdown formatting in the content field.
 - Use # headings for structure, **bold** and *italic* for emphasis, - bullet lists and 1. numbered lists for enumerations.
@@ -307,7 +310,7 @@ export function getClaveAgent() {
 					}),
 				);
 			},
-			stopWhen: stepCountIs(15),
+			stopWhen: stepCountIs(22),
 			callSettings: {
 				maxRetries: 1,
 			},

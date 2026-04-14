@@ -35,6 +35,13 @@ interface ApprovalResult {
 	message: string;
 }
 
+interface BulkCreateIssuesApprovalResult {
+	needsApproval: true;
+	description: string;
+	toolCallId: string;
+	message: string;
+}
+
 interface CommentResult {
 	commentId: string;
 	entityType: string;
@@ -315,7 +322,84 @@ function parseSceneData(sceneData: string | undefined): SceneElement[] {
 	return [];
 }
 
-// ── 1. createIssue ───────────────────────────────────────────────────────
+const issueBulkItemSchema = z.object({
+	title: z.string().describe("Issue title"),
+	description: z.string().optional().describe("Issue description"),
+	status: z
+		.enum([
+			"triage",
+			"backlog",
+			"todo",
+			"in_progress",
+			"in_review",
+			"done",
+			"cancelled",
+		])
+		.optional(),
+	priority: z
+		.enum(["urgent", "high", "medium", "low", "no_priority"])
+		.optional(),
+	type: z.enum(["issue", "bug", "improvement", "feature"]).optional(),
+	assigneeId: z
+		.string()
+		.optional()
+		.describe("Workspace member user ID from listWorkspaceMembers"),
+	projectId: z.string().optional(),
+	sprintId: z
+		.string()
+		.optional()
+		.describe("Sprint ID when issues should be created in that sprint"),
+	labelIds: z.array(z.string()).optional(),
+});
+
+// ── 1. bulkCreateIssues ───────────────────────────────────────────────────
+
+export const bulkCreateIssues = createTool({
+	description:
+		"Create many issues in a single approval step. Use after turning a planning whiteboard into a backlog (with exportWhiteboardForPlanning), confirming project and sprint with the user, and resolving assignee names to user IDs via listWorkspaceMembers. Maximum 40 issues per call; split larger sets across multiple calls. Prefer this over repeated createIssue when the user approves a whole batch.",
+	inputSchema: z.object({
+		issues: z
+			.array(issueBulkItemSchema)
+			.min(1)
+			.max(40)
+			.describe("Issues to create (max 40 per batch)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+		options: ToolExecutionOptions,
+	): Promise<BulkCreateIssuesApprovalResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+
+		if (!ctx.threadId) {
+			throw new Error("No thread context available for approval.");
+		}
+
+		const count = args.issues.length;
+		const description = `Create ${count} issues (batch from planning)`;
+
+		await ctx.runMutation(internal.ai.approval.createApproval, {
+			threadId: ctx.threadId,
+			toolCallId: options.toolCallId,
+			toolName: "bulkCreateIssues",
+			description,
+			actionPayload: JSON.stringify({
+				type: "bulkCreateIssues",
+				workspaceId,
+				issues: args.issues,
+			}),
+		});
+
+		return {
+			needsApproval: true,
+			description,
+			toolCallId: options.toolCallId,
+			message: `This batch create requires approval: ${description}. Approve once to create all ${count} issues.`,
+		};
+	},
+});
+
+// ── 2. createIssue ───────────────────────────────────────────────────────
 
 export const createIssue = createTool({
 	description:
@@ -400,7 +484,7 @@ export const createIssue = createTool({
 	},
 });
 
-// ── 2. updateIssue ───────────────────────────────────────────────────────
+// ── 3. updateIssue ───────────────────────────────────────────────────────
 
 export const updateIssue = createTool({
 	description:
@@ -544,7 +628,7 @@ export const updateIssue = createTool({
 	},
 });
 
-// ── 3. addComment ────────────────────────────────────────────────────────
+// ── 4. addComment ────────────────────────────────────────────────────────
 
 export const addComment = createTool({
 	description:
@@ -661,7 +745,7 @@ export const addComment = createTool({
 	},
 });
 
-// ── 4. assignIssue ────────────────────────────────────────────────────────
+// ── 5. assignIssue ────────────────────────────────────────────────────────
 
 interface AssignIssueResult {
 	issueId: string;
@@ -757,7 +841,7 @@ export const assignIssue = createTool({
 	},
 });
 
-// ── 5. batchUpdateIssues ──────────────────────────────────────────────────
+// ── 6. batchUpdateIssues ──────────────────────────────────────────────────
 
 interface BatchUpdateResult {
 	needsApproval: true;
@@ -875,7 +959,7 @@ export const batchUpdateIssues = createTool({
 	},
 });
 
-// ── 6. createDocument ─────────────────────────────────────────────────────
+// ── 7. createDocument ─────────────────────────────────────────────────────
 
 export const createDocument = createTool({
 	description:
@@ -934,7 +1018,7 @@ export const createDocument = createTool({
 	},
 });
 
-// ── 6b. updateDocument ───────────────────────────────────────────────────
+// ── 7b. updateDocument ───────────────────────────────────────────────────
 
 interface UpdateDocumentResult {
 	documentId: string;
@@ -1026,7 +1110,7 @@ export const updateDocument = createTool({
 	},
 });
 
-// ── 7. createProject ──────────────────────────────────────────────────────
+// ── 8. createProject ──────────────────────────────────────────────────────
 
 export const createProject = createTool({
 	description:
@@ -1095,7 +1179,7 @@ export const createProject = createTool({
 	},
 });
 
-// ── 7b. updateProject ────────────────────────────────────────────────────
+// ── 8b. updateProject ────────────────────────────────────────────────────
 
 interface UpdateProjectResult {
 	projectId: string;
@@ -1185,7 +1269,7 @@ export const updateProject = createTool({
 	},
 });
 
-// ── 8. createLabel ────────────────────────────────────────────────────────
+// ── 9. createLabel ────────────────────────────────────────────────────────
 
 export const createLabel = createTool({
 	description:
@@ -1227,7 +1311,7 @@ export const createLabel = createTool({
 	},
 });
 
-// ── 9a. createWhiteboard ─────────────────────────────────────────────────
+// ── 10a. createWhiteboard ─────────────────────────────────────────────────
 
 interface CreateWhiteboardResult {
 	whiteboardId: string;
@@ -1275,7 +1359,7 @@ export const createWhiteboard = createTool({
 	},
 });
 
-// ── 9b. updateWhiteboard ─────────────────────────────────────────────────
+// ── 10b. updateWhiteboard ─────────────────────────────────────────────────
 
 interface UpdateWhiteboardResult {
 	whiteboardId: string;
@@ -1345,7 +1429,7 @@ export const updateWhiteboard = createTool({
 	},
 });
 
-// ── 9c. addElementsToWhiteboard ──────────────────────────────────────────
+// ── 10c. addElementsToWhiteboard ──────────────────────────────────────────
 
 export const addElementsToWhiteboard = createTool({
 	description: `Add Excalidraw elements to a whiteboard. Use this AFTER generating elements yourself.
@@ -1460,7 +1544,7 @@ The elements are validated, positioned to avoid overlapping existing content, an
 	},
 });
 
-// ── 10. approvePendingAction ──────────────────────────────────────────────
+// ── 11. approvePendingAction ──────────────────────────────────────────────
 
 interface ApproveResult {
 	approved: number;
@@ -1540,7 +1624,7 @@ export const approvePendingAction = createTool({
 	},
 });
 
-// ── 11. createSprint ──────────────────────────────────────────────────────
+// ── 12. createSprint ──────────────────────────────────────────────────────
 
 interface CreateSprintResult {
 	sprintId: string;
@@ -1610,7 +1694,7 @@ export const createSprint = createTool({
 	},
 });
 
-// ── 12. moveIssueToSprint ────────────────────────────────────────────────
+// ── 13. moveIssueToSprint ────────────────────────────────────────────────
 
 interface MoveIssueToSprintResult {
 	issueId: string;
@@ -1691,7 +1775,7 @@ export const moveIssueToSprint = createTool({
 	},
 });
 
-// ── 13. updateSprint ─────────────────────────────────────────────────────
+// ── 14. updateSprint ─────────────────────────────────────────────────────
 
 interface UpdateSprintResult {
 	sprintId: string;
@@ -1751,6 +1835,7 @@ export const updateSprint = createTool({
 // ── Export all write tools as a named toolset ─────────────────────────────
 
 export const writeTools = {
+	bulkCreateIssues,
 	createIssue,
 	updateIssue,
 	addComment,

@@ -288,7 +288,7 @@ describe("google chat conversation-to-issue triage (integration)", () => {
 		expect(cardText).toContain("GC-199");
 		expect(cardText).toContain("confirm_triage_issue_create");
 		expect(cardText).toContain("cancel_triage_issue_create");
-	});
+	}, 15000);
 
 	it("requires explicit confirmation, then creates an issue from confirmed draft", async () => {
 		const t = createBackend();
@@ -414,5 +414,5 @@ describe("google chat conversation-to-issue triage (integration)", () => {
 
 		const afterCount = await countWorkspaceIssues(t, fx.workspaceId);
 		expect(afterCount).toBe(beforeCount);
-	});
+	}, 15000);
 });

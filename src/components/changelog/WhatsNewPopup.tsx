@@ -2,7 +2,7 @@
 
 import { X } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useCurrentUser } from "@/components/providers/workspace-data-context";
 import { Button } from "@/components/ui/button";
 import { api } from "../../../convex/_generated/api";
@@ -11,6 +11,23 @@ export function WhatsNewPopup() {
 	const user = useCurrentUser();
 	const latestVersion = useQuery(api.versions.getLatest);
 	const markSeen = useMutation(api.versions.markSeen);
+	const syncChangelog = useMutation(api.versions.syncChangelog);
+
+	// Reconcile the in-code CHANGELOG_ENTRIES array against the DB once per
+	// authed session. On prod this is how new releases auto-seed: the first
+	// authenticated user to open the workspace after the deploy triggers the
+	// insert. The mutation is idempotent per-version so concurrent clients
+	// all no-op on the second try.
+	const syncedRef = useRef(false);
+	useEffect(() => {
+		if (!user || syncedRef.current) return;
+		syncedRef.current = true;
+		syncChangelog().catch(() => {
+			// Silent fail — this is a best-effort background sync. If it fails
+			// (transient network, race with another client), the next session
+			// will try again.
+		});
+	}, [user, syncChangelog]);
 
 	const shouldShow =
 		user && latestVersion && user.lastSeenVersion !== latestVersion.version;

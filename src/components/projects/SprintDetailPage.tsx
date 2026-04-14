@@ -288,6 +288,7 @@ export function SprintDetailPage({
 					filters={filters}
 					setFilter={setFilter}
 					clearAll={clearAllFilters}
+					projectId={project._id}
 					labels={(labels ?? []).map((l) => ({
 						_id: l._id as string,
 						name: l.name,

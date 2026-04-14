@@ -1,6 +1,27 @@
 "use client";
 
-import { Plus, TrashSimple } from "@phosphor-icons/react/dist/ssr";
+import {
+	closestCenter,
+	DndContext,
+	type DragEndEvent,
+	KeyboardSensor,
+	PointerSensor,
+	useSensor,
+	useSensors,
+} from "@dnd-kit/core";
+import {
+	arrayMove,
+	SortableContext,
+	sortableKeyboardCoordinates,
+	useSortable,
+	verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+	DotsSixVertical,
+	Plus,
+	TrashSimple,
+} from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -30,6 +51,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { applyOrder } from "@/hooks/use-workspace-settings";
 import {
 	DEFAULT_ISSUE_TYPES,
 	DEFAULT_PRIORITIES,
@@ -67,6 +89,7 @@ export function TypesSettingsPane() {
 	const deleteCustomStatus = useMutation(
 		api.workspaceSettings.deleteCustomStatus,
 	);
+	const reorderStatuses = useMutation(api.workspaceSettings.reorderStatuses);
 	const createLabel = useMutation(api.labels.create);
 	const updateLabel = useMutation(api.labels.update);
 	const removeLabel = useMutation(api.labels.remove);
@@ -149,7 +172,14 @@ export function TypesSettingsPane() {
 	};
 
 	const types = mergeDefaults(defaultTypeItems, settings?.customTypes);
-	const statuses = mergeDefaults(defaultStatusItems, settings?.customStatuses);
+	// Apply the persisted drag-to-reorder order so the settings UI shows the
+	// same sequence the app (kanban, list, pickers) sees. Without this, the
+	// optimistic local order from SortableStatusList gets clobbered as soon as
+	// the server round-trip replaces `items` on the next render.
+	const statuses = applyOrder(
+		mergeDefaults(defaultStatusItems, settings?.customStatuses),
+		settings?.customStatusOrder,
+	);
 	const priorities = mergeDefaults(
 		defaultPriorityItems,
 		settings?.customPriorities,
@@ -443,94 +473,147 @@ export function TypesSettingsPane() {
 		return getPriorityConfig(key).color;
 	};
 
+	type ListItem = {
+		key: string;
+		name: string;
+		color: string;
+		isDefault: boolean;
+	};
+
+	const renderRow = (
+		section: "types" | "statuses" | "priorities",
+		item: ListItem,
+		dnd?: {
+			setNodeRef: (el: HTMLElement | null) => void;
+			style: React.CSSProperties;
+			attributes: Record<string, unknown>;
+			listeners: Record<string, unknown> | undefined;
+			isDragging: boolean;
+		},
+	) => {
+		const Icon = getIcon(section, item.key);
+		const isEditingThis = editingKey === `${section}-${item.key}`;
+		return (
+			<div
+				ref={dnd?.setNodeRef}
+				style={dnd?.style}
+				className={cn(
+					"flex items-center gap-3 rounded-2xl bg-muted/20 px-4 py-3 group",
+					dnd?.isDragging && "opacity-60 ring-1 ring-primary/40",
+				)}
+			>
+				{/* Drag handle (statuses only) */}
+				{dnd && isAdmin && (
+					<button
+						type="button"
+						aria-label="Reorder"
+						className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+						{...dnd.attributes}
+						{...dnd.listeners}
+					>
+						<DotsSixVertical className="h-4 w-4" />
+					</button>
+				)}
+
+				{/* Icon colored by item color */}
+				<Icon className="h-4 w-4 shrink-0" style={{ color: item.color }} />
+
+				{/* Color picker */}
+				<ColorPicker
+					color={item.color}
+					onColorChange={(color) => handleColorChange(section, item.key, color)}
+					disabled={!isAdmin}
+				/>
+
+				{/* Name (editable) */}
+				{isEditingThis ? (
+					<Input
+						ref={editInputRef}
+						value={editName}
+						onChange={(e) => setEditName(e.target.value)}
+						onBlur={() => handleSaveItem(section, item.key, editName.trim())}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								handleSaveItem(section, item.key, editName.trim());
+							}
+							if (e.key === "Escape") {
+								setEditingKey(null);
+							}
+						}}
+						className="h-7 w-32 text-sm"
+					/>
+				) : (
+					<span
+						className={cn(
+							"text-sm font-medium",
+							isAdmin && "cursor-pointer hover:underline",
+						)}
+						onClick={() => {
+							if (!isAdmin) return;
+							setEditingKey(`${section}-${item.key}`);
+							setEditName(item.name);
+						}}
+						onKeyDown={() => {}}
+						role={isAdmin ? "button" : undefined}
+						tabIndex={isAdmin ? 0 : undefined}
+					>
+						{item.name}
+					</span>
+				)}
+
+				{item.isDefault ? (
+					<span className="text-[11px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
+						Default
+					</span>
+				) : null}
+
+				{/* Spacer */}
+				<div className="flex-1" />
+
+				{/* Delete button (visible on hover) */}
+				{isAdmin && !item.isDefault && (
+					<button
+						type="button"
+						onClick={() => handleDeleteItem(section, item.key)}
+						className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+						title="Remove item"
+					>
+						<TrashSimple className="h-3.5 w-3.5" />
+					</button>
+				)}
+			</div>
+		);
+	};
+
 	const renderItemList = (
 		section: "types" | "statuses" | "priorities",
-		items: { key: string; name: string; color: string; isDefault: boolean }[],
-	) => (
-		<div className="space-y-2">
-			{items.map((item) => {
-				const Icon = getIcon(section, item.key);
-				const isEditingThis = editingKey === `${section}-${item.key}`;
-				return (
-					<div
-						key={item.key}
-						className="flex items-center gap-3 rounded-2xl bg-muted/20 px-4 py-3 group"
-					>
-						{/* Icon colored by item color */}
-						<Icon className="h-4 w-4 shrink-0" style={{ color: item.color }} />
-
-						{/* Color picker */}
-						<ColorPicker
-							color={item.color}
-							onColorChange={(color) =>
-								handleColorChange(section, item.key, color)
-							}
-							disabled={!isAdmin}
-						/>
-
-						{/* Name (editable) */}
-						{isEditingThis ? (
-							<Input
-								ref={editInputRef}
-								value={editName}
-								onChange={(e) => setEditName(e.target.value)}
-								onBlur={() =>
-									handleSaveItem(section, item.key, editName.trim())
-								}
-								onKeyDown={(e) => {
-									if (e.key === "Enter") {
-										handleSaveItem(section, item.key, editName.trim());
-									}
-									if (e.key === "Escape") {
-										setEditingKey(null);
-									}
-								}}
-								className="h-7 w-32 text-sm"
-							/>
-						) : (
-							<span
-								className={cn(
-									"text-sm font-medium",
-									isAdmin && "cursor-pointer hover:underline",
-								)}
-								onClick={() => {
-									if (!isAdmin) return;
-									setEditingKey(`${section}-${item.key}`);
-									setEditName(item.name);
-								}}
-								onKeyDown={() => {}}
-								role={isAdmin ? "button" : undefined}
-								tabIndex={isAdmin ? 0 : undefined}
-							>
-								{item.name}
-							</span>
-						)}
-
-						{item.isDefault ? (
-							<span className="text-[11px] text-muted-foreground bg-muted/50 rounded px-1.5 py-0.5">
-								Default
-							</span>
-						) : null}
-
-						{/* Spacer */}
-						<div className="flex-1" />
-
-						{/* Delete button (visible on hover) */}
-						{isAdmin && !item.isDefault && (
-							<button
-								type="button"
-								onClick={() => handleDeleteItem(section, item.key)}
-								className="text-muted-foreground/30 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
-								title="Remove item"
-							>
-								<TrashSimple className="h-3.5 w-3.5" />
-							</button>
-						)}
-					</div>
-				);
-			})}
-		</div>
-	);
+		items: ListItem[],
+	) => {
+		if (section === "statuses") {
+			return (
+				<SortableStatusList
+					items={items}
+					disabled={!isAdmin}
+					onReorder={async (orderedKeys) => {
+						if (!workspaceId) return;
+						try {
+							await reorderStatuses({ workspaceId, orderedKeys });
+						} catch {
+							toast.error("Failed to save status order");
+						}
+					}}
+					renderRow={(item, dnd) => renderRow("statuses", item, dnd)}
+				/>
+			);
+		}
+		return (
+			<div className="space-y-2">
+				{items.map((item) => (
+					<div key={item.key}>{renderRow(section, item)}</div>
+				))}
+			</div>
+		);
+	};
 
 	const renderAddForm = (section: "types" | "statuses" | "priorities") => {
 		if (!isAdmin) return null;
@@ -861,5 +944,140 @@ export function TypesSettingsPane() {
 				</AlertDialogContent>
 			</AlertDialog>
 		</div>
+	);
+}
+
+// ── Sortable status list ──────────────────────────────────────────────────
+
+type SortableItem = {
+	key: string;
+	name: string;
+	color: string;
+	isDefault: boolean;
+};
+
+function SortableStatusList({
+	items,
+	disabled,
+	onReorder,
+	renderRow,
+}: {
+	items: SortableItem[];
+	disabled: boolean;
+	onReorder: (orderedKeys: string[]) => void | Promise<void>;
+	renderRow: (
+		item: SortableItem,
+		dnd: {
+			setNodeRef: (el: HTMLElement | null) => void;
+			style: React.CSSProperties;
+			attributes: Record<string, unknown>;
+			listeners: Record<string, unknown> | undefined;
+			isDragging: boolean;
+		},
+	) => React.ReactNode;
+}) {
+	// Local optimistic copy so the list re-orders instantly on drop without
+	// waiting for the mutation round-trip.
+	const [localItems, setLocalItems] = useState(items);
+	useEffect(() => setLocalItems(items), [items]);
+
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+		useSensor(KeyboardSensor, {
+			coordinateGetter: sortableKeyboardCoordinates,
+		}),
+	);
+
+	const handleDragEnd = (event: DragEndEvent) => {
+		const { active, over } = event;
+		if (!over || active.id === over.id) return;
+		const oldIndex = localItems.findIndex((i) => i.key === active.id);
+		const newIndex = localItems.findIndex((i) => i.key === over.id);
+		if (oldIndex < 0 || newIndex < 0) return;
+		const next = arrayMove(localItems, oldIndex, newIndex);
+		setLocalItems(next);
+		void onReorder(next.map((i) => i.key));
+	};
+
+	if (disabled) {
+		return (
+			<div className="space-y-2">
+				{localItems.map((item) => (
+					<div key={item.key}>
+						{renderRow(item, {
+							setNodeRef: () => {},
+							style: {},
+							attributes: {},
+							listeners: undefined,
+							isDragging: false,
+						})}
+					</div>
+				))}
+			</div>
+		);
+	}
+
+	return (
+		<DndContext
+			sensors={sensors}
+			collisionDetection={closestCenter}
+			onDragEnd={handleDragEnd}
+		>
+			<SortableContext
+				items={localItems.map((i) => i.key)}
+				strategy={verticalListSortingStrategy}
+			>
+				<div className="space-y-2">
+					{localItems.map((item) => (
+						<SortableStatusRow
+							key={item.key}
+							item={item}
+							renderRow={renderRow}
+						/>
+					))}
+				</div>
+			</SortableContext>
+		</DndContext>
+	);
+}
+
+function SortableStatusRow({
+	item,
+	renderRow,
+}: {
+	item: SortableItem;
+	renderRow: (
+		item: SortableItem,
+		dnd: {
+			setNodeRef: (el: HTMLElement | null) => void;
+			style: React.CSSProperties;
+			attributes: Record<string, unknown>;
+			listeners: Record<string, unknown> | undefined;
+			isDragging: boolean;
+		},
+	) => React.ReactNode;
+}) {
+	const {
+		attributes,
+		listeners,
+		setNodeRef,
+		transform,
+		transition,
+		isDragging,
+	} = useSortable({ id: item.key });
+	const style: React.CSSProperties = {
+		transform: CSS.Transform.toString(transform),
+		transition,
+	};
+	return (
+		<>
+			{renderRow(item, {
+				setNodeRef,
+				style,
+				attributes: attributes as unknown as Record<string, unknown>,
+				listeners: listeners as unknown as Record<string, unknown> | undefined,
+				isDragging,
+			})}
+		</>
 	);
 }

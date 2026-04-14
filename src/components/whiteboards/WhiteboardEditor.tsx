@@ -7,6 +7,7 @@ import {
 	MainMenu,
 	reconcileElements,
 	restoreElements,
+	serializeAsJSON,
 } from "@excalidraw/excalidraw";
 import type { RemoteExcalidrawElement } from "@excalidraw/excalidraw/data/reconcile";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
@@ -19,11 +20,21 @@ import type { SuggestionOptions } from "@tiptap/suggestion";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { AIWhiteboardToolbar } from "@/components/ai/whiteboard/AIWhiteboardToolbar";
 import type { ExcalidrawElementLike } from "@/components/ai/whiteboard/excalidraw-ai-utils";
 import { buildProgressiveInsertionBatches } from "@/components/ai/whiteboard/progressive-draw";
 import type { MentionItem } from "@/components/comments/MentionList";
 import { createMentionSuggestion } from "@/components/comments/mention-suggestion";
+import { useResolvedWhiteboardSceneJson } from "@/hooks/use-resolved-whiteboard-scene";
+import { hasNonDeletedElements } from "@/lib/whiteboard-element-utils";
+import { saveWhiteboardSceneToConvex } from "@/lib/whiteboard-persist";
+import {
+	countImageElementsMissingFiles,
+	elementsAndFilesFromSceneJson,
+	parseStoredWhiteboardScene,
+	sceneSaveSignature,
+} from "@/lib/whiteboard-scene";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { WhiteboardThread } from "./CommentPinsOverlay";
@@ -38,7 +49,13 @@ if (typeof window !== "undefined") {
 	(window as any).EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/";
 }
 
-const SAVE_DEBOUNCE_MS = 300;
+const SAVE_DEBOUNCE_MS = 450;
+/** Embedded images stream into `files` over many frames — wait longer before persisting. */
+const SAVE_DEBOUNCE_HEAVY_MS = 1600;
+/** Keep "Saved" visible briefly so it does not flash before returning to "Edited". */
+const SAVED_IDLE_RESET_MS = 2800;
+/** Avoid toast/console spam when saves fail repeatedly (e.g. stale Convex deployment). */
+const SAVE_ERROR_TOAST_COOLDOWN_MS = 15_000;
 const PROGRESSIVE_INSERT_DELAY_MS = 120;
 const RESTORE_SCENE_OPTIONS = {
 	repairBindings: true,
@@ -76,10 +93,65 @@ export default function WhiteboardEditor({
 
 	const whiteboard = useQuery(api.whiteboards.getById, { whiteboardId });
 	const updateSceneMutation = useMutation(api.whiteboards.updateScene);
+	const generateAuthUploadUrl = useMutation(api.files.generateUploadUrl);
+	const generatePublicUploadUrl = useMutation(
+		api.files.generatePublicUploadUrl,
+	);
+
+	const { sceneJson: resolvedSceneJson, isSceneLoading } =
+		useResolvedWhiteboardSceneJson(whiteboard ?? undefined);
+
+	/** After first Excalidraw mount, never hide the canvas for storage refetch (would unmount and wipe the board). */
+	const canvasReadyRef = useRef(false);
+	/**
+	 * Latest scene from onChange / remote sync. Parent unmount cleanup runs after Excalidraw
+	 * unmounts, so `excalidrawAPIRef` is often null there — we must not persist an empty scene.
+	 */
+	const latestPendingSceneRef = useRef<{
+		elements: readonly OrderedExcalidrawElement[];
+		appState: AppState;
+		files: BinaryFiles;
+	} | null>(null);
+
+	const orphanedImageCount = useMemo(() => {
+		if (!whiteboard?.sceneData && !resolvedSceneJson) return 0;
+		// Large boards: inline `sceneData` is "database" lean JSON without `files`; wait for blob or use resolved scene.
+		if (whiteboard?.sceneDataStorageId && isSceneLoading) return 0;
+		const sceneJson = resolvedSceneJson ?? whiteboard?.sceneData;
+		if (!sceneJson || !whiteboard) return 0;
+		try {
+			const parsed = parseStoredWhiteboardScene(sceneJson, whiteboard.appState);
+			return countImageElementsMissingFiles(parsed.elements, parsed.files);
+		} catch {
+			return 0;
+		}
+	}, [whiteboard, resolvedSceneJson, isSceneLoading]);
+
+	useEffect(() => {
+		if (shareMode || orphanedImageCount <= 0) return;
+		const key = `clave-wb-missing-images-${whiteboardId}`;
+		if (typeof sessionStorage !== "undefined" && sessionStorage.getItem(key)) {
+			return;
+		}
+		if (typeof sessionStorage !== "undefined") {
+			sessionStorage.setItem(key, "1");
+		}
+		toast.warning(
+			orphanedImageCount === 1
+				? "One embedded image has no saved picture data (older exports did not store it). Remove it and add the image again, then save."
+				: `${orphanedImageCount} embedded images have no saved picture data (older exports did not store it). Remove those placeholders and add the images again, then save.`,
+			{ duration: 12_000 },
+		);
+	}, [orphanedImageCount, shareMode, whiteboardId]);
+
+	useEffect(() => {
+		canvasReadyRef.current = false;
+	}, []);
 
 	// Refs for debounced save and remote sync
 	const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const lastSavedHashRef = useRef(0);
+	const lastSavedSignatureRef = useRef("");
 	const isRemoteUpdateRef = useRef(false);
 	const lastRemoteTimestampRef = useRef(0);
 
@@ -92,6 +164,145 @@ export default function WhiteboardEditor({
 		onSaveStatusChangeRef.current?.(status);
 	}, []);
 	const savedResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const lastSaveErrorToastAtRef = useRef(0);
+	/** Only one network persist at a time; overlapping debounces set `pendingPersistKickRef`. */
+	const persistInFlightRef = useRef(false);
+	const pendingPersistKickRef = useRef(false);
+	/** Incremented on unmount / board switch — aborts async persist loops before they read a dead Excalidraw API (empty scene wipe). */
+	const saveSessionGenerationRef = useRef(0);
+
+	const scheduleIdleAfterSaved = useCallback(() => {
+		if (savedResetRef.current) clearTimeout(savedResetRef.current);
+		savedResetRef.current = setTimeout(
+			() => setSaveStatus("idle"),
+			SAVED_IDLE_RESET_MS,
+		);
+	}, [setSaveStatus]);
+
+	const persistScene = useCallback(
+		async (
+			elements: readonly OrderedExcalidrawElement[],
+			appState: AppState,
+			files: BinaryFiles,
+		) => {
+			const fullLocal = serializeAsJSON(elements, appState, files, "local");
+			const leanDb = serializeAsJSON(elements, appState, files, "database");
+			const appStateJson = JSON.stringify({
+				viewBackgroundColor: appState.viewBackgroundColor,
+				gridSize: appState.gridSize,
+			});
+			await saveWhiteboardSceneToConvex({
+				fullLocalJson: fullLocal,
+				leanDbJson: leanDb,
+				appStateJson,
+				whiteboardId,
+				getUploadUrl: shareMode
+					? () => generatePublicUploadUrl({ whiteboardId })
+					: () => generateAuthUploadUrl({}),
+				updateScene: (args) => updateSceneMutation(args),
+			});
+		},
+		[
+			whiteboardId,
+			shareMode,
+			generatePublicUploadUrl,
+			generateAuthUploadUrl,
+			updateSceneMutation,
+		],
+	);
+	const persistSceneRef = useRef(persistScene);
+	persistSceneRef.current = persistScene;
+
+	const runPersistPass = useCallback(async (): Promise<boolean | "error"> => {
+		const sessionAtStart = saveSessionGenerationRef.current;
+		const api = excalidrawAPIRef.current;
+		if (!api) return false;
+
+		let didPersist = false;
+		for (;;) {
+			if (saveSessionGenerationRef.current !== sessionAtStart) {
+				return didPersist;
+			}
+			let elements = api.getSceneElementsIncludingDeleted();
+			let appState = api.getAppState();
+			let files = api.getFiles();
+			// During navigation/unmount, Excalidraw can return an empty scene while
+			// `latestPendingSceneRef` still holds the last `onChange` snapshot — never persist that wipe.
+			const pending = latestPendingSceneRef.current;
+			if (
+				pending &&
+				hasNonDeletedElements(pending.elements) &&
+				!hasNonDeletedElements(elements)
+			) {
+				elements = pending.elements;
+				appState = pending.appState;
+				files = pending.files;
+			}
+			const signature = sceneSaveSignature(elements, files);
+			if (signature === lastSavedSignatureRef.current) break;
+
+			didPersist = true;
+			setSaveStatus("saving");
+			try {
+				await persistScene(elements, appState, files);
+				lastSavedSignatureRef.current = signature;
+				lastSavedHashRef.current = hashElementsVersion(elements);
+				if (saveSessionGenerationRef.current !== sessionAtStart) {
+					return true;
+				}
+			} catch (e) {
+				const raw = e instanceof Error ? e.message : String(e);
+				const backendMismatch =
+					raw.includes("extra field `mode`") ||
+					raw.includes("not in the validator");
+				const message = backendMismatch
+					? "Whiteboard save failed: deploy the latest Convex functions (e.g. run convex dev or deploy) so large boards can sync."
+					: raw.trim() ||
+						"Failed to save whiteboard. Try removing large images.";
+				const now = Date.now();
+				if (
+					now - lastSaveErrorToastAtRef.current >
+					SAVE_ERROR_TOAST_COOLDOWN_MS
+				) {
+					lastSaveErrorToastAtRef.current = now;
+					toast.error(message);
+				}
+				setSaveStatus("idle");
+				return "error";
+			}
+		}
+		return didPersist;
+	}, [persistScene, setSaveStatus]);
+
+	const runDebouncedPersistSave = useCallback(async () => {
+		if (persistInFlightRef.current) {
+			pendingPersistKickRef.current = true;
+			return;
+		}
+		const sessionAtStart = saveSessionGenerationRef.current;
+		persistInFlightRef.current = true;
+		try {
+			let anyHadWork = false;
+			for (let round = 0; round < 24; round += 1) {
+				if (saveSessionGenerationRef.current !== sessionAtStart) {
+					return;
+				}
+				const pass = await runPersistPass();
+				if (pass === "error") return;
+				anyHadWork ||= pass;
+				const kick = pendingPersistKickRef.current;
+				pendingPersistKickRef.current = false;
+				if (!kick) break;
+				if (!pass) break;
+			}
+			if (anyHadWork && saveSessionGenerationRef.current === sessionAtStart) {
+				setSaveStatus("saved");
+				scheduleIdleAfterSaved();
+			}
+		} finally {
+			persistInFlightRef.current = false;
+		}
+	}, [runPersistPass, setSaveStatus, scheduleIdleAfterSaved]);
 
 	// ── Comment overlay state ──────────────────────────────────────────────
 	const threads = useQuery(
@@ -434,41 +645,47 @@ export default function WhiteboardEditor({
 		setMounted(true);
 	}, []);
 
-	// Flush pending save on unmount instead of discarding
+	// Flush pending save on unmount instead of discarding.
+	// Excalidraw unmounts before this cleanup runs, so the API is often gone — use latestPendingSceneRef.
 	useEffect(() => {
 		return () => {
+			saveSessionGenerationRef.current += 1;
 			if (savedResetRef.current) {
 				clearTimeout(savedResetRef.current);
 			}
 			if (saveTimeoutRef.current) {
 				clearTimeout(saveTimeoutRef.current);
 				saveTimeoutRef.current = null;
-				const api = excalidrawAPIRef.current;
-				if (api) {
-					const elements = api.getSceneElementsIncludingDeleted();
-					const appState = api.getAppState();
-					if (elements.length > 0) {
-						const hash = hashElementsVersion(elements);
-						if (hash !== lastSavedHashRef.current) {
-							updateSceneMutation({
-								whiteboardId,
-								sceneData: JSON.stringify(elements),
-								appState: JSON.stringify({
-									viewBackgroundColor: appState.viewBackgroundColor,
-									gridSize: appState.gridSize,
-								}),
-							});
-						}
-					}
-				}
 			}
+			const api = excalidrawAPIRef.current;
+			const snap = latestPendingSceneRef.current;
+			const fromApi =
+				api !== null
+					? {
+							elements: api.getSceneElementsIncludingDeleted(),
+							appState: api.getAppState(),
+							files: api.getFiles(),
+						}
+					: null;
+			const fromApiGood =
+				fromApi !== null && hasNonDeletedElements(fromApi.elements);
+			const snapGood = snap !== null && hasNonDeletedElements(snap.elements);
+			const scene = fromApiGood ? fromApi : snapGood ? snap : (fromApi ?? snap);
+			if (!scene) return;
+			const sig = sceneSaveSignature(scene.elements, scene.files);
+			if (sig === lastSavedSignatureRef.current) return;
+			void persistSceneRef
+				.current(scene.elements, scene.appState, scene.files)
+				.catch(() => {
+					/* best-effort flush */
+				});
 		};
-	}, [whiteboardId, updateSceneMutation]);
+	}, []);
 
 	// Warn user about unsaved changes on page unload
 	useEffect(() => {
 		const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-			if (saveTimeoutRef.current) {
+			if (saveTimeoutRef.current || persistInFlightRef.current) {
 				e.preventDefault();
 			}
 		};
@@ -478,17 +695,14 @@ export default function WhiteboardEditor({
 
 	// Remote sync: reconcile changes from other clients
 	useEffect(() => {
-		if (!excalidrawAPI || !whiteboard?.sceneData) return;
+		if (!excalidrawAPI || !resolvedSceneJson) return;
 
 		try {
-			const rawRemote = JSON.parse(whiteboard.sceneData);
-			const restoredRemote = restoreElements(
-				rawRemote,
-				null,
-				RESTORE_SCENE_OPTIONS,
-			);
+			const rawRemote = JSON.parse(resolvedSceneJson) as unknown;
+			const { elements: restoredRemote, files: remoteFiles } =
+				elementsAndFilesFromSceneJson(rawRemote);
 			const remoteHash = hashElementsVersion(restoredRemote);
-			const remoteTimestamp = whiteboard.updatedAt ?? 0;
+			const remoteTimestamp = whiteboard?.updatedAt ?? 0;
 
 			// Skip if this is our own save echoing back (hash matches AND no newer timestamp)
 			if (
@@ -515,62 +729,63 @@ export default function WhiteboardEditor({
 				elements: reconciledElements,
 				captureUpdate: CaptureUpdateAction.NEVER,
 			});
+			const localFiles = excalidrawAPI.getFiles();
+			const filesToAdd = Object.values(remoteFiles).filter(
+				(f) => f?.id && !localFiles[f.id],
+			);
+			if (filesToAdd.length > 0) {
+				excalidrawAPI.addFiles(filesToAdd);
+			}
+			const mergedFiles = excalidrawAPI.getFiles();
 			lastSavedHashRef.current = hashElementsVersion(reconciledElements);
+			lastSavedSignatureRef.current = sceneSaveSignature(
+				reconciledElements,
+				mergedFiles,
+			);
+			latestPendingSceneRef.current = {
+				elements: reconciledElements,
+				appState: excalidrawAPI.getAppState(),
+				files: mergedFiles,
+			};
 			requestAnimationFrame(() => {
 				isRemoteUpdateRef.current = false;
 			});
 		} catch {
 			// Invalid JSON -- skip
 		}
-	}, [excalidrawAPI, whiteboard?.sceneData, whiteboard?.updatedAt]);
+	}, [excalidrawAPI, resolvedSceneJson, whiteboard?.updatedAt]);
 
 	// Debounced save handler
 	const handleChange = useCallback(
 		(
-			elements: readonly OrderedExcalidrawElement[],
-			appState: AppState,
+			_elements: readonly OrderedExcalidrawElement[],
+			_appState: AppState,
 			_files: BinaryFiles,
 		) => {
 			// Skip if this change is from a remote update
 			if (isRemoteUpdateRef.current) return;
 
+			const apiNow = excalidrawAPIRef.current;
+			latestPendingSceneRef.current = {
+				elements: _elements,
+				appState: _appState,
+				files: apiNow?.getFiles() ?? _files,
+			};
+
 			if (saveTimeoutRef.current) {
 				clearTimeout(saveTimeoutRef.current);
 			}
 
+			const debounceMs =
+				Object.keys(_files).length > 0
+					? SAVE_DEBOUNCE_HEAVY_MS
+					: SAVE_DEBOUNCE_MS;
+
 			saveTimeoutRef.current = setTimeout(() => {
-				const currentHash = hashElementsVersion(elements);
-				if (currentHash === lastSavedHashRef.current) return;
-
-				lastSavedHashRef.current = currentHash;
-
-				// Keep ALL elements including isDeleted tombstones.
-				// reconcileElements needs tombstones to propagate deletions.
-				const minimalAppState = {
-					viewBackgroundColor: appState.viewBackgroundColor,
-					gridSize: appState.gridSize,
-				};
-
-				setSaveStatus("saving");
-				updateSceneMutation({
-					whiteboardId,
-					sceneData: JSON.stringify(elements),
-					appState: JSON.stringify(minimalAppState),
-				})
-					.then(() => {
-						setSaveStatus("saved");
-						if (savedResetRef.current) clearTimeout(savedResetRef.current);
-						savedResetRef.current = setTimeout(
-							() => setSaveStatus("idle"),
-							2000,
-						);
-					})
-					.catch(() => {
-						setSaveStatus("idle");
-					});
-			}, SAVE_DEBOUNCE_MS);
+				void runDebouncedPersistSave();
+			}, debounceMs);
 		},
-		[whiteboardId, updateSceneMutation, setSaveStatus],
+		[runDebouncedPersistSave],
 	);
 
 	if (!mounted || whiteboard === undefined) {
@@ -581,24 +796,33 @@ export default function WhiteboardEditor({
 		return <WhiteboardEditorSkeleton />;
 	}
 
-	// Parse initial data from stored whiteboard
+	if (
+		whiteboard.sceneDataStorageId &&
+		isSceneLoading &&
+		!canvasReadyRef.current
+	) {
+		return <WhiteboardEditorSkeleton />;
+	}
+
+	// Parse initial data (elements + embedded images via files map)
 	let initialElements: OrderedExcalidrawElement[] = [];
+	let initialFiles: BinaryFiles | undefined;
 	let initialAppState: Partial<AppState> = {};
 	try {
-		if (whiteboard.sceneData) {
-			const raw = JSON.parse(whiteboard.sceneData);
-			initialElements = restoreElements(raw, null, RESTORE_SCENE_OPTIONS);
-			lastSavedHashRef.current = hashElementsVersion(initialElements);
-		}
+		const parsed = parseStoredWhiteboardScene(
+			resolvedSceneJson ?? whiteboard.sceneData,
+			whiteboard.appState,
+		);
+		initialElements = parsed.elements;
+		initialFiles = parsed.files;
+		initialAppState = parsed.appState;
+		lastSavedHashRef.current = hashElementsVersion(initialElements);
+		lastSavedSignatureRef.current = sceneSaveSignature(
+			initialElements,
+			initialFiles ?? {},
+		);
 	} catch {
 		// Invalid JSON -- start with empty canvas
-	}
-	try {
-		if (whiteboard.appState) {
-			initialAppState = JSON.parse(whiteboard.appState) as Partial<AppState>;
-		}
-	} catch {
-		// Invalid JSON -- use defaults
 	}
 
 	return (
@@ -623,6 +847,7 @@ export default function WhiteboardEditor({
 				<Excalidraw
 					initialData={{
 						elements: initialElements,
+						...(initialFiles ? { files: initialFiles } : {}),
 						appState: {
 							...initialAppState,
 							theme: resolvedTheme === "dark" ? "dark" : "light",
@@ -634,6 +859,9 @@ export default function WhiteboardEditor({
 					excalidrawAPI={(apiRef) => {
 						excalidrawAPIRef.current = apiRef;
 						setExcalidrawAPI(apiRef);
+						if (apiRef) {
+							canvasReadyRef.current = true;
+						}
 					}}
 					UIOptions={{
 						canvasActions: {

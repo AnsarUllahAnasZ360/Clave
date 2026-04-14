@@ -48,6 +48,21 @@ const DEFAULT_TYPE_KEYS = ["issue", "bug", "improvement", "feature"] as const;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+/**
+ * Multi-assign aware check: did `userId` land on this issue, either via the
+ * legacy single `assigneeId` field or the multi-assignee array? Use this in
+ * RBAC bypasses ("the assignee can always see/edit") and in "is this mine"
+ * filters so the new multi-assign path doesn't silently lose visibility.
+ */
+function isUserAssignee(
+	issue: { assigneeId?: Id<"users">; assigneeIds?: Id<"users">[] },
+	userId: Id<"users">,
+): boolean {
+	if (issue.assigneeId === userId) return true;
+	if (issue.assigneeIds?.includes(userId)) return true;
+	return false;
+}
+
 function isCompletedStatus(status: string): boolean {
 	return status === "done" || status === "cancelled";
 }
@@ -160,6 +175,9 @@ const issueDocValidator = v.object({
 	gitBranchName: v.optional(v.string()),
 	linkedDocumentIds: v.optional(v.array(v.id("documents"))),
 	linkedWhiteboardIds: v.optional(v.array(v.id("whiteboards"))),
+	githubSyncSource: v.optional(
+		v.union(v.literal("github"), v.literal("clave")),
+	),
 });
 
 const issueWithParentValidator = v.object({
@@ -192,6 +210,9 @@ const issueWithParentValidator = v.object({
 	gitBranchName: v.optional(v.string()),
 	linkedDocumentIds: v.optional(v.array(v.id("documents"))),
 	linkedWhiteboardIds: v.optional(v.array(v.id("whiteboards"))),
+	githubSyncSource: v.optional(
+		v.union(v.literal("github"), v.literal("clave")),
+	),
 	parent: v.union(
 		v.object({
 			_id: v.id("issues"),
@@ -601,7 +622,7 @@ export const getById = query({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			)
 				return null;
@@ -662,7 +683,7 @@ export const getByIdentifier = query({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			)
 				return null;
@@ -822,7 +843,7 @@ export const getProgress = query({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			)
 				return null;
@@ -1099,13 +1120,18 @@ export const create = mutation({
 			status,
 			priority: args.priority ?? "no_priority",
 			type,
-			assigneeId: args.assigneeIds !== undefined ? undefined : args.assigneeId,
-			assigneeIds:
+			// Multi-assign canonical, mirrored into the legacy single field so
+			// older read paths still see *something*. Multi wins over single.
+			assigneeId:
 				args.assigneeIds !== undefined
-					? args.assigneeIds.length > 0
-						? args.assigneeIds
-						: undefined
-					: undefined,
+					? (args.assigneeIds[0] ?? undefined)
+					: args.assigneeId,
+			assigneeIds:
+				args.assigneeIds !== undefined && args.assigneeIds.length > 0
+					? args.assigneeIds
+					: args.assigneeId
+						? [args.assigneeId]
+						: undefined,
 			labelIds: args.labelIds,
 			startDate: args.startDate,
 			dueDate: args.dueDate,
@@ -1205,7 +1231,7 @@ export const update = mutation({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			) {
 				throw new ConvexError("You don't have access to this issue's project");
@@ -1232,11 +1258,19 @@ export const update = mutation({
 			}
 		}
 
+		// When moving to a different project and no new sprint/list/milestone
+		// is explicitly set, the stale ones must be cleared — they're scoped
+		// to the old project and can't travel with the issue, otherwise the
+		// cross-project validation below would reject the update.
+		const isMovingProject =
+			args.projectId !== undefined && args.projectId !== issue.projectId;
+
 		// Mutual exclusivity: setting sprintId clears listId and vice versa
 		const resolvedSprintId = (() => {
 			if (args.listId !== undefined && args.listId !== null) return undefined; // listId set → clear sprint
 			if (args.sprintId !== undefined) return args.sprintId;
 			if (args.listId === null) return issue.sprintId; // explicit clear of list keeps sprint
+			if (isMovingProject) return undefined; // stale sprint, drop it
 			return issue.sprintId;
 		})();
 
@@ -1244,11 +1278,15 @@ export const update = mutation({
 			if (args.sprintId !== undefined && args.sprintId !== null)
 				return undefined; // sprintId set → clear list
 			if (args.listId !== undefined) return args.listId;
+			if (isMovingProject) return undefined; // stale list, drop it
 			return issue.listId;
 		})();
 
-		const resolvedMilestoneId =
-			args.milestoneId !== undefined ? args.milestoneId : issue.milestoneId;
+		const resolvedMilestoneId = (() => {
+			if (args.milestoneId !== undefined) return args.milestoneId;
+			if (isMovingProject) return undefined; // stale milestone, drop it
+			return issue.milestoneId;
+		})();
 
 		if (resolvedListId) {
 			const list = await ctx.db.get(resolvedListId);
@@ -1351,12 +1389,21 @@ export const update = mutation({
 			projectId: targetProjectId ?? undefined,
 			sprintId: resolvedSprintId ?? undefined,
 			listId: resolvedListId ?? undefined,
+			// Write milestone explicitly so the auto-clear on project move
+			// actually lands in the DB (spread `...updates` only carries fields
+			// the caller passed, so without this the stale milestone sticks).
+			milestoneId: resolvedMilestoneId ?? undefined,
 			updatedAt: Date.now(),
 		};
 
-		// Clear assigneeId when assigneeIds is set (mutual exclusivity)
+		// Mirror the multi-assignee array into the legacy `assigneeId` field so
+		// older read paths and indexes still see *something*. The first element
+		// wins; if the caller explicitly passes an empty array, clear the legacy
+		// field too.
 		if (args.assigneeIds !== undefined) {
-			patch.assigneeId = undefined;
+			patch.assigneeId = args.assigneeIds[0] ?? undefined;
+			patch.assigneeIds =
+				args.assigneeIds.length > 0 ? args.assigneeIds : undefined;
 		}
 
 		// Handle completedAt logic for status changes
@@ -1710,7 +1757,7 @@ export const updateStatus = mutation({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			) {
 				throw new ConvexError("You don't have access to this issue's project");
@@ -1866,11 +1913,15 @@ export const updateStatus = mutation({
 	},
 });
 
-/** Assign issue to a user */
+/** Assign issue to one or more users (multi-assign aware). */
 export const assign = mutation({
 	args: {
 		issueId: v.id("issues"),
+		// Legacy single-assignee path. If `assigneeIds` is also provided, that
+		// wins. Pass undefined to clear the single legacy field.
 		assigneeId: v.optional(v.id("users")),
+		// Canonical multi-assign path. Pass [] to unassign everyone.
+		assigneeIds: v.optional(v.array(v.id("users"))),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -1893,50 +1944,75 @@ export const assign = mutation({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			) {
 				throw new ConvexError("You don't have access to this issue's project");
 			}
 		}
-		if (args.assigneeId) {
-			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
+
+		// Resolve the next assignee set. `assigneeIds` is canonical; the legacy
+		// `assigneeId` arg is only consulted when the multi arg is not provided.
+		const nextAssigneeIds: Id<"users">[] = (() => {
+			if (args.assigneeIds !== undefined) return args.assigneeIds;
+			if (args.assigneeId !== undefined) return [args.assigneeId];
+			return [];
+		})();
+
+		// Validate every assignee belongs to the workspace.
+		for (const id of nextAssigneeIds) {
+			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, id);
 		}
 
-		const oldAssigneeId = issue.assigneeId;
+		// Compute previous + new for diff/notifications.
+		const oldAssigneeIds = new Set<Id<"users">>([
+			...(issue.assigneeIds ?? []),
+			...(issue.assigneeId ? [issue.assigneeId] : []),
+		]);
+		const newAssigneeIds = new Set(nextAssigneeIds);
+		const newlyAdded = [...newAssigneeIds].filter(
+			(id) => !oldAssigneeIds.has(id),
+		);
+
+		// Patch: write multi-assign array, mirror first into legacy single field
+		// so older read paths still see *something*. Empty array → unassigned.
 		await ctx.db.patch(args.issueId, {
-			assigneeId: args.assigneeId,
+			assigneeId: nextAssigneeIds[0] ?? undefined,
+			assigneeIds: nextAssigneeIds.length > 0 ? nextAssigneeIds : undefined,
 			updatedAt: Date.now(),
 		});
 
-		// Activity log for assignment
-		const oldName = oldAssigneeId
-			? ((await ctx.db.get(oldAssigneeId))?.name ?? "someone")
-			: "unassigned";
-		const newName = args.assigneeId
-			? ((await ctx.db.get(args.assigneeId))?.name ?? "someone")
-			: "unassigned";
+		// Activity log
+		const formatNames = async (ids: Set<Id<"users">>) => {
+			if (ids.size === 0) return "unassigned";
+			const names = await Promise.all(
+				[...ids].map(async (id) => (await ctx.db.get(id))?.name ?? "someone"),
+			);
+			return names.join(", ");
+		};
+		const oldNames = await formatNames(oldAssigneeIds);
+		const newNames = await formatNames(newAssigneeIds);
 		await logActivity(ctx, {
 			workspaceId: issue.workspaceId,
 			entityType: "issue",
 			entityId: args.issueId,
 			action: "assigned",
 			actorId: userId,
-			description: `assigned issue from ${oldName} to ${newName}`,
+			description: `assigned issue from ${oldNames} to ${newNames}`,
 			issueId: args.issueId,
 			projectId: issue.projectId,
-			field: "assigneeId",
-			oldValue: oldAssigneeId ?? undefined,
-			newValue: args.assigneeId ?? undefined,
+			field: "assigneeIds",
+			oldValue: [...oldAssigneeIds].join(",") || undefined,
+			newValue: [...newAssigneeIds].join(",") || undefined,
 		});
 
-		// Notify new assignee and auto-subscribe
+		// Notify newly-added assignees and auto-subscribe them.
 		const actor = await ctx.db.get(userId);
 		const actorName = actor?.name ?? "Someone";
-		if (args.assigneeId) {
-			await autoSubscribe(ctx, args.issueId, args.assigneeId);
+		for (const newId of newlyAdded) {
+			await autoSubscribe(ctx, args.issueId, newId);
 			await createNotification(ctx, {
-				userId: args.assigneeId,
+				userId: newId,
 				workspaceId: issue.workspaceId,
 				type: "issue_assigned",
 				title: "Issue assigned to you",
@@ -1947,9 +2023,7 @@ export const assign = mutation({
 			});
 		}
 
-		// Notify other subscribers (exclude assignee to avoid double-notification)
-		const excludeIds: Id<"users">[] = [];
-		if (args.assigneeId) excludeIds.push(args.assigneeId);
+		// Notify other subscribers (exclude every assignee to avoid double-notify)
 		await notifySubscribers(
 			ctx,
 			args.issueId,
@@ -1957,12 +2031,12 @@ export const assign = mutation({
 				workspaceId: issue.workspaceId,
 				type: "issue_assigned",
 				title: "Issue reassigned",
-				body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to ${args.assigneeId ? ((await ctx.db.get(args.assigneeId))?.name ?? "someone") : "unassigned"}`,
+				body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to ${newNames}`,
 				issueId: args.issueId,
 				projectId: issue.projectId ?? undefined,
 				actorId: userId,
 			},
-			excludeIds,
+			[...newAssigneeIds],
 		);
 	},
 });
@@ -1993,7 +2067,7 @@ export const assignMultiple = mutation({
 			);
 			if (
 				!hasAccess &&
-				!issue.assigneeIds?.includes(userId) &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			) {
 				throw new ConvexError("You don't have access to this issue's project");
@@ -2007,7 +2081,8 @@ export const assignMultiple = mutation({
 
 		const oldAssigneeIds = issue.assigneeIds ?? [];
 		await ctx.db.patch(args.issueId, {
-			assigneeIds: args.assigneeIds,
+			assigneeId: args.assigneeIds[0] ?? undefined,
+			assigneeIds: args.assigneeIds.length > 0 ? args.assigneeIds : undefined,
 			updatedAt: Date.now(),
 		});
 
@@ -2213,11 +2288,21 @@ export const bulkUpdateStatus = mutation({
 export const bulkAssign = mutation({
 	args: {
 		issueIds: v.array(v.id("issues")),
+		// Legacy single-assignee path. Ignored when `assigneeIds` is provided.
 		assigneeId: v.optional(v.id("users")),
+		// Canonical multi-assign path. `[]` clears all assignees.
+		assigneeIds: v.optional(v.array(v.id("users"))),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
 		if (args.issueIds.length === 0) return;
+
+		// Resolve canonical assignee set (multi wins over legacy single).
+		const nextAssigneeIds: Id<"users">[] = (() => {
+			if (args.assigneeIds !== undefined) return args.assigneeIds;
+			if (args.assigneeId !== undefined) return [args.assigneeId];
+			return [];
+		})();
 
 		// Verify auth from the first issue's workspace
 		const firstIssue = await ctx.db.get(args.issueIds[0]);
@@ -2234,12 +2319,8 @@ export const bulkAssign = mutation({
 			userId,
 			member.role as "admin" | "member",
 		);
-		if (args.assigneeId) {
-			await ensureAssigneeInWorkspace(
-				ctx,
-				firstIssue.workspaceId,
-				args.assigneeId,
-			);
+		for (const id of nextAssigneeIds) {
+			await ensureAssigneeInWorkspace(ctx, firstIssue.workspaceId, id);
 		}
 		const issueDocs = await Promise.all(
 			args.issueIds.map(async (issueId) => {
@@ -2255,7 +2336,7 @@ export const bulkAssign = mutation({
 				if (accessibleProjectIds !== null && issue.projectId) {
 					const canAccess =
 						accessibleProjectIds.has(issue.projectId) ||
-						issue.assigneeId === userId ||
+						isUserAssignee(issue, userId) ||
 						issue.createdBy === userId;
 					if (!canAccess) {
 						throw new ConvexError(
@@ -2267,16 +2348,32 @@ export const bulkAssign = mutation({
 			}),
 		);
 
+		const actor = await ctx.db.get(userId);
+		const actorName = actor?.name ?? "Someone";
+		const newAssigneeNames = await Promise.all(
+			nextAssigneeIds.map(
+				async (id) => (await ctx.db.get(id))?.name ?? "someone",
+			),
+		);
+		const newNamesLabel =
+			nextAssigneeIds.length === 0 ? "unassigned" : newAssigneeNames.join(", ");
+
 		for (const issue of issueDocs) {
 			const issueId = issue._id;
 
-			const oldAssigneeId = issue.assigneeId;
+			const oldAssigneeIds = new Set<Id<"users">>([
+				...(issue.assigneeIds ?? []),
+				...(issue.assigneeId ? [issue.assigneeId] : []),
+			]);
+			const newSet = new Set(nextAssigneeIds);
+			const newlyAdded = [...newSet].filter((id) => !oldAssigneeIds.has(id));
+
 			await ctx.db.patch(issueId, {
-				assigneeId: args.assigneeId,
+				assigneeId: nextAssigneeIds[0] ?? undefined,
+				assigneeIds: nextAssigneeIds.length > 0 ? nextAssigneeIds : undefined,
 				updatedAt: Date.now(),
 			});
 
-			// Activity log for each assignment
 			await logActivity(ctx, {
 				workspaceId: issue.workspaceId,
 				entityType: "issue",
@@ -2286,19 +2383,15 @@ export const bulkAssign = mutation({
 				description: "reassigned issue",
 				issueId,
 				projectId: issue.projectId,
-				field: "assigneeId",
-				oldValue: oldAssigneeId ?? undefined,
-				newValue: args.assigneeId ?? undefined,
+				field: "assigneeIds",
+				oldValue: [...oldAssigneeIds].join(",") || undefined,
+				newValue: nextAssigneeIds.join(",") || undefined,
 			});
 
-			// Notify new assignee and other subscribers
-			if (args.assigneeId) {
-				const actor = await ctx.db.get(userId);
-				const actorName = actor?.name ?? "Someone";
-				const assigneeName =
-					(await ctx.db.get(args.assigneeId))?.name ?? "someone";
+			for (const newId of newlyAdded) {
+				await autoSubscribe(ctx, issueId, newId);
 				await createNotification(ctx, {
-					userId: args.assigneeId,
+					userId: newId,
 					workspaceId: issue.workspaceId,
 					type: "issue_assigned",
 					title: "Issue assigned to you",
@@ -2307,8 +2400,9 @@ export const bulkAssign = mutation({
 					projectId: issue.projectId ?? undefined,
 					actorId: userId,
 				});
+			}
 
-				// Notify other subscribers (exclude assignee to avoid duplicates)
+			if (newlyAdded.length > 0 || nextAssigneeIds.length > 0) {
 				await notifySubscribers(
 					ctx,
 					issueId,
@@ -2316,12 +2410,12 @@ export const bulkAssign = mutation({
 						workspaceId: issue.workspaceId,
 						type: "issue_assigned",
 						title: "Issue reassigned",
-						body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to ${assigneeName}`,
+						body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to ${newNamesLabel}`,
 						issueId,
 						projectId: issue.projectId ?? undefined,
 						actorId: userId,
 					},
-					[args.assigneeId],
+					nextAssigneeIds,
 				);
 			}
 		}
@@ -2571,7 +2665,7 @@ export const remove = mutation({
 			);
 			if (
 				!hasAccess &&
-				issue.assigneeId !== userId &&
+				!isUserAssignee(issue, userId) &&
 				issue.createdBy !== userId
 			) {
 				throw new ConvexError("You don't have access to this issue's project");
@@ -2631,6 +2725,110 @@ export const remove = mutation({
 	},
 });
 
+/**
+ * Bulk soft-delete a set of issues. Mirrors the behaviour of `remove` for
+ * each issue: RBAC check per issue, cascade to sub-issues, activity log,
+ * RAG de-index. Partial failure (e.g. you don't have access to one of the
+ * selected issues) throws and rolls back because Convex mutations are
+ * transactional — the caller can clear selection and retry.
+ */
+export const bulkRemove = mutation({
+	args: {
+		issueIds: v.array(v.id("issues")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		if (args.issueIds.length === 0) return;
+
+		// Auth from the first issue's workspace; every other issue is
+		// cross-checked below to ensure we didn't get a mixed selection.
+		const firstIssue = await ctx.db.get(args.issueIds[0]);
+		if (!firstIssue || firstIssue.deletedAt) {
+			throw new ConvexError("Issue not found");
+		}
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			firstIssue.workspaceId,
+		);
+
+		const now = Date.now();
+		for (const issueId of args.issueIds) {
+			const issue = await ctx.db.get(issueId);
+			if (!issue || issue.deletedAt) continue; // already gone, skip silently
+			if (issue.workspaceId !== firstIssue.workspaceId) {
+				throw new ConvexError(
+					"All selected issues must belong to the same workspace",
+				);
+			}
+
+			// RBAC: verify per-issue access for member users
+			if (member.role !== "admin" && issue.projectId) {
+				const hasAccess = await canAccessProject(
+					ctx,
+					issue.projectId,
+					userId,
+					member.role as "admin" | "member",
+				);
+				if (
+					!hasAccess &&
+					!isUserAssignee(issue, userId) &&
+					issue.createdBy !== userId
+				) {
+					throw new ConvexError(
+						`You don't have access to issue ${issue.identifier}`,
+					);
+				}
+			}
+
+			// Soft delete the issue itself
+			await ctx.db.patch(issueId, { deletedAt: now });
+
+			// Cascade soft-delete to sub-issues
+			const children = await ctx.db
+				.query("issues")
+				.withIndex("by_parent", (q) => q.eq("parentId", issueId))
+				.collect();
+			for (const child of children) {
+				if (!child.deletedAt) {
+					await ctx.db.patch(child._id, { deletedAt: now });
+				}
+			}
+
+			// Activity log
+			await logActivity(ctx, {
+				workspaceId: issue.workspaceId,
+				entityType: "issue",
+				entityId: issueId,
+				action: "deleted",
+				actorId: userId,
+				description: `deleted issue "${issue.identifier}: ${issue.title}"`,
+				issueId,
+				projectId: issue.projectId,
+				metadata: JSON.stringify({
+					identifier: issue.identifier,
+					title: issue.title,
+				}),
+			});
+
+			// RAG de-index parent + children
+			await ctx.scheduler.runAfter(
+				0,
+				internal.ai.indexing.issueIndexer.indexIssue,
+				{ issueId },
+			);
+			for (const child of children) {
+				if (!child.deletedAt) {
+					await ctx.scheduler.runAfter(
+						0,
+						internal.ai.indexing.issueIndexer.indexIssue,
+						{ issueId: child._id },
+					);
+				}
+			}
+		}
+	},
+});
+
 /** Create a sub-issue under a parent with inherited properties */
 export const createSubIssue = mutation({
 	args: {
@@ -2641,6 +2839,7 @@ export const createSubIssue = mutation({
 		priority: v.optional(issuePriorityValidator),
 		type: v.optional(issueTypeValidator),
 		assigneeId: v.optional(v.id("users")),
+		assigneeIds: v.optional(v.array(v.id("users"))),
 		labelIds: v.optional(v.array(v.id("labels"))),
 		startDate: v.optional(v.number()),
 		dueDate: v.optional(v.number()),
@@ -2658,6 +2857,13 @@ export const createSubIssue = mutation({
 		if (!parent || parent.deletedAt) {
 			throw new ConvexError("Parent issue not found");
 		}
+
+		// Canonical assignee set: multi wins over legacy single.
+		const effectiveAssigneeIds: Id<"users">[] = (() => {
+			if (args.assigneeIds !== undefined) return args.assigneeIds;
+			if (args.assigneeId !== undefined) return [args.assigneeId];
+			return [];
+		})();
 
 		// Single-level nesting: parent cannot be a sub-issue itself
 		if (parent.parentId) {
@@ -2728,8 +2934,8 @@ export const createSubIssue = mutation({
 				"Sub-issue must stay in the same project as parent",
 			);
 		}
-		if (args.assigneeId) {
-			await ensureAssigneeInWorkspace(ctx, parent.workspaceId, args.assigneeId);
+		for (const id of effectiveAssigneeIds) {
+			await ensureAssigneeInWorkspace(ctx, parent.workspaceId, id);
 		}
 
 		// RBAC: verify project access for member users
@@ -2790,7 +2996,10 @@ export const createSubIssue = mutation({
 			status,
 			priority: args.priority ?? "no_priority",
 			type: args.type ?? "issue",
-			assigneeId: args.assigneeId,
+			// Multi-assign canonical, mirrored into legacy single field.
+			assigneeId: effectiveAssigneeIds[0] ?? undefined,
+			assigneeIds:
+				effectiveAssigneeIds.length > 0 ? effectiveAssigneeIds : undefined,
 			labelIds: args.labelIds,
 			startDate: args.startDate,
 			dueDate: args.dueDate,
@@ -2816,20 +3025,23 @@ export const createSubIssue = mutation({
 			}),
 		});
 
-		// Notify assignee if set
-		if (args.assigneeId) {
+		// Notify all assignees and auto-subscribe them.
+		if (effectiveAssigneeIds.length > 0) {
 			const actor = await ctx.db.get(userId);
 			const actorName = actor?.name ?? "Someone";
-			await createNotification(ctx, {
-				userId: args.assigneeId,
-				workspaceId: parent.workspaceId,
-				type: "issue_assigned",
-				title: "Sub-issue assigned to you",
-				body: `${actorName} assigned '${identifier}: ${args.title}' to you`,
-				issueId,
-				projectId: projectId ?? undefined,
-				actorId: userId,
-			});
+			for (const assigneeId of effectiveAssigneeIds) {
+				await autoSubscribe(ctx, issueId, assigneeId);
+				await createNotification(ctx, {
+					userId: assigneeId,
+					workspaceId: parent.workspaceId,
+					type: "issue_assigned",
+					title: "Sub-issue assigned to you",
+					body: `${actorName} assigned '${identifier}: ${args.title}' to you`,
+					issueId,
+					projectId: projectId ?? undefined,
+					actorId: userId,
+				});
+			}
 		}
 
 		return { issueId, identifier };
@@ -3023,15 +3235,21 @@ export const myIssuesAssigned = query({
 	handler: async (ctx, args) => {
 		const { userId } = await requireWorkspaceMember(ctx, args.workspaceId);
 
+		// Multi-assign aware: an issue is "mine" if I'm in either the legacy
+		// single field or the new multi-assignee array. We can't index an array
+		// containment in Convex, so we scan the workspace and filter in memory.
 		const issues = await ctx.db
 			.query("issues")
-			.withIndex("by_workspace_assignee", (q) =>
-				q.eq("workspaceId", args.workspaceId).eq("assigneeId", userId),
-			)
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 
 		// RBAC: assigned issues are always visible to the assignee
-		return issues.filter((issue) => !issue.deletedAt);
+		return issues.filter(
+			(issue) =>
+				!issue.deletedAt &&
+				(issue.assigneeId === userId ||
+					(issue.assigneeIds?.includes(userId) ?? false)),
+		);
 	},
 });
 
@@ -3097,7 +3315,9 @@ export const myIssuesSubscribed = query({
 				if (accessibleProjectIds !== null) {
 					const inAccessibleProject =
 						issue.projectId && accessibleProjectIds.has(issue.projectId);
-					const isAssigned = issue.assigneeId === userId;
+					const isAssigned =
+						issue.assigneeId === userId ||
+						(issue.assigneeIds?.includes(userId) ?? false);
 					const isCreator = issue.createdBy === userId;
 					if (!inAccessibleProject && !isAssigned && !isCreator) return false;
 				}
@@ -3153,13 +3373,14 @@ export const myIssuesActivity = query({
 			}
 		}
 
-		// Parallel fetch: assigned issues + created issues (targeted index queries, no full scan)
-		const [assignedIssues, createdIssues] = await Promise.all([
+		// Multi-assign aware: the workspace index on `assigneeId` misses issues
+		// where the user is only in `assigneeIds[]`, so we scan the workspace
+		// and filter in memory for the assignee side. The `by_workspace_creator`
+		// index is still fine for the creator side.
+		const [workspaceIssues, createdIssues] = await Promise.all([
 			ctx.db
 				.query("issues")
-				.withIndex("by_workspace_assignee", (q) =>
-					q.eq("workspaceId", args.workspaceId).eq("assigneeId", userId),
-				)
+				.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 				.collect(),
 			ctx.db
 				.query("issues")
@@ -3168,8 +3389,14 @@ export const myIssuesActivity = query({
 				)
 				.collect(),
 		]);
-		for (const issue of assignedIssues) {
-			issueIdSet.add(issue._id as string);
+		for (const issue of workspaceIssues) {
+			if (
+				!issue.deletedAt &&
+				(issue.assigneeId === userId ||
+					(issue.assigneeIds?.includes(userId) ?? false))
+			) {
+				issueIdSet.add(issue._id as string);
+			}
 		}
 		for (const issue of createdIssues) {
 			issueIdSet.add(issue._id as string);

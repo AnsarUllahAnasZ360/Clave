@@ -10,8 +10,6 @@ import {
 	TablePlugin,
 	TableProvider,
 	useTableBordersDropdownMenuContentState,
-	useTableCellElement,
-	useTableCellElementResizable,
 	useTableElement,
 	useTableMergeState,
 } from "@platejs/table/react";
@@ -76,7 +74,6 @@ import {
 	ColorDropdownMenuItems,
 	DEFAULT_COLORS,
 } from "./font-color-toolbar-button";
-import { ResizeHandle } from "./resize-handle";
 import {
 	BorderAllIcon,
 	BorderBottomIcon,
@@ -519,7 +516,7 @@ export function TableCellElement({
 	isHeader?: boolean;
 }) {
 	const { api } = useEditorPlugin(TablePlugin);
-	const readOnly = useReadOnly();
+	const _readOnly = useReadOnly();
 	const element = props.element;
 
 	const tableId = useElementSelector(([node]) => node.id as string, [], {
@@ -530,42 +527,29 @@ export function TableCellElement({
 	});
 	const isSelectingTable = useBlockSelected(tableId);
 	const isSelectingRow = useBlockSelected(rowId) || isSelectingTable;
-	const isSelectionAreaVisible = usePluginOption(
+	const _isSelectionAreaVisible = usePluginOption(
 		BlockSelectionPlugin,
 		"isSelectionAreaVisible",
 	);
-
-	const { borders, colIndex, colSpan, minHeight, rowIndex, selected, width } =
-		useTableCellElement();
-
-	const { bottomProps, hiddenLeft, leftProps, rightProps } =
-		useTableCellElementResizable({
-			colIndex,
-			colSpan,
-			rowIndex,
-		});
+	const selected = useSelected();
 
 	return (
 		<PlateElement
 			{...props}
 			as={isHeader ? "th" : "td"}
 			className={cn(
-				"h-full overflow-visible border-none bg-background p-0",
+				"h-full overflow-visible border border-border bg-background p-0 align-top",
 				element.background ? "bg-(--cellBackground)" : "bg-background",
 				isHeader && "text-left *:m-0",
 				"before:size-full",
 				selected && "before:z-10 before:bg-brand/5",
 				"before:absolute before:box-border before:select-none before:content-['']",
-				borders.bottom?.size && "before:border-b before:border-b-border",
-				borders.right?.size && "before:border-r before:border-r-border",
-				borders.left?.size && "before:border-l before:border-l-border",
-				borders.top?.size && "before:border-t before:border-t-border",
 			)}
 			style={
 				{
 					"--cellBackground": element.background,
-					maxWidth: width || 240,
-					minWidth: width || 120,
+					maxWidth: 240,
+					minWidth: 120,
 				} as React.CSSProperties
 			}
 			attributes={{
@@ -576,53 +560,12 @@ export function TableCellElement({
 		>
 			<div
 				className="relative z-20 box-border h-full px-3 py-2"
-				style={{ minHeight }}
+				style={{ minHeight: 40 }}
 			>
 				{props.children}
 			</div>
 
-			{!isSelectionAreaVisible && (
-				<div
-					className="group absolute top-0 size-full select-none"
-					contentEditable={false}
-					suppressContentEditableWarning={true}
-				>
-					{!readOnly && (
-						<>
-							<ResizeHandle
-								{...rightProps}
-								className="-top-2 -right-1 h-[calc(100%_+_8px)] w-2"
-								data-col={colIndex}
-							/>
-							<ResizeHandle {...bottomProps} className="-bottom-1 h-2" />
-							{!hiddenLeft && (
-								<ResizeHandle
-									{...leftProps}
-									className="-left-1 top-0 w-2"
-									data-resizer-left={colIndex === 0 ? "true" : undefined}
-								/>
-							)}
-
-							<div
-								className={cn(
-									"absolute top-0 z-30 hidden h-full w-1 bg-ring",
-									"right-[-1.5px]",
-									columnResizeVariants({ colIndex: colIndex as any }),
-								)}
-							/>
-							{colIndex === 0 && (
-								<div
-									className={cn(
-										"absolute top-0 z-30 h-full w-1 bg-ring",
-										"left-[-1.5px]",
-										'fade-in hidden animate-in group-has-[[data-resizer-left]:hover]/table:block group-has-[[data-resizer-left][data-resizing="true"]]/table:block',
-									)}
-								/>
-							)}
-						</>
-					)}
-				</div>
-			)}
+			{/* Resizing handles intentionally disabled here to avoid React 19 setState-in-render warnings from upstream table hooks. */}
 
 			{isSelectingRow && (
 				<div className={blockSelectionVariants()} contentEditable={false} />
@@ -637,7 +580,7 @@ export function TableCellHeaderElement(
 	return <TableCellElement {...props} isHeader />;
 }
 
-const columnResizeVariants = cva("fade-in hidden animate-in", {
+const _columnResizeVariants = cva("fade-in hidden animate-in", {
 	variants: {
 		colIndex: {
 			0: 'group-has-[[data-col="0"]:hover]/table:block group-has-[[data-col="0"][data-resizing="true"]]/table:block',
