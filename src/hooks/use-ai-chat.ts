@@ -158,6 +158,22 @@ export function isPendingUserMessageDelivered(
 	);
 	if (lastUserFingerprint === pendingFingerprint) return true;
 
+	// URL equality fallback — works when the pending spec and the persisted
+	// message share a resolved HTTPS URL (e.g. context attachments pre-uploaded
+	// to storage). Filename/mediaType may legitimately differ between the two
+	// sides, so URL alone is enough to prove it's the same file.
+	const lastUrls = lastUserFileParts
+		.map((p) => (p as FileUIPart & { url?: string }).url ?? "")
+		.filter(Boolean)
+		.sort()
+		.join("|");
+	const pendingUrls = pending.files
+		.map((f) => f.url ?? "")
+		.filter(Boolean)
+		.sort()
+		.join("|");
+	if (lastUrls.length > 0 && lastUrls === pendingUrls) return true;
+
 	// Filenames can be missing on one side (generic "Image" in UI vs saved name).
 	const lastLoose = lastUserFileParts
 		.map((p) => p.mediaType ?? "")
