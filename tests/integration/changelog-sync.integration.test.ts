@@ -13,19 +13,20 @@ function createBackend() {
 }
 
 describe("changelog sync (integration)", () => {
-	it("seeds every source entry into appVersions on first run", async () => {
+	it("seeds every source entry on first run", async () => {
 		const t = createBackend();
 
-		const inserted = await t.mutation(
+		const result = await t.mutation(
 			internal.versions.syncChangelogInternal,
 			{},
 		);
-		// Upsert touches every source entry on first run (no existing rows).
-		expect(inserted).toBe(CHANGELOG_ENTRIES.length);
+		expect(result.inserted).toBe(CHANGELOG_ENTRIES.length);
+		expect(result.patched).toBe(0);
+		expect(result.deleted).toBe(0);
+		expect(result.usersReset).toBe(0);
 
 		const rows = await t.run((ctx) => ctx.db.query("appVersions").collect());
 		expect(rows.length).toBe(CHANGELOG_ENTRIES.length);
-
 		for (const entry of CHANGELOG_ENTRIES) {
 			const row = rows.find((r) => r.version === entry.version);
 			expect(row, `missing row for ${entry.version}`).toBeDefined();
@@ -35,46 +36,68 @@ describe("changelog sync (integration)", () => {
 		}
 	});
 
-	it("is a no-op on the second run when source matches the DB", async () => {
+	it("is a full no-op on the second run when source matches DB", async () => {
 		const t = createBackend();
 
 		await t.mutation(internal.versions.syncChangelogInternal, {});
-		// Second run: every entry is already in sync, nothing to touch.
-		const touched = await t.mutation(
+		const second = await t.mutation(
 			internal.versions.syncChangelogInternal,
 			{},
 		);
-		expect(touched).toBe(0);
+		expect(second).toEqual({
+			inserted: 0,
+			patched: 0,
+			deleted: 0,
+			usersReset: 0,
+		});
 	});
 
-	it("patches drifted rows so post-release edits propagate", async () => {
+	it("patches drifted rows and resets lastSeenVersion for affected users", async () => {
 		const t = createBackend();
 
-		// Seed once.
+		// Seed the full source, plus a user who dismissed the first entry.
 		await t.mutation(internal.versions.syncChangelogInternal, {});
-
-		// Simulate a stale row by rewriting its title + clearing its fixes,
-		// as if an older version had been seeded before the constant was
-		// reworded.
 		const target = CHANGELOG_ENTRIES[0];
-		await t.run(async (ctx) => {
-			const row = await ctx.db
-				.query("appVersions")
-				.filter((q) => q.eq(q.field("version"), target.version))
-				.first();
-			if (!row) throw new Error("seed row missing");
-			await ctx.db.patch(row._id, {
-				title: "Old stale title",
-				bugFixes: [],
-			});
-		});
+		const otherTarget = CHANGELOG_ENTRIES[1];
+		const { dismissedUserId, otherUserId, untouchedUserId } = await t.run(
+			async (ctx) => {
+				const dismissed = await ctx.db.insert("users", {
+					name: "Dismissed",
+					lastSeenVersion: target.version,
+				});
+				const other = await ctx.db.insert("users", {
+					name: "Other",
+					lastSeenVersion: otherTarget?.version,
+				});
+				const untouched = await ctx.db.insert("users", {
+					name: "Untouched",
+				});
+				// Simulate a drifted row for `target` — older title, cleared fixes.
+				const row = await ctx.db
+					.query("appVersions")
+					.filter((q) => q.eq(q.field("version"), target.version))
+					.first();
+				if (!row) throw new Error("seed row missing");
+				await ctx.db.patch(row._id, {
+					title: "Stale title from a previous release",
+					bugFixes: [],
+				});
+				return {
+					dismissedUserId: dismissed,
+					otherUserId: other,
+					untouchedUserId: untouched,
+				};
+			},
+		);
 
-		const touched = await t.mutation(
+		const result = await t.mutation(
 			internal.versions.syncChangelogInternal,
 			{},
 		);
-		// Exactly one row drifted, so exactly one patch should fire.
-		expect(touched).toBe(1);
+		// Only `target` drifted, so exactly one patch + one cascade reset.
+		expect(result.patched).toBe(1);
+		expect(result.deleted).toBe(0);
+		expect(result.usersReset).toBe(1);
 
 		const row = await t.run((ctx) =>
 			ctx.db
@@ -84,14 +107,28 @@ describe("changelog sync (integration)", () => {
 		);
 		expect(row?.title).toBe(target.title);
 		expect(row?.bugFixes).toEqual(target.bugFixes);
+
+		// Cascade verification: the user who dismissed `target` gets reset;
+		// the user who dismissed a different version and the untouched user
+		// are both left alone.
+		const [dismissed, other, untouched] = await t.run((ctx) =>
+			Promise.all([
+				ctx.db.get(dismissedUserId),
+				ctx.db.get(otherUserId),
+				ctx.db.get(untouchedUserId),
+			]),
+		);
+		expect(dismissed?.lastSeenVersion).toBeUndefined();
+		expect(other?.lastSeenVersion).toBe(otherTarget?.version);
+		expect(untouched?.lastSeenVersion).toBeUndefined();
 	});
 
-	it("pruneOrphanVersions removes rows whose version isn't in source", async () => {
+	it("deletes orphan rows and resets lastSeenVersion for users stuck on them", async () => {
 		const t = createBackend();
 
 		// Seed the real source, plus a rogue row that doesn't belong.
 		await t.mutation(internal.versions.syncChangelogInternal, {});
-		await t.run(async (ctx) => {
+		const { orphanDismisserId } = await t.run(async (ctx) => {
 			await ctx.db.insert("appVersions", {
 				version: "9.9.9-orphan",
 				releasedAt: Date.now(),
@@ -99,13 +136,26 @@ describe("changelog sync (integration)", () => {
 				features: [],
 				bugFixes: [],
 			});
+			const orphanDismisser = await ctx.db.insert("users", {
+				name: "Stuck on orphan",
+				lastSeenVersion: "9.9.9-orphan",
+			});
+			return { orphanDismisserId: orphanDismisser };
 		});
 
-		const deleted = await t.mutation(internal.versions.pruneOrphanVersions, {});
-		expect(deleted).toBe(1);
+		const result = await t.mutation(
+			internal.versions.syncChangelogInternal,
+			{},
+		);
+		expect(result.deleted).toBe(1);
+		expect(result.usersReset).toBe(1);
 
 		const rows = await t.run((ctx) => ctx.db.query("appVersions").collect());
 		expect(rows.find((r) => r.version === "9.9.9-orphan")).toBeUndefined();
 		expect(rows.length).toBe(CHANGELOG_ENTRIES.length);
+
+		// User who had dismissed the orphan is now free to see the real latest.
+		const stuckUser = await t.run((ctx) => ctx.db.get(orphanDismisserId));
+		expect(stuckUser?.lastSeenVersion).toBeUndefined();
 	});
 });

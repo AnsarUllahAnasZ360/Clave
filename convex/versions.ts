@@ -74,51 +74,72 @@ export const markSeen = mutation({
  * time any authenticated user opens the workspace** — no manual dashboard
  * run, no deploy-time hook, no drift between code and data.
  */
-/**
- * Upsert the source-of-truth `CHANGELOG_ENTRIES` into the `appVersions`
- * table. Inserts missing rows and patches existing ones whose content has
- * drifted (e.g. you re-worded a release after it shipped). Returns the
- * count of inserts + updates.
- */
-async function upsertChangelog(ctx: {
-	db: {
-		query: (t: "appVersions") => {
-			collect: () => Promise<
-				Array<{
-					_id: import("./_generated/dataModel").Id<"appVersions">;
-					version: string;
-					releasedAt: number;
-					title: string;
-					features: string[];
-					bugFixes: string[];
-				}>
-			>;
-		};
-		insert: (
-			t: "appVersions",
-			doc: {
-				version: string;
-				releasedAt: number;
-				title: string;
-				features: string[];
-				bugFixes: string[];
-			},
-		) => Promise<import("./_generated/dataModel").Id<"appVersions">>;
-		patch: (
-			id: import("./_generated/dataModel").Id<"appVersions">,
-			patch: Partial<{
-				releasedAt: number;
-				title: string;
-				features: string[];
-				bugFixes: string[];
-			}>,
-		) => Promise<void>;
+type DbShape = {
+	query: (t: "appVersions" | "users") => {
+		collect: () => Promise<unknown[]>;
 	};
-}): Promise<number> {
-	const existing = await ctx.db.query("appVersions").collect();
-	const byVersion = new Map(existing.map((row) => [row.version, row]));
+	insert: (t: "appVersions", doc: unknown) => Promise<unknown>;
+	patch: (id: unknown, patch: unknown) => Promise<void>;
+	delete: (id: unknown) => Promise<void>;
+};
 
-	let touched = 0;
+type ReconcileResult = {
+	inserted: number;
+	patched: number;
+	deleted: number;
+	usersReset: number;
+};
+
+/**
+ * Full three-way reconcile between the in-code `CHANGELOG_ENTRIES` source
+ * of truth and the `appVersions` table, with cascade cleanup of any
+ * `users.lastSeenVersion` pointers that reference touched rows.
+ *
+ * Why all three operations in one pass:
+ * - **Insert** missing entries (new release shipped).
+ * - **Patch** entries whose content has drifted (you re-worded a line
+ *   after shipping).
+ * - **Delete** rows whose version isn't in the source anymore (release
+ *   was retracted or consolidated into another version).
+ * - **Reset** `lastSeenVersion` on every user whose dismissal pointer
+ *   matches a row that was just patched or deleted, so the `WhatsNewPopup`
+ *   card shows up again with the corrected content.
+ *
+ * Idempotent — on a no-op run all four counters are 0, no writes fire.
+ *
+ * Runs on every authed workspace load via `WhatsNewPopup`, so the first
+ * client to open the app after a deploy reconciles prod automatically.
+ * No Convex dashboard or CLI access is required for any of the three
+ * edit paths (insert / patch / delete).
+ */
+async function reconcileChangelog(ctx: {
+	db: DbShape;
+}): Promise<ReconcileResult> {
+	type AppVersionRow = {
+		_id: unknown;
+		version: string;
+		releasedAt: number;
+		title: string;
+		features: string[];
+		bugFixes: string[];
+	};
+	type UserRow = { _id: unknown; lastSeenVersion?: string };
+
+	const existing = (await ctx.db
+		.query("appVersions")
+		.collect()) as AppVersionRow[];
+	const byVersion = new Map(existing.map((row) => [row.version, row]));
+	const sourceVersions = new Set(CHANGELOG_ENTRIES.map((e) => e.version));
+
+	// Collect every version string whose row's *content* (or existence)
+	// changes on this run. Users whose lastSeenVersion is in this set need
+	// to see the popup card again.
+	const touchedVersions = new Set<string>();
+
+	let inserted = 0;
+	let patched = 0;
+	let deleted = 0;
+
 	for (const entry of CHANGELOG_ENTRIES) {
 		const row = byVersion.get(entry.version);
 		const releasedAtMs = new Date(entry.releasedAt).getTime();
@@ -131,12 +152,15 @@ async function upsertChangelog(ctx: {
 				features: entry.features,
 				bugFixes: entry.bugFixes,
 			});
-			touched++;
+			inserted++;
+			// New version → anyone whose lastSeenVersion was the previous
+			// latest should see the popup again. That happens naturally
+			// because `getLatest` will now return this new row and the
+			// gate `user.lastSeenVersion !== latest.version` evaluates
+			// to true without any reset.
 			continue;
 		}
 
-		// Patch drifted content so the source of truth can evolve after a
-		// release ships (re-wording a line, moving items between sections).
 		const drifted =
 			row.title !== entry.title ||
 			row.releasedAt !== releasedAtMs ||
@@ -149,76 +173,67 @@ async function upsertChangelog(ctx: {
 				features: entry.features,
 				bugFixes: entry.bugFixes,
 			});
-			touched++;
+			patched++;
+			touchedVersions.add(entry.version);
 		}
 	}
-	return touched;
+
+	for (const row of existing) {
+		if (!sourceVersions.has(row.version)) {
+			await ctx.db.delete(row._id);
+			deleted++;
+			touchedVersions.add(row.version);
+		}
+	}
+
+	// Cascade: clear lastSeenVersion for users whose dismissal pointer
+	// references a row that was just patched or deleted. We only scan the
+	// users table when at least one version was touched, so the no-op
+	// path stays cheap.
+	let usersReset = 0;
+	if (touchedVersions.size > 0) {
+		const users = (await ctx.db.query("users").collect()) as UserRow[];
+		for (const user of users) {
+			if (
+				user.lastSeenVersion !== undefined &&
+				touchedVersions.has(user.lastSeenVersion)
+			) {
+				await ctx.db.patch(user._id, { lastSeenVersion: undefined });
+				usersReset++;
+			}
+		}
+	}
+
+	return { inserted, patched, deleted, usersReset };
 }
+
+const reconcileResultValidator = v.object({
+	inserted: v.number(),
+	patched: v.number(),
+	deleted: v.number(),
+	usersReset: v.number(),
+});
 
 export const syncChangelog = mutation({
 	args: {},
-	returns: v.number(),
+	returns: reconcileResultValidator,
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not authenticated");
-		return await upsertChangelog(ctx);
+		return await reconcileChangelog(ctx as unknown as { db: DbShape });
 	},
 });
 
 /**
  * Internal variant of `syncChangelog` — no auth, CLI-runnable via
- * `bunx convex run versions:syncChangelogInternal`. Useful for initial
- * prod seeding or if you want to seed from a CI step rather than waiting
- * for the first authed client to hit the workspace.
+ * `bunx convex run versions:syncChangelogInternal`. Equivalent behaviour,
+ * useful for initial seeding from a CI step or a local dev loop where
+ * you don't want to wait for the first authed client to trigger it.
  */
 export const syncChangelogInternal = internalMutation({
 	args: {},
-	returns: v.number(),
+	returns: reconcileResultValidator,
 	handler: async (ctx) => {
-		return await upsertChangelog(ctx);
-	},
-});
-
-/**
- * Drop any `appVersions` rows whose `version` string is not present in the
- * in-code `CHANGELOG_ENTRIES` source of truth. Use this after deliberately
- * removing or merging an entry in the constant — `syncChangelog` is additive
- * and never deletes, so stale rows persist otherwise. Safe to re-run.
- */
-export const pruneOrphanVersions = internalMutation({
-	args: {},
-	returns: v.number(),
-	handler: async (ctx) => {
-		const sourceVersions = new Set(CHANGELOG_ENTRIES.map((e) => e.version));
-		const existing = await ctx.db.query("appVersions").collect();
-		let deleted = 0;
-		for (const row of existing) {
-			if (!sourceVersions.has(row.version)) {
-				await ctx.db.delete(row._id);
-				deleted++;
-			}
-		}
-		return deleted;
-	},
-});
-
-/**
- * Clear `lastSeenVersion` on every user so the WhatsNewPopup fires again
- * the next time they load a workspace page. Only useful in dev — call
- * explicitly if you've dismissed the latest popup and want to re-see it.
- */
-export const resetLastSeenForAll = internalMutation({
-	args: {},
-	returns: v.number(),
-	handler: async (ctx) => {
-		const users = await ctx.db.query("users").collect();
-		let cleared = 0;
-		for (const user of users) {
-			if (user.lastSeenVersion !== undefined) {
-				await ctx.db.patch(user._id, { lastSeenVersion: undefined });
-				cleared++;
-			}
-		}
-		return cleared;
+		return await reconcileChangelog(ctx as unknown as { db: DbShape });
 	},
 });
