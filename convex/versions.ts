@@ -74,29 +74,94 @@ export const markSeen = mutation({
  * time any authenticated user opens the workspace** — no manual dashboard
  * run, no deploy-time hook, no drift between code and data.
  */
+/**
+ * Upsert the source-of-truth `CHANGELOG_ENTRIES` into the `appVersions`
+ * table. Inserts missing rows and patches existing ones whose content has
+ * drifted (e.g. you re-worded a release after it shipped). Returns the
+ * count of inserts + updates.
+ */
+async function upsertChangelog(ctx: {
+	db: {
+		query: (t: "appVersions") => {
+			collect: () => Promise<
+				Array<{
+					_id: import("./_generated/dataModel").Id<"appVersions">;
+					version: string;
+					releasedAt: number;
+					title: string;
+					features: string[];
+					bugFixes: string[];
+				}>
+			>;
+		};
+		insert: (
+			t: "appVersions",
+			doc: {
+				version: string;
+				releasedAt: number;
+				title: string;
+				features: string[];
+				bugFixes: string[];
+			},
+		) => Promise<import("./_generated/dataModel").Id<"appVersions">>;
+		patch: (
+			id: import("./_generated/dataModel").Id<"appVersions">,
+			patch: Partial<{
+				releasedAt: number;
+				title: string;
+				features: string[];
+				bugFixes: string[];
+			}>,
+		) => Promise<void>;
+	};
+}): Promise<number> {
+	const existing = await ctx.db.query("appVersions").collect();
+	const byVersion = new Map(existing.map((row) => [row.version, row]));
+
+	let touched = 0;
+	for (const entry of CHANGELOG_ENTRIES) {
+		const row = byVersion.get(entry.version);
+		const releasedAtMs = new Date(entry.releasedAt).getTime();
+
+		if (!row) {
+			await ctx.db.insert("appVersions", {
+				version: entry.version,
+				releasedAt: releasedAtMs,
+				title: entry.title,
+				features: entry.features,
+				bugFixes: entry.bugFixes,
+			});
+			touched++;
+			continue;
+		}
+
+		// Patch drifted content so the source of truth can evolve after a
+		// release ships (re-wording a line, moving items between sections).
+		const drifted =
+			row.title !== entry.title ||
+			row.releasedAt !== releasedAtMs ||
+			JSON.stringify(row.features) !== JSON.stringify(entry.features) ||
+			JSON.stringify(row.bugFixes) !== JSON.stringify(entry.bugFixes);
+		if (drifted) {
+			await ctx.db.patch(row._id, {
+				releasedAt: releasedAtMs,
+				title: entry.title,
+				features: entry.features,
+				bugFixes: entry.bugFixes,
+			});
+			touched++;
+		}
+	}
+	return touched;
+}
+
 export const syncChangelog = mutation({
 	args: {},
 	returns: v.number(),
 	handler: async (ctx) => {
 		const userId = await getAuthUserId(ctx);
 		if (!userId) throw new ConvexError("Not authenticated");
-
-		const existing = await ctx.db.query("appVersions").collect();
-		const existingVersions = new Set(existing.map((v) => v.version));
-
-		let inserted = 0;
-		for (const entry of CHANGELOG_ENTRIES) {
-			if (existingVersions.has(entry.version)) continue;
-			await ctx.db.insert("appVersions", {
-				version: entry.version,
-				releasedAt: new Date(entry.releasedAt).getTime(),
-				title: entry.title,
-				features: entry.features,
-				bugFixes: entry.bugFixes,
-			});
-			inserted++;
-		}
-		return inserted;
+		return await upsertChangelog(ctx);
 	},
 });
 
@@ -110,22 +175,30 @@ export const syncChangelogInternal = internalMutation({
 	args: {},
 	returns: v.number(),
 	handler: async (ctx) => {
-		const existing = await ctx.db.query("appVersions").collect();
-		const existingVersions = new Set(existing.map((v) => v.version));
+		return await upsertChangelog(ctx);
+	},
+});
 
-		let inserted = 0;
-		for (const entry of CHANGELOG_ENTRIES) {
-			if (existingVersions.has(entry.version)) continue;
-			await ctx.db.insert("appVersions", {
-				version: entry.version,
-				releasedAt: new Date(entry.releasedAt).getTime(),
-				title: entry.title,
-				features: entry.features,
-				bugFixes: entry.bugFixes,
-			});
-			inserted++;
+/**
+ * Drop any `appVersions` rows whose `version` string is not present in the
+ * in-code `CHANGELOG_ENTRIES` source of truth. Use this after deliberately
+ * removing or merging an entry in the constant — `syncChangelog` is additive
+ * and never deletes, so stale rows persist otherwise. Safe to re-run.
+ */
+export const pruneOrphanVersions = internalMutation({
+	args: {},
+	returns: v.number(),
+	handler: async (ctx) => {
+		const sourceVersions = new Set(CHANGELOG_ENTRIES.map((e) => e.version));
+		const existing = await ctx.db.query("appVersions").collect();
+		let deleted = 0;
+		for (const row of existing) {
+			if (!sourceVersions.has(row.version)) {
+				await ctx.db.delete(row._id);
+				deleted++;
+			}
 		}
-		return inserted;
+		return deleted;
 	},
 });
 
