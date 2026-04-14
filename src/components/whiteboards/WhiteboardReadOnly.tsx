@@ -1,12 +1,13 @@
 "use client";
 
-import { Excalidraw, restoreElements } from "@excalidraw/excalidraw";
-import type {
-	AppState,
-	ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
+import { Excalidraw } from "@excalidraw/excalidraw";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
+import {
+	type ParsedWhiteboardScene,
+	parseStoredWhiteboardScene,
+} from "@/lib/whiteboard-scene";
 import "@excalidraw/excalidraw/index.css";
 import "@/styles/excalidraw.css";
 
@@ -15,11 +16,6 @@ if (typeof window !== "undefined") {
 	// biome-ignore lint/suspicious/noExplicitAny: Excalidraw reads this global at runtime
 	(window as any).EXCALIDRAW_ASSET_PATH = "/excalidraw-assets/";
 }
-
-const RESTORE_SCENE_OPTIONS = {
-	repairBindings: true,
-	refreshDimensions: true,
-} as const;
 
 interface WhiteboardReadOnlyProps {
 	sceneData?: string;
@@ -49,25 +45,17 @@ export function WhiteboardReadOnly({
 		);
 	}
 
-	// Parse scene data
-	let initialElements: ReturnType<typeof restoreElements> = [];
-	let initialAppState: Partial<AppState> = {};
+	let initialElements: ParsedWhiteboardScene["elements"] = [];
+	let initialFiles: ParsedWhiteboardScene["files"];
+	let initialAppState: ParsedWhiteboardScene["appState"] = {};
 
 	try {
-		if (sceneData) {
-			const raw = JSON.parse(sceneData);
-			initialElements = restoreElements(raw, null, RESTORE_SCENE_OPTIONS);
-		}
+		const parsed = parseStoredWhiteboardScene(sceneData, appState);
+		initialElements = parsed.elements;
+		initialFiles = parsed.files;
+		initialAppState = parsed.appState;
 	} catch {
 		// Invalid JSON -- show empty canvas
-	}
-
-	try {
-		if (appState) {
-			initialAppState = JSON.parse(appState) as Partial<AppState>;
-		}
-	} catch {
-		// Invalid JSON -- use defaults
 	}
 
 	return (
@@ -75,6 +63,7 @@ export function WhiteboardReadOnly({
 			<Excalidraw
 				initialData={{
 					elements: initialElements,
+					...(initialFiles ? { files: initialFiles } : {}),
 					appState: {
 						...initialAppState,
 						theme: resolvedTheme === "dark" ? "dark" : "light",

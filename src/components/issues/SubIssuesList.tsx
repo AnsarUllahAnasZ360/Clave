@@ -19,23 +19,18 @@ import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery } from "convex/react";
 import {
 	ChevronRight,
-	Circle,
 	CircleCheck,
 	CircleDashed,
 	CircleDot,
-	CircleX,
-	Eye,
 	GripVertical,
 	Minus,
 	Plus,
-	Timer,
-	TriangleAlert,
 	User,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-
+import { MultiAssigneePicker } from "@/components/issues/MultiAssigneePicker";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { useWorkspaceMembers } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -48,22 +43,14 @@ import {
 } from "@/components/ui/collapsible";
 import { GenericPicker } from "@/components/ui/pickers";
 import { Progress } from "@/components/ui/progress";
-import { PRIORITY_ITEMS, STATUS_ITEMS } from "@/lib/issue-config";
+import {
+	type EffectivePickerItem,
+	useEffectiveIssueConfig,
+} from "@/hooks/use-effective-issue-config";
+import { PRIORITY_ITEMS } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-
-// ── Status icon mapping ─────────────────────────────────────────────────
-
-const STATUS_ICONS: Record<string, { icon: typeof Circle; color: string }> = {
-	triage: { icon: TriangleAlert, color: "text-orange-500" },
-	backlog: { icon: CircleDashed, color: "text-muted-foreground" },
-	todo: { icon: Circle, color: "text-muted-foreground" },
-	in_progress: { icon: Timer, color: "text-yellow-500" },
-	in_review: { icon: Eye, color: "text-blue-500" },
-	done: { icon: CircleCheck, color: "text-emerald-500" },
-	cancelled: { icon: CircleX, color: "text-muted-foreground" },
-};
 
 function isCompletedStatus(status: string): boolean {
 	return status === "done" || status === "cancelled";
@@ -76,6 +63,7 @@ function SortableSubIssueRow({
 	workspaceSlug,
 	member,
 	onToggle,
+	statusItems,
 }: {
 	subIssue: {
 		_id: Id<"issues">;
@@ -87,6 +75,7 @@ function SortableSubIssueRow({
 	workspaceSlug: string;
 	member?: { name: string; image?: string };
 	onToggle: (issueId: Id<"issues">, currentStatus: string) => void;
+	statusItems: EffectivePickerItem[];
 }) {
 	const {
 		attributes,
@@ -102,9 +91,9 @@ function SortableSubIssueRow({
 		transition,
 	};
 
-	const statusConfig = STATUS_ICONS[subIssue.status];
+	const statusConfig = statusItems.find((s) => s.id === subIssue.status);
 	const StatusIcon = statusConfig?.icon ?? CircleDot;
-	const statusColor = statusConfig?.color ?? "text-muted-foreground";
+	const statusColorHex = statusConfig?.colorHex ?? "#6b7280";
 	const isDone = isCompletedStatus(subIssue.status);
 
 	return (
@@ -131,7 +120,10 @@ function SortableSubIssueRow({
 				className="shrink-0"
 			/>
 
-			<StatusIcon className={cn("h-4 w-4 shrink-0", statusColor)} />
+			<StatusIcon
+				className="h-4 w-4 shrink-0"
+				style={{ color: statusColorHex }}
+			/>
 
 			<span className="text-xs text-muted-foreground font-mono shrink-0">
 				{subIssue.identifier}
@@ -168,6 +160,7 @@ function InlineCreateInput({
 	forceOpen,
 	onForceOpenConsumed,
 	onCreated,
+	statusItems,
 }: {
 	parentId: Id<"issues">;
 	members?: Array<{
@@ -182,12 +175,13 @@ function InlineCreateInput({
 	forceOpen?: boolean;
 	onForceOpenConsumed?: () => void;
 	onCreated?: () => void;
+	statusItems: EffectivePickerItem[];
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [title, setTitle] = useState("");
 	const [status, setStatus] = useState("backlog");
 	const [priority, setPriority] = useState("no_priority");
-	const [assigneeId, setAssigneeId] = useState<string | null>(null);
+	const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
 	const [isCreating, setIsCreating] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const createSubIssue = useMutation(api.issues.createSubIssue);
@@ -204,7 +198,7 @@ function InlineCreateInput({
 		setTitle("");
 		setStatus("backlog");
 		setPriority("no_priority");
-		setAssigneeId(null);
+		setAssigneeIds([]);
 	}, []);
 
 	const handleCreate = useCallback(async () => {
@@ -216,21 +210,16 @@ function InlineCreateInput({
 			await createSubIssue({
 				parentId,
 				title: trimmed,
-				status: status as
-					| "backlog"
-					| "todo"
-					| "in_progress"
-					| "in_review"
-					| "done"
-					| "cancelled"
-					| "triage",
+				status,
 				priority: priority as
 					| "no_priority"
 					| "low"
 					| "medium"
 					| "high"
 					| "urgent",
-				...(assigneeId ? { assigneeId: assigneeId as Id<"users"> } : {}),
+				...(assigneeIds.length > 0
+					? { assigneeIds: assigneeIds.map((id) => id as Id<"users">) }
+					: {}),
 			});
 			resetForm();
 			onCreated?.();
@@ -247,7 +236,7 @@ function InlineCreateInput({
 		parentId,
 		status,
 		priority,
-		assigneeId,
+		assigneeIds,
 		onCreated,
 		resetForm,
 	]);
@@ -257,7 +246,7 @@ function InlineCreateInput({
 		resetForm();
 	}, [resetForm]);
 
-	const currentStatus = STATUS_ITEMS.find((s) => s.id === status);
+	const currentStatus = statusItems.find((s) => s.id === status);
 	const CurrentStatusIcon = currentStatus?.icon ?? CircleDashed;
 	const currentPriority = PRIORITY_ITEMS.find((p) => p.id === priority);
 	const CurrentPriorityIcon = currentPriority?.icon ?? Minus;
@@ -266,11 +255,9 @@ function InlineCreateInput({
 		.filter((m) => m.user)
 		.map((m) => ({
 			id: m.userId,
-			label: m.user?.name ?? m.user?.email ?? "Unknown",
+			name: m.user?.name ?? m.user?.email ?? "Unknown",
 			image: m.user?.avatarUrl ?? m.user?.image ?? undefined,
 		}));
-
-	const selectedMember = memberItems.find((m) => m.id === assigneeId);
 
 	if (!isOpen) {
 		return (
@@ -300,14 +287,14 @@ function InlineCreateInput({
 							title="Status"
 						>
 							<CurrentStatusIcon
-								className={cn(
-									"h-4 w-4",
-									currentStatus?.color ?? "text-muted-foreground",
-								)}
+								className="h-4 w-4"
+								style={{
+									color: currentStatus?.colorHex ?? "#6b7280",
+								}}
 							/>
 						</button>
 					}
-					items={STATUS_ITEMS}
+					items={statusItems}
 					selectedId={status}
 					onSelect={(item) => setStatus(item.id)}
 					placeholder="Set status..."
@@ -315,7 +302,7 @@ function InlineCreateInput({
 						const Icon = item.icon;
 						return (
 							<div className="flex items-center gap-2 w-full">
-								<Icon className={cn("h-4 w-4", item.color)} />
+								<Icon className="h-4 w-4" style={{ color: item.colorHex }} />
 								<span className="flex-1">{item.label}</span>
 								{isSelected && (
 									<CircleCheck className="h-3.5 w-3.5 text-primary" />
@@ -373,63 +360,13 @@ function InlineCreateInput({
 					}}
 				/>
 
-				{/* Assignee picker */}
-				<GenericPicker
-					trigger={
-						<button
-							type="button"
-							className="p-1 rounded hover:bg-muted/80 transition-colors shrink-0"
-							title="Assignee"
-						>
-							{selectedMember ? (
-								<Avatar className="size-5">
-									{selectedMember.image && (
-										<AvatarImage
-											src={selectedMember.image}
-											alt={selectedMember.label}
-										/>
-									)}
-									<AvatarFallback className="text-[10px]">
-										{selectedMember.label.charAt(0).toUpperCase()}
-									</AvatarFallback>
-								</Avatar>
-							) : (
-								<User className="h-3.5 w-3.5 text-muted-foreground" />
-							)}
-						</button>
-					}
-					items={[
-						{ id: "__unassigned__", label: "Unassigned" },
-						...memberItems,
-					]}
-					selectedId={assigneeId ?? "__unassigned__"}
-					onSelect={(item) =>
-						setAssigneeId(item.id === "__unassigned__" ? null : item.id)
-					}
-					placeholder="Assign to..."
-					renderItem={(item, isSelected) => (
-						<div className="flex items-center gap-2 w-full">
-							{item.id === "__unassigned__" ? (
-								<User className="h-4 w-4 text-muted-foreground" />
-							) : (
-								<Avatar className="size-5">
-									{"image" in item && (item as { image?: string }).image && (
-										<AvatarImage
-											src={(item as { image?: string }).image}
-											alt={item.label ?? ""}
-										/>
-									)}
-									<AvatarFallback className="text-[10px]">
-										{(item.label ?? "?").charAt(0).toUpperCase()}
-									</AvatarFallback>
-								</Avatar>
-							)}
-							<span className="flex-1">{item.label}</span>
-							{isSelected && (
-								<CircleCheck className="h-3.5 w-3.5 text-primary" />
-							)}
-						</div>
-					)}
+				{/* Assignee picker (multi) */}
+				<MultiAssigneePicker
+					members={memberItems}
+					selectedIds={assigneeIds}
+					onChange={setAssigneeIds}
+					variant="compact"
+					className="h-7 px-1.5"
 				/>
 			</div>
 
@@ -459,13 +396,22 @@ function InlineCreateInput({
 // ── Main component ──────────────────────────────────────────────────────
 
 export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
-	const { workspaceSlug } = useWorkspace();
+	const { workspaceId, workspaceSlug } = useWorkspace();
 	const [isCollapsibleOpen, setIsCollapsibleOpen] = useState<
 		boolean | undefined
 	>(undefined);
 	const [forceInlineOpen, setForceInlineOpen] = useState(false);
 
 	const data = useQuery(api.issues.getSubIssues, { parentId });
+	const parentIssue = useQuery(api.issues.getById, { issueId: parentId });
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		parentIssue?.projectId ? { projectId: parentIssue.projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
 	const members = useWorkspaceMembers();
 	const updateStatus = useMutation(api.issues.updateStatus);
 	const reorder = useMutation(api.issues.reorder);
@@ -616,6 +562,7 @@ export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
 													: undefined
 											}
 											onToggle={handleToggle}
+											statusItems={effective.statusItems}
 										/>
 									))}
 								</div>
@@ -632,6 +579,7 @@ export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
 						members={members}
 						forceOpen={forceInlineOpen}
 						onForceOpenConsumed={() => setForceInlineOpen(false)}
+						statusItems={effective.statusItems}
 					/>
 				</CollapsibleContent>
 			</div>

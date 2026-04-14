@@ -12,6 +12,13 @@ import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { internalQuery } from "../_generated/server";
 import { canAccessProject, getAccessibleProjectIds } from "../lib/auth";
+import {
+	BOARD_EXPORT_CHUNK_CHARS,
+	chunkString,
+	extractBoardTextItems,
+	getSceneElementsArray,
+	itemsToMarkdown,
+} from "./whiteboardSceneExport";
 
 // ── Shared helpers ──────────────────────────────────────────────────────
 
@@ -1243,25 +1250,61 @@ export const getWhiteboardDetails = internalQuery({
 	},
 });
 
+/** Full text export for sprint planning / PM agents (chunked markdown). */
+export const exportWhiteboardPlanningChunk = internalQuery({
+	args: {
+		whiteboardId: v.id("whiteboards"),
+		chunkIndex: v.number(),
+	},
+	handler: async (ctx, args) => {
+		const board = await ctx.db.get(args.whiteboardId);
+		if (!board || board.deletedAt) return null;
+
+		const project = board.projectId ? await ctx.db.get(board.projectId) : null;
+		const elements = getSceneElementsArray(board.sceneData);
+		const items = extractBoardTextItems(elements);
+		const md = itemsToMarkdown(items);
+		const chunks =
+			md.length === 0 ? [""] : chunkString(md, BOARD_EXPORT_CHUNK_CHARS);
+		const totalChunks = Math.max(1, chunks.length);
+		const safeIndex = Math.min(Math.max(0, args.chunkIndex), totalChunks - 1);
+		const chunk = chunks[safeIndex] ?? "";
+
+		return {
+			whiteboardId: board._id,
+			title: board.title,
+			projectId: board.projectId ?? null,
+			projectName: project?.name ?? null,
+			elementCount: elements.filter(
+				(el) =>
+					el &&
+					typeof el === "object" &&
+					!(el as { isDeleted?: boolean }).isDeleted,
+			).length,
+			totalTextItems: items.length,
+			totalChunks,
+			chunkIndex: safeIndex,
+			markdown: chunk,
+		};
+	},
+});
+
 /** Count non-deleted elements in Excalidraw scene JSON. */
 function countSceneElements(sceneData?: string | null): number {
-	if (!sceneData) return 0;
-	try {
-		const parsed = JSON.parse(sceneData);
-		if (!Array.isArray(parsed)) return 0;
-		return parsed.filter((el: { isDeleted?: boolean }) => el && !el.isDeleted)
-			.length;
-	} catch {
-		return 0;
-	}
+	const els = getSceneElementsArray(sceneData ?? undefined);
+	return els.filter(
+		(el) =>
+			el &&
+			typeof el === "object" &&
+			!(el as { isDeleted?: boolean }).isDeleted,
+	).length;
 }
 
 /** Produce a short summary of board elements for AI tools. */
 function summarizeSceneForTool(sceneData?: string | null): string | null {
 	if (!sceneData) return null;
 	try {
-		const parsed = JSON.parse(sceneData);
-		if (!Array.isArray(parsed)) return null;
+		const rawElements = getSceneElementsArray(sceneData);
 		type El = {
 			type: string;
 			text?: string;
@@ -1270,7 +1313,7 @@ function summarizeSceneForTool(sceneData?: string | null): string | null {
 			boundElements?: Array<{ id: string; type: string }>;
 			label?: { text?: string };
 		};
-		const elements = (parsed as El[]).filter((el) => el && !el.isDeleted);
+		const elements = (rawElements as El[]).filter((el) => el && !el.isDeleted);
 		if (elements.length === 0) return "Empty canvas";
 
 		const typeCounts: Record<string, number> = {};

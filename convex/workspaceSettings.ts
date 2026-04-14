@@ -158,6 +158,38 @@ export const updateStatuses = mutation({
 	},
 });
 
+/**
+ * Persist the display order for the merged status list. Saves the user's
+ * drag-to-reorder result as a flat key array; the effective hook then sorts
+ * the merged statuses (defaults + customs) by this ordering.
+ *
+ * Why a separate field instead of reordering `customStatuses`:
+ * - Default statuses aren't in `customStatuses`, so reordering an array of
+ *   only customs can't move defaults around relative to them.
+ * - A flat key list avoids touching existing custom items (preserving their
+ *   colors/names if they happen to drift).
+ */
+export const reorderStatuses = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		orderedKeys: v.array(v.string()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		await requireWorkspaceMember(ctx, args.workspaceId);
+		const settings = await ctx.db
+			.query("workspaceSettings")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+			.unique();
+		if (!settings) throw new Error("Workspace settings not found");
+
+		await ctx.db.patch(settings._id, {
+			customStatusOrder: args.orderedKeys,
+		});
+		return null;
+	},
+});
+
 /** Update custom priority names and colors (admin only) */
 export const updatePriorities = mutation({
 	args: {

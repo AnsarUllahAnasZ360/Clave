@@ -88,12 +88,14 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+	type EffectivePickerItem,
+	useEffectiveIssueConfig,
+} from "@/hooks/use-effective-issue-config";
+import {
 	type IssueTypeKey,
 	PRIORITY_ITEMS,
 	type PriorityKey,
-	STATUS_ITEMS,
 	type StatusKey,
-	TYPE_ITEMS,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
@@ -111,9 +113,7 @@ const SubIssuesList = dynamic(
 
 // ── Issue config (from centralized module) ────────────────────────────────
 
-const STATUS_CONFIG = STATUS_ITEMS;
 const PRIORITY_CONFIG = PRIORITY_ITEMS;
-const TYPE_CONFIG = TYPE_ITEMS;
 
 // ── Estimate options ──────────────────────────────────────────────────────
 
@@ -133,15 +133,22 @@ const _ESTIMATE_OPTIONS = [
 
 function StatusIcon({
 	statusId,
+	statusItems,
 	className,
 }: {
 	statusId: string;
+	statusItems: EffectivePickerItem[];
 	className?: string;
 }) {
-	const config = STATUS_CONFIG.find((s) => s.id === statusId);
+	const config = statusItems.find((s) => s.id === statusId);
 	if (!config) return null;
 	const Icon = config.icon;
-	return <Icon className={cn("h-4 w-4", config.color, className)} />;
+	return (
+		<Icon
+			className={cn("h-4 w-4", className)}
+			style={{ color: config.colorHex }}
+		/>
+	);
 }
 
 // ── Helper: Priority icon ────────────────────────────────────────────────
@@ -390,6 +397,16 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	const members = useWorkspaceMembers();
 	const projects = useWorkspaceProjects();
 	const labels = useWorkspaceLabels();
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		issue?.projectId ? { projectId: issue.projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
+	const STATUS_CONFIG = effective.statusItems;
+	const TYPE_CONFIG = effective.typeItems;
 	const sprints = useQuery(
 		api.sprints.listByProject,
 		issue?.projectId ? { projectId: issue.projectId } : "skip",
@@ -865,7 +882,7 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 					<div className="max-w-[680px] mx-auto px-6 py-8 space-y-8">
 						{/* Identifier badge */}
 						<div className="flex items-center gap-2.5">
-							<StatusIcon statusId={issue.status} />
+							<StatusIcon statusId={issue.status} statusItems={STATUS_CONFIG} />
 							<span className="text-[13px] font-mono text-muted-foreground">
 								{issue.identifier}
 							</span>
@@ -956,7 +973,10 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 										const Icon = item.icon;
 										return (
 											<div className="flex items-center gap-2 w-full">
-												<Icon className={cn("h-4 w-4", item.color)} />
+												<Icon
+													className="h-4 w-4"
+													style={{ color: item.colorHex }}
+												/>
 												<span className="flex-1">{item.label}</span>
 											</div>
 										);
@@ -966,7 +986,10 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 											type="button"
 											className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
 										>
-											<StatusIcon statusId={issue.status} />
+											<StatusIcon
+												statusId={issue.status}
+												statusItems={STATUS_CONFIG}
+											/>
 											<span>{currentStatus?.label ?? "No status"}</span>
 										</button>
 									}
@@ -1212,7 +1235,10 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 										const Icon = item.icon;
 										return (
 											<div className="flex items-center gap-2 w-full">
-												<Icon className={cn("h-4 w-4", item.color)} />
+												<Icon
+													className="h-4 w-4"
+													style={{ color: item.colorHex }}
+												/>
 												<span className="flex-1">{item.label}</span>
 											</div>
 										);
@@ -1224,7 +1250,8 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 										>
 											{currentType && (
 												<currentType.icon
-													className={cn("h-4 w-4", currentType.color)}
+													className="h-4 w-4"
+													style={{ color: currentType.colorHex }}
 												/>
 											)}
 											<span>{currentType?.label ?? "Issue"}</span>

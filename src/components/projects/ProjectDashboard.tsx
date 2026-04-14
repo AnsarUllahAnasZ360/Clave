@@ -5,11 +5,15 @@ import { format } from "date-fns";
 import { Circle, Send } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useWorkspace } from "@/components/providers/workspace-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { STATUS_BAR_COLORS, STATUS_RECORD } from "@/lib/issue-config";
+import {
+	type EffectivePickerItem,
+	useEffectiveIssueConfig,
+} from "@/hooks/use-effective-issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -23,8 +27,6 @@ type ProjectDashboardProps = {
 type HealthValue = "on_track" | "at_risk" | "off_track";
 
 // ── Status config (from centralized module) ──────────────────────────────
-
-const STATUS_CONFIG = STATUS_RECORD;
 
 const HEALTH_CONFIG: Record<
 	HealthValue,
@@ -53,8 +55,11 @@ const HEALTH_CONFIG: Record<
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function ProjectDashboard({ projectId }: ProjectDashboardProps) {
+	const { workspaceId } = useWorkspace();
 	const dashboardData = useQuery(api.analytics.projectDashboard, { projectId });
 	const updates = useQuery(api.projectUpdates.listByProject, { projectId });
+	const project = useQuery(api.projects.getById, { projectId });
+	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
 
 	if (dashboardData === undefined) {
 		return <DashboardSkeleton />;
@@ -112,6 +117,7 @@ export function ProjectDashboard({ projectId }: ProjectDashboardProps) {
 				<StatusBreakdown
 					breakdown={dashboardData.statusBreakdown}
 					total={dashboardData.total}
+					statusItems={effective.statusItems}
 				/>
 			</div>
 
@@ -224,23 +230,18 @@ function CompletionDonut({
 function StatusBreakdown({
 	breakdown,
 	total,
+	statusItems,
 }: {
 	breakdown: { status: string; count: number; percent: number }[];
 	total: number;
+	statusItems: EffectivePickerItem[];
 }) {
-	// Sort statuses in a logical order
-	const statusOrder = [
-		"triage",
-		"backlog",
-		"todo",
-		"in_progress",
-		"in_review",
-		"done",
-		"cancelled",
-	];
-	const sorted = [...breakdown].sort(
-		(a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status),
-	);
+	const statusOrder = statusItems.map((s) => s.id);
+	const sorted = [...breakdown].sort((a, b) => {
+		const ai = statusOrder.indexOf(a.status);
+		const bi = statusOrder.indexOf(b.status);
+		return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+	});
 
 	if (total === 0) {
 		return (
@@ -257,22 +258,25 @@ function StatusBreakdown({
 			</h3>
 			<div className="space-y-2">
 				{sorted.map((item) => {
-					const config = STATUS_CONFIG[item.status];
+					const config = statusItems.find((s) => s.id === item.status);
 					const Icon = config?.icon ?? Circle;
-					const barColor = STATUS_BAR_COLORS[item.status] ?? "bg-muted";
+					const colorHex = config?.colorHex ?? "#6b7280";
 
 					return (
 						<div key={item.status} className="flex items-center gap-3">
 							<div className="flex items-center gap-2 w-28 shrink-0">
-								<Icon className={cn("h-3.5 w-3.5", config?.color)} />
+								<Icon className="h-3.5 w-3.5" style={{ color: colorHex }} />
 								<span className="text-xs text-foreground truncate">
 									{config?.label ?? item.status}
 								</span>
 							</div>
 							<div className="flex-1 h-2 rounded-full bg-muted/40 overflow-hidden">
 								<div
-									className={cn("h-full rounded-full transition-all", barColor)}
-									style={{ width: `${item.percent}%` }}
+									className="h-full rounded-full transition-all"
+									style={{
+										width: `${item.percent}%`,
+										backgroundColor: colorHex,
+									}}
 								/>
 							</div>
 							<span className="text-xs text-muted-foreground tabular-nums w-8 text-right">

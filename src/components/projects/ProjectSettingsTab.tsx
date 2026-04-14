@@ -1,8 +1,25 @@
 "use client";
 
+import {
+	closestCenter,
+	DndContext,
+	type DragEndEvent,
+	KeyboardSensor,
+	PointerSensor,
+	useSensor,
+	useSensors,
+} from "@dnd-kit/core";
+import {
+	arrayMove,
+	SortableContext,
+	sortableKeyboardCoordinates,
+	useSortable,
+	verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useMutation } from "convex/react";
-import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { GripVertical, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
 	AlertDialog,
@@ -24,7 +41,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { applyOrder } from "@/hooks/use-workspace-settings";
 import { DEFAULT_ISSUE_TYPES, DEFAULT_STATUSES } from "@/lib/issue-config";
+import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -36,7 +55,10 @@ type ProjectData = {
 	_id: Id<"projects">;
 	customStatuses?: CustomItem[];
 	customTypes?: CustomItem[];
+	customStatusOrder?: string[];
 };
+
+type ListItem = CustomItem & { isDefault: boolean };
 
 // ── Editable list section ────────────────────────────────────────────────
 // ── Main component ──────────────────────────────────────────────────────
@@ -54,6 +76,7 @@ export function ProjectSettingsTab({
 	const createStatus = useMutation(api.projects.createCustomIssueStatus);
 	const updateStatus = useMutation(api.projects.updateCustomIssueStatus);
 	const deleteStatus = useMutation(api.projects.deleteCustomIssueStatus);
+	const reorderStatuses = useMutation(api.projects.reorderCustomIssueStatuses);
 
 	const defaultTypes = DEFAULT_ISSUE_TYPES.map((t) => ({
 		key: t.key,
@@ -84,7 +107,13 @@ export function ProjectSettingsTab({
 	};
 
 	const types = mergeDefaults(defaultTypes, project.customTypes);
-	const statuses = mergeDefaults(defaultStatuses, project.customStatuses);
+	const statusesUnordered = mergeDefaults(
+		defaultStatuses,
+		project.customStatuses,
+	);
+	// Apply persisted display order so the reorderable list reflects the same
+	// sequence the rest of the app sees (kanban columns, list groups, etc).
+	const statuses = applyOrder(statusesUnordered, project.customStatusOrder);
 
 	const [addingSection, setAddingSection] = useState<
 		"types" | "statuses" | null
@@ -176,6 +205,79 @@ export function ProjectSettingsTab({
 		}
 	};
 
+	const renderRow = (
+		section: "types" | "statuses",
+		item: ListItem,
+		dnd?: {
+			setNodeRef: (el: HTMLElement | null) => void;
+			style: React.CSSProperties;
+			attributes: Record<string, unknown>;
+			listeners: Record<string, unknown> | undefined;
+			isDragging: boolean;
+		},
+	) => (
+		<div
+			ref={dnd?.setNodeRef}
+			style={dnd?.style}
+			className={cn(
+				"flex items-center gap-2 px-3 py-2 rounded-md border border-border/40 bg-card/50",
+				dnd?.isDragging && "opacity-60 ring-1 ring-primary/40",
+			)}
+		>
+			{dnd && (
+				<button
+					type="button"
+					aria-label="Reorder"
+					className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+					{...dnd.attributes}
+					{...dnd.listeners}
+				>
+					<GripVertical className="h-3.5 w-3.5" />
+				</button>
+			)}
+			<ColorPicker
+				color={item.color}
+				onColorChange={(c) => void handleColor(section, item.key, c)}
+			/>
+
+			{editingKey === `${section}-${item.key}` ? (
+				<Input
+					value={editName}
+					onChange={(e) => setEditName(e.target.value)}
+					className="h-7 text-xs flex-1"
+					onBlur={() => handleSave(section, item.key)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") handleSave(section, item.key);
+						if (e.key === "Escape") setEditingKey(null);
+					}}
+				/>
+			) : (
+				<button
+					type="button"
+					className="text-sm flex-1 text-left hover:underline"
+					onClick={() => {
+						setEditingKey(`${section}-${item.key}`);
+						setEditName(item.name);
+					}}
+				>
+					{item.name}
+				</button>
+			)}
+
+			{item.isDefault ? (
+				<span className="text-[10px] text-muted-foreground/50">default</span>
+			) : (
+				<button
+					type="button"
+					onClick={() => handleRequestDelete(section, item.key)}
+					className="text-muted-foreground/50 hover:text-destructive transition-colors"
+				>
+					<Trash2 className="h-3.5 w-3.5" />
+				</button>
+			)}
+		</div>
+	);
+
 	const renderSection = (section: "types" | "statuses") => {
 		const items = section === "types" ? types : statuses;
 		return (
@@ -187,60 +289,29 @@ export function ProjectSettingsTab({
 					<p className="text-xs text-muted-foreground mt-0.5">
 						Default items can be renamed but not deleted. Custom items can be
 						deleted with replacement.
+						{section === "statuses" ? " Drag to reorder." : ""}
 					</p>
 				</div>
 
-				<div className="space-y-1">
-					{items.map((item) => (
-						<div
-							key={item.key}
-							className="flex items-center gap-2 px-3 py-2 rounded-md border border-border/40 bg-card/50"
-						>
-							<ColorPicker
-								color={item.color}
-								onColorChange={(c) => void handleColor(section, item.key, c)}
-							/>
-
-							{editingKey === `${section}-${item.key}` ? (
-								<Input
-									value={editName}
-									onChange={(e) => setEditName(e.target.value)}
-									className="h-7 text-xs flex-1"
-									onBlur={() => handleSave(section, item.key)}
-									onKeyDown={(e) => {
-										if (e.key === "Enter") handleSave(section, item.key);
-										if (e.key === "Escape") setEditingKey(null);
-									}}
-								/>
-							) : (
-								<button
-									type="button"
-									className="text-sm flex-1 text-left hover:underline"
-									onClick={() => {
-										setEditingKey(`${section}-${item.key}`);
-										setEditName(item.name);
-									}}
-								>
-									{item.name}
-								</button>
-							)}
-
-							{item.isDefault ? (
-								<span className="text-[10px] text-muted-foreground/50">
-									default
-								</span>
-							) : (
-								<button
-									type="button"
-									onClick={() => handleRequestDelete(section, item.key)}
-									className="text-muted-foreground/50 hover:text-destructive transition-colors"
-								>
-									<Trash2 className="h-3.5 w-3.5" />
-								</button>
-							)}
-						</div>
-					))}
-				</div>
+				{section === "statuses" ? (
+					<SortableProjectStatusList
+						items={items}
+						onReorder={async (orderedKeys) => {
+							try {
+								await reorderStatuses({ projectId, orderedKeys });
+							} catch {
+								toast.error("Failed to save status order");
+							}
+						}}
+						renderRow={(item, dnd) => renderRow("statuses", item, dnd)}
+					/>
+				) : (
+					<div className="space-y-1">
+						{items.map((item) => (
+							<div key={item.key}>{renderRow(section, item)}</div>
+						))}
+					</div>
+				)}
 
 				{addingSection === section ? (
 					<div className="flex items-center gap-2 px-3 py-2 rounded-md border border-dashed border-border/60">
@@ -340,5 +411,111 @@ export function ProjectSettingsTab({
 				</AlertDialogContent>
 			</AlertDialog>
 		</div>
+	);
+}
+
+// ── Sortable status list ──────────────────────────────────────────────────
+
+function SortableProjectStatusList({
+	items,
+	onReorder,
+	renderRow,
+}: {
+	items: ListItem[];
+	onReorder: (orderedKeys: string[]) => void | Promise<void>;
+	renderRow: (
+		item: ListItem,
+		dnd: {
+			setNodeRef: (el: HTMLElement | null) => void;
+			style: React.CSSProperties;
+			attributes: Record<string, unknown>;
+			listeners: Record<string, unknown> | undefined;
+			isDragging: boolean;
+		},
+	) => React.ReactNode;
+}) {
+	const [localItems, setLocalItems] = useState(items);
+	useEffect(() => setLocalItems(items), [items]);
+
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+		useSensor(KeyboardSensor, {
+			coordinateGetter: sortableKeyboardCoordinates,
+		}),
+	);
+
+	const handleDragEnd = (event: DragEndEvent) => {
+		const { active, over } = event;
+		if (!over || active.id === over.id) return;
+		const oldIndex = localItems.findIndex((i) => i.key === active.id);
+		const newIndex = localItems.findIndex((i) => i.key === over.id);
+		if (oldIndex < 0 || newIndex < 0) return;
+		const next = arrayMove(localItems, oldIndex, newIndex);
+		setLocalItems(next);
+		void onReorder(next.map((i) => i.key));
+	};
+
+	return (
+		<DndContext
+			sensors={sensors}
+			collisionDetection={closestCenter}
+			onDragEnd={handleDragEnd}
+		>
+			<SortableContext
+				items={localItems.map((i) => i.key)}
+				strategy={verticalListSortingStrategy}
+			>
+				<div className="space-y-1">
+					{localItems.map((item) => (
+						<SortableProjectStatusRow
+							key={item.key}
+							item={item}
+							renderRow={renderRow}
+						/>
+					))}
+				</div>
+			</SortableContext>
+		</DndContext>
+	);
+}
+
+function SortableProjectStatusRow({
+	item,
+	renderRow,
+}: {
+	item: ListItem;
+	renderRow: (
+		item: ListItem,
+		dnd: {
+			setNodeRef: (el: HTMLElement | null) => void;
+			style: React.CSSProperties;
+			attributes: Record<string, unknown>;
+			listeners: Record<string, unknown> | undefined;
+			isDragging: boolean;
+		},
+	) => React.ReactNode;
+}) {
+	const {
+		attributes,
+		listeners,
+		setNodeRef,
+		transform,
+		transition,
+		isDragging,
+	} = useSortable({ id: item.key });
+	const style: React.CSSProperties = {
+		transform: CSS.Transform.toString(transform),
+		transition,
+	};
+	return (
+		<>
+			{renderRow(item, {
+				setNodeRef,
+				style,
+				attributes: attributes as unknown as Record<string, unknown>,
+				listeners: listeners as unknown as Record<string, unknown> | undefined,
+				isDragging,
+			})}
+		</>
 	);
 }

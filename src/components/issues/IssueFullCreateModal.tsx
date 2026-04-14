@@ -53,6 +53,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useAutoTriage } from "@/hooks/use-auto-triage";
 import { useDuplicateDetection } from "@/hooks/use-duplicate-detection";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import {
 	extractTextFromContent,
 	parseAnyContentToSlate,
@@ -62,9 +63,7 @@ import {
 	type IssueTypeKey,
 	PRIORITY_ITEMS,
 	type PriorityKey,
-	STATUS_ITEMS,
 	type StatusKey,
-	TYPE_ITEMS,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
@@ -73,9 +72,7 @@ import { useIssueCreate } from "./IssueCreateContext";
 
 // ── Issue config (from centralized module) ────────────────────────────────
 
-const STATUS_OPTIONS = STATUS_ITEMS;
 const PRIORITY_OPTIONS = PRIORITY_ITEMS;
-const TYPE_OPTIONS = TYPE_ITEMS;
 
 const ESTIMATE_OPTIONS = [
 	{ id: "0", label: "No estimate" },
@@ -118,11 +115,32 @@ function IssueFullCreateModalContent({
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { formState, updateForm, switchMode, resetFormKeepProperties, preset } =
 		useIssueCreate();
+
+	// Local text state so every keystroke doesn't re-render every consumer of
+	// the shared form context. Title goes through useState; description is
+	// kept in a ref because Plate.js maintains its own internal editor state
+	// and calling setState on every change would defeat the optimization.
+	const [localTitle, setLocalTitle] = useState(formState.title);
+	const latestDescriptionRef = useRef<string>(formState.description);
 	const createIssue = useMutation(api.issues.create);
 	const rawProjects = useWorkspaceProjects();
 	const workspaceMembers = useWorkspaceMembers();
 	const allLabels = useWorkspaceLabels();
 	const settings = useQuery(api.workspaceSettings.get, { workspaceId });
+
+	// Effective statuses for currently selected project.
+	const projectForStatuses = useQuery(
+		api.projects.getById,
+		formState.projectId
+			? { projectId: formState.projectId as Id<"projects"> }
+			: "skip",
+	);
+	const effective = useEffectiveIssueConfig(
+		workspaceId,
+		projectForStatuses ?? undefined,
+	);
+	const STATUS_OPTIONS = effective.statusItems;
+	const TYPE_OPTIONS = effective.typeItems;
 
 	// Sprint query based on selected project
 	const activeSprints = useQuery(
@@ -145,10 +163,10 @@ function IssueFullCreateModalContent({
 		loading: triageLoading,
 		dismissed: triageDismissed,
 		dismiss: dismissTriage,
-	} = useAutoTriage(formState.title, workspaceId);
+	} = useAutoTriage(localTitle, workspaceId);
 
 	const { duplicates, loading: duplicatesLoading } = useDuplicateDetection(
-		formState.title,
+		localTitle,
 		workspaceId,
 	);
 
@@ -223,21 +241,29 @@ function IssueFullCreateModalContent({
 		}));
 	}, [projectLists]);
 
+	// Compute the seed value ONCE per open / re-mount cycle. Re-parsing on
+	// every keystroke (previous behaviour) was pointless — Plate.js owns the
+	// live state — and it allocated a new value object each time, which
+	// cascaded more re-renders. The descriptionEditorKey force-remount path
+	// (AI drafter) handles cases where we need the editor to pick up an
+	// externally-updated value.
 	const initialDescriptionValue = useMemo(
-		() => parseAnyContentToSlate(formState.description) as Value | undefined,
-		[formState.description],
+		() =>
+			parseAnyContentToSlate(latestDescriptionRef.current) as Value | undefined,
+		// Intentional: only recompute when the editor is force-remounted.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[descriptionEditorKey],
 	);
 	const aiPlugins = useMemo(() => [AIEditorPlugin], []);
 
 	const hasExistingDescription =
-		extractTextFromContent(formState.description).trim().length > 0;
+		extractTextFromContent(latestDescriptionRef.current).trim().length > 0;
 
-	const handleDescriptionChange = useCallback(
-		(value: Value) => {
-			updateForm({ description: JSON.stringify(value) });
-		},
-		[updateForm],
-	);
+	const handleDescriptionChange = useCallback((value: Value) => {
+		// Stash the latest serialized value in a ref — no setState, no
+		// re-render. The submit handler reads it on click.
+		latestDescriptionRef.current = JSON.stringify(value);
+	}, []);
 
 	// Focus title on open
 	useEffect(() => {
@@ -250,7 +276,7 @@ function IssueFullCreateModalContent({
 
 	const handleSubmit = useCallback(async () => {
 		if (submittingRef.current) return;
-		const trimmed = formState.title.trim();
+		const trimmed = localTitle.trim();
 		if (!trimmed) {
 			toast.error("Title is required");
 			titleRef.current?.focus();
@@ -260,13 +286,12 @@ function IssueFullCreateModalContent({
 		submittingRef.current = true;
 		try {
 			const estimateVal = Number.parseFloat(formState.estimate);
-			const descriptionText = extractTextFromContent(
-				formState.description,
-			).trim();
+			const currentDescription = latestDescriptionRef.current;
+			const descriptionText = extractTextFromContent(currentDescription).trim();
 			const result = await createIssue({
 				workspaceId,
 				title: trimmed,
-				description: descriptionText ? formState.description : undefined,
+				description: descriptionText ? currentDescription : undefined,
 				status: formState.status as
 					| "triage"
 					| "backlog"
@@ -314,6 +339,8 @@ function IssueFullCreateModalContent({
 
 			if (formState.createMore) {
 				toast.success(`${result.identifier} created`);
+				setLocalTitle("");
+				latestDescriptionRef.current = "";
 				resetFormKeepProperties();
 				setDescriptionEditorKey((k) => k + 1);
 				titleRef.current?.focus();
@@ -329,6 +356,7 @@ function IssueFullCreateModalContent({
 		}
 	}, [
 		formState,
+		localTitle,
 		workspaceId,
 		createIssue,
 		onIssueCreated,
@@ -400,7 +428,15 @@ function IssueFullCreateModalContent({
 							type="button"
 							variant="ghost"
 							size="icon"
-							onClick={() => switchMode("quick")}
+							onClick={() => {
+								// Flush local text (title + latest Plate value) into the
+								// shared context so the quick modal picks it up.
+								updateForm({
+									title: localTitle,
+									description: latestDescriptionRef.current,
+								});
+								switchMode("quick");
+							}}
 							className="h-7 w-7 rounded-full"
 							title="Collapse to compact view"
 						>
@@ -437,14 +473,15 @@ function IssueFullCreateModalContent({
 								}}
 							>
 								<currentStatus.icon
-									className={cn("h-5 w-5", currentStatus.color)}
+									className="h-5 w-5"
+									style={{ color: currentStatus.colorHex }}
 								/>
 							</button>
 							<input
 								ref={titleRef}
 								type="text"
-								value={formState.title}
-								onChange={(e) => updateForm({ title: e.target.value })}
+								value={localTitle}
+								onChange={(e) => setLocalTitle(e.target.value)}
 								placeholder="Issue title"
 								className="flex-1 text-xl font-semibold text-foreground placeholder:text-muted-foreground outline-none bg-transparent border-none"
 								autoComplete="off"
@@ -478,7 +515,7 @@ function IssueFullCreateModalContent({
 									Description
 								</span>
 								<DraftDescriptionButton
-									title={formState.title}
+									title={localTitle}
 									workspaceId={workspaceId}
 									issueType={formState.issueType}
 									priority={formState.priority}
@@ -486,9 +523,12 @@ function IssueFullCreateModalContent({
 									plainText={preset.source === "document"}
 									onDraft={(text) => {
 										const slate = plainTextToSlate(text);
-										updateForm({
-											description: slate ? JSON.stringify(slate) : "",
-										});
+										// Write the drafted value to the ref and bump the
+										// editor key so Plate remounts and picks up the new
+										// initial value via `initialDescriptionValue`.
+										latestDescriptionRef.current = slate
+											? JSON.stringify(slate)
+											: "";
 										setDescriptionEditorKey((k) => k + 1);
 									}}
 								/>
@@ -517,12 +557,7 @@ function IssueFullCreateModalContent({
 						{/* Status */}
 						<PropertyRow label="Status" icon={CircleDashed}>
 							<GenericPicker
-								items={STATUS_OPTIONS.map((s) => ({
-									id: s.id,
-									label: s.label,
-									icon: s.icon,
-									color: s.color,
-								}))}
+								items={STATUS_OPTIONS}
 								onSelect={(item) =>
 									updateForm({ status: item.id as StatusKey })
 								}
@@ -532,7 +567,10 @@ function IssueFullCreateModalContent({
 									const Icon = item.icon;
 									return (
 										<div className="flex items-center gap-2 w-full">
-											<Icon className={cn("h-4 w-4", item.color)} />
+											<Icon
+												className="h-4 w-4"
+												style={{ color: item.colorHex }}
+											/>
 											<span className="flex-1">{item.label}</span>
 										</div>
 									);
@@ -543,7 +581,8 @@ function IssueFullCreateModalContent({
 										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
 									>
 										<currentStatus.icon
-											className={cn("h-4 w-4", currentStatus.color)}
+											className="h-4 w-4"
+											style={{ color: currentStatus.colorHex }}
 										/>
 										<span>{currentStatus.label}</span>
 									</button>
@@ -680,22 +719,33 @@ function IssueFullCreateModalContent({
 						{/* Type */}
 						<PropertyRow label="Type" icon={CircleDot}>
 							<GenericPicker
-								items={TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
+								items={TYPE_OPTIONS}
 								onSelect={(item) =>
 									updateForm({ issueType: item.id as IssueTypeKey })
 								}
 								selectedId={formState.issueType}
 								placeholder="Set type..."
-								renderItem={(item) => (
-									<div className="flex items-center gap-2 w-full">
-										<span className="flex-1">{item.label}</span>
-									</div>
-								)}
+								renderItem={(item) => {
+									const Icon = item.icon;
+									return (
+										<div className="flex items-center gap-2 w-full">
+											<Icon
+												className="h-4 w-4"
+												style={{ color: item.colorHex }}
+											/>
+											<span className="flex-1">{item.label}</span>
+										</div>
+									);
+								}}
 								trigger={
 									<button
 										type="button"
 										className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm"
 									>
+										<currentType.icon
+											className="h-4 w-4"
+											style={{ color: currentType.colorHex }}
+										/>
 										<span>{currentType.label}</span>
 									</button>
 								}

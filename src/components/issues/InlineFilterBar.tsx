@@ -1,7 +1,9 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import { ChevronDown, X } from "lucide-react";
 import { useCallback, useMemo } from "react";
+import { useWorkspace } from "@/components/providers/workspace-context";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,12 +12,11 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-	DEFAULT_PRIORITIES,
-	DEFAULT_STATUSES,
-	PRIORITY_LABELS,
-} from "@/lib/issue-config";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import { DEFAULT_PRIORITIES, PRIORITY_LABELS } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import type { IssueFilters } from "./MyIssuesFilterPopover";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -32,6 +33,8 @@ type InlineFilterBarProps = {
 	milestones?: { id: string; name: string }[];
 	/** Hide specific filter categories */
 	hide?: ("status" | "priority" | "assignee" | "label" | "sprint")[];
+	/** Project context — merges project custom statuses into the filter options. */
+	projectId?: Id<"projects">;
 };
 
 // ── Filter dropdown ────────────────────────────────────────────────────────
@@ -147,7 +150,14 @@ export function InlineFilterBar({
 	members = [],
 	milestones = [],
 	hide = [],
+	projectId,
 }: InlineFilterBarProps) {
+	const { workspaceId } = useWorkspace();
+	const project = useQuery(
+		api.projects.getById,
+		projectId ? { projectId } : "skip",
+	);
+	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
 	const toggleArrayItem = useCallback(
 		(
 			key:
@@ -176,12 +186,12 @@ export function InlineFilterBar({
 
 	const statusOptions = useMemo(
 		() =>
-			DEFAULT_STATUSES.map((s) => ({
-				id: s.key,
-				label: s.name,
-				icon: <s.icon className={cn("h-3.5 w-3.5", s.color)} />,
+			effective.statusItems.map((s) => ({
+				id: s.id,
+				label: s.label,
+				icon: <s.icon className="h-3.5 w-3.5" style={{ color: s.colorHex }} />,
 			})),
-		[],
+		[effective.statusItems],
 	);
 
 	const priorityOptions = useMemo(

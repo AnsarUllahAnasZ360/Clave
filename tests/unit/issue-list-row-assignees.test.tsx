@@ -26,6 +26,7 @@ describe("IssueListRow assignees (list view)", () => {
 			<IssueListRow
 				issue={makeIssue({ assigneeIds: undefined, assigneeId: undefined })}
 				columns={["assignee"]}
+				statusItems={[]}
 				memberOptions={[
 					{ id: "user_a", name: "Ada" },
 					{ id: "user_b", name: "Babbage" },
@@ -68,6 +69,7 @@ describe("IssueListRow assignees (list view)", () => {
 					],
 				})}
 				columns={["assignee"]}
+				statusItems={[]}
 				memberOptions={[{ id: "user_a", name: "Ada" }]}
 				labelOptions={[]}
 				projectOptions={[]}
@@ -108,6 +110,7 @@ describe("IssueListRow assignees (list view)", () => {
 					],
 				})}
 				columns={["assignee"]}
+				statusItems={[]}
 				memberOptions={[
 					{ id: "user_a", name: "Ada" },
 					{ id: "user_b", name: "Babbage" },

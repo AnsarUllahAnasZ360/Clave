@@ -52,14 +52,14 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDisplayOptions } from "@/hooks/use-display-options";
+import {
+	type EffectivePickerItem,
+	useEffectiveIssueConfig,
+} from "@/hooks/use-effective-issue-config";
 import { useShortcutsOptional } from "@/hooks/use-shortcuts";
 import type { DisplayPropertyId, GroupByOption } from "@/lib/display-options";
 import { type FocusGroup, groupByFocus } from "@/lib/focus-grouping";
-import {
-	DEFAULT_ISSUE_TYPES,
-	DEFAULT_PRIORITIES,
-	DEFAULT_STATUSES,
-} from "@/lib/issue-config";
+import { DEFAULT_ISSUE_TYPES, DEFAULT_PRIORITIES } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -87,16 +87,22 @@ const TAB_OPTIONS: { id: MyIssuesTab; label: string }[] = [
 
 // ── Status / Priority config (derived from centralized module) ───────────
 
-const STATUS_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
-	DEFAULT_STATUSES.map((s) => {
-		const Icon = s.icon;
-		return [s.key, <Icon key={s.key} className={`h-4 w-4 ${s.color}`} />];
-	}),
-);
+function buildStatusIcons(
+	items: EffectivePickerItem[],
+): Record<string, React.ReactNode> {
+	return Object.fromEntries(
+		items.map((s) => [
+			s.id,
+			<s.icon key={s.id} className="h-4 w-4" style={{ color: s.colorHex }} />,
+		]),
+	);
+}
 
-const STATUS_LABELS: Record<string, string> = Object.fromEntries(
-	DEFAULT_STATUSES.map((s) => [s.key, s.name]),
-);
+function buildStatusLabels(
+	items: EffectivePickerItem[],
+): Record<string, string> {
+	return Object.fromEntries(items.map((s) => [s.id, s.label]));
+}
 
 const PRIORITY_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
 	DEFAULT_PRIORITIES.map((p) => {
@@ -259,28 +265,25 @@ function formatDueDate(timestamp: number): string {
 
 // ── Grouping logic ─────────────────────────────────────────────────────────
 
-function groupIssuesByStatus(issues: IssueData[]): GroupedSection[] {
-	const statusOrder = [
-		"triage",
-		"backlog",
-		"todo",
-		"in_progress",
-		"in_review",
-		"done",
-		"cancelled",
-	];
+function groupIssuesByStatus(
+	issues: IssueData[],
+	statusItems: EffectivePickerItem[],
+	statusIcons: Record<string, React.ReactNode>,
+	statusLabels: Record<string, string>,
+): GroupedSection[] {
+	const statusOrder = statusItems.map((s) => s.id);
 	const groups = new Map<string, IssueData[]>();
 	for (const s of statusOrder) groups.set(s, []);
 	for (const issue of issues) {
-		const arr = groups.get(issue.status);
-		if (arr) arr.push(issue);
+		if (!groups.has(issue.status)) groups.set(issue.status, []);
+		groups.get(issue.status)?.push(issue);
 	}
 	return statusOrder
 		.filter((s) => (groups.get(s)?.length ?? 0) > 0)
 		.map((s) => ({
 			key: s,
-			label: STATUS_LABELS[s] ?? s,
-			icon: STATUS_ICONS[s],
+			label: statusLabels[s] ?? s,
+			icon: statusIcons[s],
 			issues: groups.get(s) ?? [],
 		}));
 }
@@ -403,6 +406,7 @@ function IssueRow({
 	displayProperties,
 	workspaceSlug,
 	bulkSelect,
+	statusIcons,
 }: {
 	issue: IssueData;
 	isHighlighted: boolean;
@@ -418,6 +422,7 @@ function IssueRow({
 		selected: boolean;
 		onToggle: (shiftKey: boolean) => void;
 	};
+	statusIcons: Record<string, React.ReactNode>;
 }) {
 	const assignee = issue.assigneeId
 		? memberMap.get(issue.assigneeId)
@@ -508,7 +513,7 @@ function IssueRow({
 			) : null}
 
 			{/* Status icon */}
-			<span className="shrink-0">{STATUS_ICONS[issue.status]}</span>
+			<span className="shrink-0">{statusIcons[issue.status]}</span>
 
 			{/* Identifier */}
 			<span className="shrink-0 font-mono text-xs text-muted-foreground w-[72px]">
@@ -752,6 +757,7 @@ function GroupedIssueList({
 	onDeleteIssue,
 	selectedIds,
 	onSelectIssue,
+	statusIcons,
 }: {
 	sections: GroupedSection[];
 	highlightedIndex: number;
@@ -766,6 +772,7 @@ function GroupedIssueList({
 	onDeleteIssue: (issue: IssueData) => void;
 	selectedIds: Set<string>;
 	onSelectIssue: (issueId: string, shiftKey: boolean) => void;
+	statusIcons: Record<string, React.ReactNode>;
 }) {
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -807,6 +814,7 @@ function GroupedIssueList({
 									displayProperties={displayProperties}
 									workspaceSlug={workspaceSlug}
 									onDelete={() => onDeleteIssue(issue)}
+									statusIcons={statusIcons}
 									bulkSelect={{
 										selected: selectedIds.has(issue._id as string),
 										onToggle: (shiftKey) =>
@@ -855,6 +863,9 @@ function _IssueTabContent({
 	sprintOptions,
 	workspaceSlug,
 	onSelectIssue,
+	statusItems,
+	statusIcons,
+	statusLabels,
 }: {
 	issues: IssueData[] | undefined;
 	groupBy: GroupByOption;
@@ -867,6 +878,9 @@ function _IssueTabContent({
 	sprintOptions: { id: string; name: string }[];
 	workspaceSlug: string;
 	onSelectIssue?: (issueId: Id<"issues">) => void;
+	statusItems: EffectivePickerItem[];
+	statusIcons: Record<string, React.ReactNode>;
+	statusLabels: Record<string, string>;
 }) {
 	const [highlightedIndex, setHighlightedIndex] = useState(-1);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -888,7 +902,12 @@ function _IssueTabContent({
 				}));
 			}
 			case "status":
-				return groupIssuesByStatus(issues);
+				return groupIssuesByStatus(
+					issues,
+					statusItems,
+					statusIcons,
+					statusLabels,
+				);
 			case "priority":
 				return groupIssuesByPriority(issues);
 			case "project":
@@ -1100,6 +1119,7 @@ function _IssueTabContent({
 				onDeleteIssue={handleDeleteIssue}
 				selectedIds={selectedIds}
 				onSelectIssue={handleSelectIssue}
+				statusIcons={statusIcons}
 			/>
 
 			<IssueBulkActionBar

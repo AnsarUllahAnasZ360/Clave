@@ -37,13 +37,13 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
-import { PRIORITY_ITEMS, STATUS_ITEMS } from "@/lib/issue-config";
+import type { EffectivePickerItem } from "@/hooks/use-effective-issue-config";
+import { PRIORITY_ITEMS } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Config (from centralized module) ──────────────────────────────────────
 
-const STATUS_CONFIG = STATUS_ITEMS;
 const PRIORITY_CONFIG = PRIORITY_ITEMS;
 
 export const ESTIMATE_OPTIONS = [
@@ -141,6 +141,8 @@ export type MilestoneOption = {
 export type IssueListRowProps = {
 	issue: IssueListData;
 	columns: ListColumnId[];
+	/** Effective statuses (workspace + optional project override) to render in the inline picker. */
+	statusItems: EffectivePickerItem[];
 	isHighlighted?: boolean;
 	issueUrl?: string;
 	onDelete?: (issueId: Id<"issues">) => void;
@@ -262,6 +264,7 @@ function InlineLabelsPicker({
 export const IssueListRow = memo(function IssueListRow({
 	issue,
 	columns,
+	statusItems,
 	isHighlighted,
 	issueUrl,
 	onDelete,
@@ -284,7 +287,7 @@ export const IssueListRow = memo(function IssueListRow({
 	onClick,
 	bulkSelect,
 }: IssueListRowProps) {
-	const statusConfig = STATUS_CONFIG.find((s) => s.id === issue.status);
+	const statusConfig = statusItems.find((s) => s.id === issue.status);
 	const priorityConfig = PRIORITY_CONFIG.find((p) => p.id === issue.priority);
 	const isDone = issue.status === "done" || issue.status === "cancelled";
 
@@ -485,7 +488,7 @@ export const IssueListRow = memo(function IssueListRow({
 								onKeyDown={(e) => e.stopPropagation()}
 							>
 								<GenericPicker
-									items={STATUS_CONFIG}
+									items={statusItems}
 									onSelect={handleStatusSelect}
 									selectedId={issue.status}
 									placeholder="Set status..."
@@ -493,7 +496,10 @@ export const IssueListRow = memo(function IssueListRow({
 										const Icon = item.icon;
 										return (
 											<div className="flex items-center gap-2 w-full">
-												<Icon className={cn("h-4 w-4", item.color)} />
+												<Icon
+													className="h-4 w-4"
+													style={{ color: item.colorHex }}
+												/>
 												<span className="flex-1">{item.label}</span>
 											</div>
 										);
@@ -507,10 +513,8 @@ export const IssueListRow = memo(function IssueListRow({
 											{statusConfig ? (
 												<>
 													<statusConfig.icon
-														className={cn(
-															"h-3.5 w-3.5 shrink-0",
-															statusConfig.color,
-														)}
+														className="h-3.5 w-3.5 shrink-0"
+														style={{ color: statusConfig.colorHex }}
 													/>
 													<span className="truncate">{statusConfig.label}</span>
 												</>

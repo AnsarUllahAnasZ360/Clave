@@ -73,6 +73,9 @@ const projectDocValidator = v.object({
 	customStatuses: v.optional(
 		v.array(v.object({ key: v.string(), name: v.string(), color: v.string() })),
 	),
+	// Persisted drag-to-reorder order for the merged status list at this
+	// project's scope. Must stay in sync with the schema field.
+	customStatusOrder: v.optional(v.array(v.string())),
 	customTypes: v.optional(
 		v.array(v.object({ key: v.string(), name: v.string(), color: v.string() })),
 	),
@@ -1097,6 +1100,30 @@ export const deleteCustomIssueStatus = mutation({
 			customStatuses: (project.customStatuses ?? []).filter(
 				(s) => s.key !== args.key,
 			),
+			updatedAt: Date.now(),
+		});
+		return null;
+	},
+});
+
+/**
+ * Persist the project-scoped status display order. Overrides the workspace
+ * order when set; clear by passing an empty array.
+ */
+export const reorderCustomIssueStatuses = mutation({
+	args: {
+		projectId: v.id("projects"),
+		orderedKeys: v.array(v.string()),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+		await ctx.db.patch(args.projectId, {
+			customStatusOrder: args.orderedKeys,
 			updatedAt: Date.now(),
 		});
 		return null;

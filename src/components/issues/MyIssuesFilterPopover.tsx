@@ -80,6 +80,7 @@ export function useIssueFilters() {
 				projectId?: string | null;
 				labelIds?: string[];
 				assigneeId?: string | null;
+				assigneeIds?: readonly string[] | null;
 				sprintId?: string | null;
 				milestoneId?: string | null;
 			},
@@ -105,10 +106,15 @@ export function useIssueFilters() {
 						return false;
 				}
 				if (filters.assigneeIds.length > 0) {
-					if (
-						!issue.assigneeId ||
-						!filters.assigneeIds.includes(issue.assigneeId)
-					)
+					// Multi-assign aware: an issue matches if ANY of its assignees
+					// (legacy single + multi array) is in the selected filter set.
+					const effective = new Set<string>();
+					if (issue.assigneeId) effective.add(issue.assigneeId);
+					if (issue.assigneeIds) {
+						for (const id of issue.assigneeIds) effective.add(id);
+					}
+					if (effective.size === 0) return false;
+					if (!filters.assigneeIds.some((id) => effective.has(id)))
 						return false;
 				}
 				if (filters.milestoneIds.length > 0) {

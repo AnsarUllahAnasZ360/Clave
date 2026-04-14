@@ -197,6 +197,10 @@ export default defineSchema({
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),
 			),
 		),
+		// Persisted display order for the merged status list (defaults + customs).
+		// When set, the effective status list is sorted by this key ordering;
+		// keys not in the array fall back to their natural order at the end.
+		customStatusOrder: v.optional(v.array(v.string())),
 		customPriorities: v.optional(
 			v.array(
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),
@@ -272,6 +276,9 @@ export default defineSchema({
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),
 			),
 		),
+		// Persisted display order for the merged status list at this project's
+		// scope (overrides workspace ordering when set).
+		customStatusOrder: v.optional(v.array(v.string())),
 		customTypes: v.optional(
 			v.array(
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),
@@ -628,6 +635,8 @@ export default defineSchema({
 		title: v.string(),
 		icon: v.optional(v.string()),
 		sceneData: v.optional(v.string()),
+		/** Full scene JSON in file storage when inline sceneData would exceed the 1 MiB doc limit */
+		sceneDataStorageId: v.optional(v.id("_storage")),
 		appState: v.optional(v.string()),
 		sortOrder: v.optional(v.number()),
 		createdBy: v.id("users"),

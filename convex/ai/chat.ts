@@ -3,11 +3,15 @@
 import type { ModelMessage } from "ai";
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action } from "../_generated/server";
+import { type ActionCtx, action } from "../_generated/server";
 import { getClaveAgent } from "./agents";
-import { buildContextPrompt, type PageContext } from "./contextPrompts";
+import {
+	buildContextPrompt,
+	type ContextPromptBlock,
+	type PageContext,
+} from "./contextPrompts";
 import { getComposedPrompt } from "./getComposedPrompt";
 import { closeMcpClients, loadMcpTools } from "./mcpClient";
 import {
@@ -27,6 +31,47 @@ type IncomingAttachment = {
 	mediaType?: string;
 	filename?: string;
 };
+
+async function resolveAttachmentsForPrompt(
+	ctx: ActionCtx,
+	attachments:
+		| Array<{
+				url?: string;
+				storageId?: Id<"_storage">;
+				mediaType?: string;
+				filename?: string;
+		  }>
+		| undefined,
+): Promise<IncomingAttachment[] | undefined> {
+	if (!attachments?.length) return undefined;
+	const out: IncomingAttachment[] = [];
+	for (const a of attachments) {
+		if (a.storageId) {
+			const url = await ctx.runQuery(api.files.getUrl, {
+				storageId: a.storageId,
+			});
+			if (!url) {
+				throw new Error("Chat attachment file is missing or expired.");
+			}
+			out.push({
+				url,
+				mediaType: a.mediaType,
+				filename: a.filename,
+			});
+			continue;
+		}
+		if (a.url) {
+			out.push({
+				url: a.url,
+				mediaType: a.mediaType,
+				filename: a.filename,
+			});
+			continue;
+		}
+		throw new Error("Each attachment must include url or storageId");
+	}
+	return out;
+}
 
 function buildPromptWithAttachments(
 	prompt: string,
@@ -238,7 +283,8 @@ export const sendMessage = action({
 		attachments: v.optional(
 			v.array(
 				v.object({
-					url: v.string(),
+					url: v.optional(v.string()),
+					storageId: v.optional(v.id("_storage")),
 					mediaType: v.optional(v.string()),
 					filename: v.optional(v.string()),
 				}),
@@ -352,9 +398,9 @@ export const sendMessage = action({
 		});
 
 		const authStart = Date.now();
-		const promptInput = buildPromptWithAttachments(
-			prompt,
-			attachments as IncomingAttachment[] | undefined,
+		const resolvedAttachments = await resolveAttachmentsForPrompt(
+			ctx,
+			attachments,
 		);
 		// Combined auth + workspace context in a single round-trip
 		const {
@@ -453,6 +499,37 @@ export const sendMessage = action({
 			contextSuffix += systemPromptSuffix;
 		}
 
+		// Page context (and embedded whiteboard images for vision) before building the user message.
+		let pageContextBlock: ContextPromptBlock = { systemSuffix: "" };
+		if (pageContext) {
+			try {
+				pageContextBlock = await buildContextPrompt(
+					ctx,
+					pageContext as PageContext,
+				);
+			} catch (error) {
+				console.error(
+					"[chat:sendMessage] context prompt error:",
+					error instanceof Error ? error.message : error,
+				);
+				pageContextBlock = {
+					systemSuffix: `\n\nCurrent context: ${pageContext.summary}`,
+				};
+			}
+			if (pageContextBlock.systemSuffix) {
+				contextSuffix += pageContextBlock.systemSuffix;
+			}
+		}
+
+		const mergedUserAttachments: IncomingAttachment[] = [
+			...(resolvedAttachments ?? []),
+			...(pageContextBlock.visionAttachments ?? []),
+		];
+		const promptInput = buildPromptWithAttachments(
+			prompt,
+			mergedUserAttachments.length > 0 ? mergedUserAttachments : undefined,
+		);
+
 		let errorInfo: { type: string; retryAfter?: number } | undefined;
 		const defaultInstructions =
 			typeof getClaveAgent().options.instructions === "string"
@@ -482,15 +559,6 @@ export const sendMessage = action({
 			selectedServerIds: selectedMcpServerIds ?? [],
 			pageContext: pageContext?.type,
 		});
-		const richContextPromise = pageContext
-			? buildContextPrompt(ctx, pageContext as PageContext).catch((error) => {
-					console.error(
-						"[chat:sendMessage] context prompt error:",
-						error instanceof Error ? error.message : error,
-					);
-					return `\n\nCurrent context: ${pageContext.summary}`;
-				})
-			: Promise.resolve<string | null>(null);
 		const mentionResolutionPromise =
 			mentions && mentions.length > 0
 				? resolveMentions(
@@ -517,17 +585,12 @@ export const sendMessage = action({
 			if (ENABLE_CHAT_TIMINGS) {
 				logChatStage(traceId, "setup:parallel-start", Date.now() - setupStart);
 			}
-			const [
-				teammateResult,
-				loadedMcpResult,
-				richContextResult,
-				resolvedMentionsResult,
-			] = await Promise.allSettled([
-				teammatePromise,
-				mcpToolsPromise,
-				richContextPromise,
-				mentionResolutionPromise,
-			]);
+			const [teammateResult, loadedMcpResult, resolvedMentionsResult] =
+				await Promise.allSettled([
+					teammatePromise,
+					mcpToolsPromise,
+					mentionResolutionPromise,
+				]);
 			mark("after_parallel_group");
 			if (teammateResult.status === "rejected") {
 				throw teammateResult.reason;
@@ -562,18 +625,11 @@ export const sendMessage = action({
 						: loadedMcpResult.reason,
 				);
 			}
-			if (richContextResult.status === "rejected") {
-				throw richContextResult.reason;
-			}
 			if (resolvedMentionsResult.status === "rejected") {
 				throw resolvedMentionsResult.reason;
 			}
 
-			const richContext = richContextResult.value;
 			const resolvedMentions = resolvedMentionsResult.value;
-			if (richContext) {
-				contextSuffix += richContext;
-			}
 			const mentionBlock = resolvedMentions
 				? buildMentionContextBlock(resolvedMentions)
 				: "";

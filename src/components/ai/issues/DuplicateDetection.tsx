@@ -1,8 +1,9 @@
 "use client";
 
 import { AlertTriangle, ExternalLink } from "lucide-react";
+import { useWorkspace } from "@/components/providers/workspace-context";
 import type { DuplicateIssue } from "@/hooks/use-duplicate-detection";
-import { getStatusConfig } from "@/lib/issue-config";
+import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import { cn } from "@/lib/utils";
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -24,6 +25,9 @@ export function DuplicateDetection({
 	compact = false,
 	workspaceSlug,
 }: DuplicateDetectionProps) {
+	const { workspaceId } = useWorkspace();
+	const effective = useEffectiveIssueConfig(workspaceId);
+
 	if (loading) {
 		return <DuplicateDetectionSkeleton compact={compact} />;
 	}
@@ -54,8 +58,11 @@ export function DuplicateDetection({
 			{/* Issue list */}
 			<div className="space-y-1">
 				{shown.map((issue) => {
-					const statusCfg = getStatusConfig(issue.status);
-					const StatusIcon = statusCfg.icon;
+					const statusCfg = effective.statusItems.find(
+						(s) => s.id === issue.status,
+					);
+					const StatusIcon = statusCfg?.icon ?? AlertTriangle;
+					const colorHex = statusCfg?.colorHex ?? "#6b7280";
 					const issueUrl = workspaceSlug
 						? `/${workspaceSlug}/issues/${issue._id}`
 						: undefined;
@@ -66,7 +73,8 @@ export function DuplicateDetection({
 							className="flex items-center gap-2 group rounded-md px-2 py-1 hover:bg-background/80 transition-colors"
 						>
 							<StatusIcon
-								className={cn("h-3.5 w-3.5 shrink-0", statusCfg.color)}
+								className="h-3.5 w-3.5 shrink-0"
+								style={{ color: colorHex }}
 							/>
 							<span className="text-[11px] font-mono text-muted-foreground shrink-0">
 								{issue.identifier}

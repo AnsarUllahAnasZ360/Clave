@@ -5,12 +5,14 @@ import { useUIMessages } from "@convex-dev/agent/react";
 import type { FileUIPart, TextUIPart } from "ai";
 import {
 	useAction,
+	useConvex,
 	useMutation,
 	usePaginatedQuery,
 	useQuery,
 } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AI_MODELS, DEFAULT_MODEL_ID } from "@/lib/ai-models";
+import { prepareChatAttachmentsForConvex } from "@/lib/chat-attachments";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import type { AIContext } from "./use-ai-context";
@@ -83,15 +85,42 @@ export type SubAgentSummary = {
 	isPreset: boolean;
 };
 
-export type ChatAttachmentInput = Pick<
-	FileUIPart,
-	"filename" | "mediaType" | "url"
->;
+/** Convex action args must stay small — large files use `storageId` after client upload. */
+export type ChatAttachmentInput = Pick<FileUIPart, "filename" | "mediaType"> & {
+	url?: string;
+	storageId?: Id<"_storage">;
+};
 
 type PendingUserMessage = {
 	prompt: string;
 	files: ChatAttachmentInput[];
 };
+
+/**
+ * Match pending vs persisted user messages without comparing file URLs.
+ * Pending state may still hold `data:` URLs while the saved message uses HTTPS
+ * (or the reverse after storage resolution) — URL equality would never match.
+ */
+function fileAttachmentFingerprintFromParts(
+	parts: UIMessage["parts"] | undefined,
+): string {
+	const fileParts = (parts ?? []).filter(
+		(p): p is FileUIPart => p.type === "file",
+	);
+	return fileParts
+		.map((p) => `${p.filename ?? ""}:${p.mediaType ?? ""}`)
+		.sort()
+		.join("|");
+}
+
+function fileAttachmentFingerprintFromPending(
+	files: ChatAttachmentInput[],
+): string {
+	return files
+		.map((f) => `${f.filename ?? ""}:${f.mediaType ?? ""}`)
+		.sort()
+		.join("|");
+}
 
 export function isPendingUserMessageDelivered(
 	rawMessages: UIMessage[],
@@ -113,28 +142,32 @@ export function isPendingUserMessageDelivered(
 			)
 			.map((p: { text: string }) => p.text)
 			.join("") ?? "";
-	const lastUserFiles = (lastUserMsg.parts ?? [])
-		.filter(
-			(
-				part: (typeof lastUserMsg.parts)[number],
-			): part is Extract<
-				(typeof lastUserMsg.parts)[number],
-				{ type: "file" }
-			> =>
-				part.type === "file" && "url" in part && typeof part.url === "string",
-		)
-		.map((part: { url: string }) => part.url)
-		.sort()
-		.join("|");
-	const pendingFiles = pending.files
-		.map((file) => file.url)
-		.sort()
-		.join("|");
-
-	return (
-		lastUserText.trim() === pending.prompt.trim() &&
-		lastUserFiles === pendingFiles
+	const lastUserFileParts = (lastUserMsg.parts ?? []).filter(
+		(p): p is FileUIPart => p.type === "file",
 	);
+	if (lastUserFileParts.length !== pending.files.length) return false;
+
+	const textMatch = lastUserText.trim() === pending.prompt.trim();
+	if (!textMatch) return false;
+
+	const lastUserFingerprint = fileAttachmentFingerprintFromParts(
+		lastUserMsg.parts,
+	);
+	const pendingFingerprint = fileAttachmentFingerprintFromPending(
+		pending.files,
+	);
+	if (lastUserFingerprint === pendingFingerprint) return true;
+
+	// Filenames can be missing on one side (generic "Image" in UI vs saved name).
+	const lastLoose = lastUserFileParts
+		.map((p) => p.mediaType ?? "")
+		.sort()
+		.join("|");
+	const pendingLoose = pending.files
+		.map((f) => f.mediaType ?? "")
+		.sort()
+		.join("|");
+	return lastLoose === pendingLoose;
 }
 
 type FailedMessagePayload = {
@@ -586,7 +619,7 @@ export function useAIChat(
 						type: "file",
 						mediaType: file.mediaType,
 						filename: file.filename,
-						url: file.url,
+						url: file.url ?? "",
 					}) satisfies FileUIPart,
 			),
 		];
@@ -748,6 +781,7 @@ export function useAIChat(
 
 	// ── Actions & Mutations ─────────────────────────────────────────────
 	const sendMessageAction = useAction(api.ai.chat.sendMessage);
+	const generateUploadUrlMutation = useMutation(api.files.generateUploadUrl);
 	const createThreadMutation = useMutation(api.ai.threads.createThread);
 	const createIncognitoThreadMutation = useMutation(
 		api.ai.threads.createIncognitoThread,
@@ -762,6 +796,7 @@ export function useAIChat(
 	);
 	const approveActionMutation = useMutation(api.ai.approval.approveAction);
 	const rejectActionMutation = useMutation(api.ai.approval.rejectAction);
+	const convex = useConvex();
 
 	const sendMessage = useCallback(
 		async (
@@ -819,6 +854,7 @@ export function useAIChat(
 			setModelWarning(null);
 			setPendingUserMessage({ files: normalizedFiles, prompt: trimmedPrompt });
 
+			let preparedFiles: ChatAttachmentInput[] | undefined;
 			try {
 				// Pre-create thread when no active thread exists.
 				// This sets activeThreadId immediately so the useUIMessages
@@ -854,20 +890,61 @@ export function useAIChat(
 					}
 				}
 
+				try {
+					preparedFiles = await prepareChatAttachmentsForConvex(
+						normalizedFiles,
+						() => generateUploadUrlMutation({}),
+					);
+				} catch (uploadErr) {
+					const uploadMessage =
+						uploadErr instanceof Error
+							? uploadErr.message
+							: "Failed to upload attachment";
+					setError(uploadMessage);
+					setPendingUserMessage(null);
+					return;
+				}
+
+				// Resolve Convex storage → HTTPS URL on the client so the action always
+				// receives a short `url` (works with older deployments that require `url`,
+				// and keeps args under Convex size limits).
+				const attachmentPayload: Array<{
+					url: string;
+					mediaType?: string;
+					filename?: string;
+				}> = [];
+				for (const file of preparedFiles) {
+					if (file.storageId) {
+						const url = await convex.query(api.files.getUrl, {
+							storageId: file.storageId,
+						});
+						if (!url) {
+							setError("Could not load attachment URL. Try again.");
+							setPendingUserMessage(null);
+							return;
+						}
+						attachmentPayload.push({
+							url,
+							mediaType: file.mediaType,
+							filename: file.filename,
+						});
+					} else {
+						attachmentPayload.push({
+							url: file.url ?? "",
+							mediaType: file.mediaType,
+							filename: file.filename,
+						});
+					}
+				}
+
 				const actionPromise = sendMessageAction({
 					workspaceId,
 					threadId: threadIdForAction,
 					prompt: trimmedPrompt,
 					modelId: effectiveModelId,
 					isFirstMessage,
-					...(normalizedFiles.length > 0
-						? {
-								attachments: normalizedFiles.map((file) => ({
-									filename: file.filename,
-									mediaType: file.mediaType,
-									url: file.url,
-								})),
-							}
+					...(attachmentPayload.length > 0
+						? { attachments: attachmentPayload }
 						: {}),
 					selectedMcpServerIds: effectiveSelectedMcpServerIds,
 					...(selectedSkillIdsRef.current.length > 0
@@ -940,7 +1017,7 @@ export function useAIChat(
 						context,
 						systemPromptSuffix,
 						mentions,
-						files: normalizedFiles,
+						files: preparedFiles ?? normalizedFiles,
 					});
 				}
 				if (CHAT_DEBUG_TIMING) {
@@ -962,7 +1039,7 @@ export function useAIChat(
 					context,
 					systemPromptSuffix,
 					mentions,
-					files: normalizedFiles,
+					files: preparedFiles ?? normalizedFiles,
 				});
 			} finally {
 				isSendingRef.current = false;
@@ -972,7 +1049,9 @@ export function useAIChat(
 		[
 			workspaceId,
 			activeThreadId,
+			convex,
 			sendMessageAction,
+			generateUploadUrlMutation,
 			createThreadMutation,
 			normalizeModelId,
 			normalizeMcpSelection,

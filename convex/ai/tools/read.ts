@@ -257,6 +257,7 @@ interface SprintResult {
 	id: string;
 	name: string;
 	status: string;
+	projectId: string;
 	projectName: string;
 	startDate: number | null;
 	targetDate: number | null;
@@ -975,12 +976,16 @@ export const listLabels = createTool({
 
 export const listSprints = createTool({
 	description:
-		"List all sprints across all projects in the workspace. Returns sprint name, status, dates, project name, and progress. Use this when the user asks about sprints, current iterations, or sprint progress.",
+		"List all sprints across all projects in the workspace. Returns sprint name, status, dates, project name, and progress. Use this when the user asks about sprints, current iterations, or sprint progress. Optionally filter by projectId when planning work for one project.",
 	inputSchema: z.object({
 		status: z
 			.enum(["planned", "active", "completed", "cancelled"])
 			.optional()
 			.describe("Filter by sprint status"),
+		projectId: z
+			.string()
+			.optional()
+			.describe("Only sprints belonging to this project ID"),
 	}),
 	execute: async (ctx: ToolContext, args): Promise<SprintResult[]> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
@@ -991,13 +996,20 @@ export const listSprints = createTool({
 			userId,
 		});
 
-		const filtered = args.status
+		let filtered = args.status
 			? sprints.filter((s: { status?: string }) => s.status === args.status)
 			: sprints;
+
+		if (args.projectId) {
+			filtered = filtered.filter(
+				(s: { projectId?: string }) => s.projectId === args.projectId,
+			);
+		}
 
 		return filtered.map(
 			(sprint: {
 				_id: string;
+				projectId: string;
 				name: string;
 				status: string;
 				projectName: string;
@@ -1010,6 +1022,7 @@ export const listSprints = createTool({
 				id: sprint._id,
 				name: sprint.name,
 				status: sprint.status,
+				projectId: sprint.projectId,
 				projectName: sprint.projectName,
 				startDate: sprint.startDate ?? null,
 				targetDate: sprint.targetDate ?? null,
@@ -1613,6 +1626,80 @@ export const getWhiteboard = createTool({
 	},
 });
 
+// ── 18. exportWhiteboardForPlanning ───────────────────────────────────────
+
+interface ExportWhiteboardChunkResult {
+	whiteboardId: string;
+	title: string;
+	projectId: string | null;
+	projectName: string | null;
+	elementCount: number;
+	totalTextItems: number;
+	totalChunks: number;
+	chunkIndex: number;
+	markdown: string;
+}
+
+export const exportWhiteboardForPlanning = createTool({
+	description:
+		"Export ALL extractable text from a whiteboard for sprint planning or turning sticky notes into issues. Call with chunkIndex 0 first; if totalChunks > 1, call again with chunkIndex 1, 2, ... until you have read every chunk. Each line is numbered text from shapes, labels, and text elements. Embedded board images are not OCR'd — only text is exported. Use after listWhiteboards/getWhiteboard to pick a board ID.",
+	inputSchema: z.object({
+		whiteboardId: z
+			.string()
+			.describe("Whiteboard ID (from listWhiteboards or context)"),
+		chunkIndex: z
+			.number()
+			.optional()
+			.default(0)
+			.describe("Zero-based chunk index when the board is large (default 0)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<ExportWhiteboardChunkResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+
+		const board = await withTimeout(
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardById, {
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+			}),
+			TOOL_TIMEOUT_MS,
+			"exportWhiteboardForPlanning",
+		);
+
+		if (!board) {
+			return { error: "Whiteboard not found or access denied." };
+		}
+		if (board.workspaceId !== workspaceId) {
+			return { error: "Whiteboard belongs to a different workspace." };
+		}
+
+		const chunk = await ctx.runQuery(
+			internal.ai.toolQueries.exportWhiteboardPlanningChunk,
+			{
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+				chunkIndex: args.chunkIndex ?? 0,
+			},
+		);
+
+		if (!chunk) {
+			return { error: "Failed to export whiteboard." };
+		}
+
+		return {
+			whiteboardId: chunk.whiteboardId,
+			title: chunk.title,
+			projectId: chunk.projectId,
+			projectName: chunk.projectName,
+			elementCount: chunk.elementCount,
+			totalTextItems: chunk.totalTextItems,
+			totalChunks: chunk.totalChunks,
+			chunkIndex: chunk.chunkIndex,
+			markdown: chunk.markdown,
+		};
+	},
+});
+
 // ── Export all read tools as a named toolset ─────────────────────────────
 
 export const readTools = {
@@ -1632,4 +1719,5 @@ export const readTools = {
 	searchCode,
 	listWhiteboards,
 	getWhiteboard,
+	exportWhiteboardForPlanning,
 };
