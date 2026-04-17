@@ -657,6 +657,30 @@ export default defineSchema({
 			filterFields: ["workspaceId"],
 		}),
 
+	// Persisted copies of embedded Excalidraw image files. Populated after
+	// every scene update so the AI layer (RAG, descriptions, OCR) has stable
+	// storageId-backed references instead of parsing base64 out of sceneData.
+	whiteboardImages: defineTable({
+		whiteboardId: v.id("whiteboards"),
+		workspaceId: v.id("workspaces"),
+		/** Excalidraw `files` map key — also referenced by image elements via `fileId`. */
+		fileKey: v.string(),
+		storageId: v.id("_storage"),
+		mediaType: v.string(),
+		byteSize: v.number(),
+		/** SHA-256 of the raw binary for dedupe/change detection. */
+		sha256: v.string(),
+		/** Optional OCR text (Phase 3 indexer populates). */
+		ocrText: v.optional(v.string()),
+		/** Optional AI-generated caption (Phase 3). */
+		caption: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_whiteboard", ["whiteboardId"])
+		.index("by_whiteboard_filekey", ["whiteboardId", "fileKey"])
+		.index("by_workspace", ["workspaceId"]),
+
 	whiteboardShares: defineTable({
 		whiteboardId: v.id("whiteboards"),
 		userId: v.id("users"),
@@ -1091,6 +1115,7 @@ export default defineSchema({
 			v.literal("comment"),
 			v.literal("github_file"),
 			v.literal("doc_page"),
+			v.literal("whiteboard"),
 		),
 		sourceId: v.string(),
 		contentHash: v.string(),

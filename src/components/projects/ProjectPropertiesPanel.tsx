@@ -170,7 +170,7 @@ type ProjectPropertiesPanelProps = {
 	client?: ClientData;
 	stats?: StatsData;
 	onUpdate: (
-		updates: Record<string, string | number | string[] | undefined>,
+		updates: Record<string, string | number | string[] | null | undefined>,
 	) => Promise<void>;
 	onRemoveClient?: () => Promise<void>;
 };
@@ -721,7 +721,8 @@ export function ProjectPropertiesPanel({
 					<DatePicker
 						date={project.startDate ? new Date(project.startDate) : undefined}
 						onSelect={(d) => {
-							onUpdate({ startDate: d ? d.getTime() : undefined });
+							// null = explicit clear (undefined is dropped on the wire)
+							onUpdate({ startDate: d ? d.getTime() : null });
 						}}
 						trigger={
 							<button
@@ -750,7 +751,8 @@ export function ProjectPropertiesPanel({
 					<DatePicker
 						date={project.endDate ? new Date(project.endDate) : undefined}
 						onSelect={(d) => {
-							onUpdate({ endDate: d ? d.getTime() : undefined });
+							// null = explicit clear (undefined is dropped on the wire)
+							onUpdate({ endDate: d ? d.getTime() : null });
 						}}
 						trigger={
 							<button

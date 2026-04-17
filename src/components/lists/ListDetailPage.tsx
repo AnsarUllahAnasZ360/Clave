@@ -4,18 +4,27 @@ import { CaretRight } from "@phosphor-icons/react/dist/ssr";
 import { useQuery } from "convex/react";
 import { Layers, Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { DisplayOptionsPanel } from "@/components/issues/DisplayOptionsPanel";
+import { InlineFilterBar } from "@/components/issues/InlineFilterBar";
 import type { IssueCardData } from "@/components/issues/IssueBoardCard";
 import { IssueBoardView } from "@/components/issues/IssueBoardView";
 import { useIssueCreate } from "@/components/issues/IssueCreateContext";
 import type { IssueListData } from "@/components/issues/IssueListRow";
 import { IssueListView } from "@/components/issues/IssueListView";
+import { IssuePreviewSidebar } from "@/components/issues/IssuePreviewSidebar";
+import { useIssueFilters } from "@/components/issues/MyIssuesFilterPopover";
 import { useWorkspace } from "@/components/providers/workspace-context";
+import {
+	useWorkspaceLabels,
+	useWorkspaceMembers,
+} from "@/components/providers/workspace-data-context";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDisplayOptions } from "@/hooks/use-display-options";
+import type { DisplayPropertyId } from "@/lib/display-options";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
@@ -26,9 +35,22 @@ interface ListDetailPageProps {
 	listId: Id<"lists">;
 }
 
+function toBoardDisplayProperties(
+	ids: DisplayPropertyId[],
+): Record<string, boolean> {
+	const props: Record<string, boolean> = {};
+	for (const id of ids) {
+		props[id] = true;
+	}
+	return props;
+}
+
 export function ListDetailPage({ listId }: ListDetailPageProps) {
 	const { workspaceSlug } = useWorkspace();
 	const [activeTab, setActiveTab] = useState("issues");
+	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(
+		null,
+	);
 
 	const list = useQuery(api.lists.getById, { listId });
 	const project = useQuery(
@@ -39,8 +61,24 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 
 	const viewContext = `list:${listId}:issues`;
 	const displayOpts = useDisplayOptions(viewContext);
+	const options = displayOpts.options;
 
 	const { openFullCreate } = useIssueCreate();
+
+	const {
+		filters,
+		setFilter,
+		clearAll: clearAllFilters,
+		applyFilters,
+	} = useIssueFilters();
+
+	const members = useWorkspaceMembers();
+	const labels = useWorkspaceLabels();
+
+	const boardDisplayProperties = useMemo(
+		() => toBoardDisplayProperties(options.displayProperties),
+		[options.displayProperties],
+	);
 
 	if (list === undefined) {
 		return (
@@ -70,9 +108,12 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 		);
 	}
 
-	const issues = rawIssues ?? [];
+	const filteredIssues = useMemo(
+		() => applyFilters(rawIssues ?? []),
+		[rawIssues, applyFilters],
+	);
 
-	const issueListData: IssueListData[] = issues.map((issue) => ({
+	const issueListData: IssueListData[] = filteredIssues.map((issue) => ({
 		_id: issue._id,
 		_creationTime: issue._creationTime,
 		identifier: issue.identifier,
@@ -92,7 +133,7 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 		updatedAt: issue.updatedAt,
 	}));
 
-	const issueBoardData: IssueCardData[] = issues.map((issue) => ({
+	const issueBoardData: IssueCardData[] = filteredIssues.map((issue) => ({
 		_id: issue._id,
 		identifier: issue.identifier,
 		title: issue.title,
@@ -161,6 +202,28 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 
 						{/* Actions */}
 						<div className="flex items-center gap-1.5 shrink-0">
+							<DisplayOptionsPanel
+								layout={options.layout}
+								groupBy={options.groupBy}
+								subGroupBy={options.subGroupBy}
+								orderBy={options.orderBy}
+								orderDirection={options.orderDirection}
+								displayProperties={options.displayProperties}
+								showSubIssues={options.showSubIssues}
+								showEmptyGroups={options.showEmptyGroups}
+								swimlaneBy={options.swimlaneBy}
+								onLayoutChange={displayOpts.setLayout}
+								onGroupByChange={displayOpts.setGroupBy}
+								onSubGroupByChange={displayOpts.setSubGroupBy}
+								onOrderByChange={displayOpts.setOrderBy}
+								onOrderDirectionChange={displayOpts.setOrderDirection}
+								onDisplayPropertyToggle={displayOpts.toggleDisplayProperty}
+								onShowSubIssuesChange={displayOpts.setShowSubIssues}
+								onShowEmptyGroupsChange={displayOpts.setShowEmptyGroups}
+								onSwimlaneSetting={displayOpts.setSwimlaneSetting}
+								onReset={displayOpts.reset}
+								availableLayouts={["list", "board"]}
+							/>
 							<Button
 								size="sm"
 								className="h-7 gap-1 text-xs"
@@ -178,19 +241,68 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 					</div>
 				</div>
 
+				{/* Filter bar */}
+				<div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 bg-muted/20 shrink-0">
+					<InlineFilterBar
+						filters={filters}
+						setFilter={setFilter}
+						clearAll={clearAllFilters}
+						projectId={list.projectId}
+						labels={(labels ?? []).map((l) => ({
+							_id: l._id as string,
+							name: l.name,
+							color: l.color,
+						}))}
+						members={(members ?? []).map((m) => ({
+							id: m.userId as string,
+							name: m.user?.name ?? m.user?.email ?? "Unknown",
+						}))}
+					/>
+				</div>
+
 				{/* Content */}
 				<TabsContent
 					value="issues"
 					className="flex flex-1 flex-col min-h-0 mt-0"
 				>
-					{displayOpts.options.layout === "board" ? (
-						<IssueBoardView
-							externalIssues={issueBoardData}
-							projectId={list.projectId}
-						/>
-					) : (
-						<IssueListView issues={issueListData} projectId={list.projectId} />
-					)}
+					<div className="flex flex-1 min-h-0 min-w-0">
+						<div className="flex flex-col flex-1 min-h-0 min-w-0">
+							{options.layout === "board" ? (
+								<IssueBoardView
+									externalIssues={issueBoardData}
+									projectId={list.projectId}
+									displayProperties={boardDisplayProperties}
+									swimlaneBy={options.swimlaneBy}
+									onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+								/>
+							) : (
+								<IssueListView
+									issues={issueListData}
+									projectId={list.projectId}
+									groupBy={options.groupBy}
+									subGroupBy={options.subGroupBy}
+									orderBy={options.orderBy}
+									orderDirection={options.orderDirection}
+									displayProperties={options.displayProperties}
+									showEmptyGroups={options.showEmptyGroups}
+									hideFilter
+									onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+								/>
+							)}
+						</div>
+
+						<div
+							className="shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+							style={{ width: selectedIssueId ? 420 : 0 }}
+						>
+							{selectedIssueId && (
+								<IssuePreviewSidebar
+									issueId={selectedIssueId}
+									onClose={() => setSelectedIssueId(null)}
+								/>
+							)}
+						</div>
+					</div>
 				</TabsContent>
 			</Tabs>
 		</div>

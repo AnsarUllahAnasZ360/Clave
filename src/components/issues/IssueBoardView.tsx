@@ -358,9 +358,48 @@ export function IssueBoardView({
 		(event: DragEndEvent) => {
 			const { active, over } = event;
 			setActiveItem(null);
-			if (!over) return;
 
 			const activeId = String(active.id);
+
+			// Sidebar hit-test: if the drag ended outside any in-view droppable
+			// (over === null), check whether the release point falls on a
+			// sidebar drop target marked with `data-issue-drop-target`. This
+			// lets users drag a kanban card into the sidebar's sprint/backlog
+			// nodes without needing a unified root DndContext or a native
+			// HTML5 drag bridge — both of which conflict with dnd-kit's
+			// pointer capture for within-column reorder.
+			if (!over) {
+				const activator = event.activatorEvent as PointerEvent | null;
+				if (!activator) return;
+				const endX = activator.clientX + event.delta.x;
+				const endY = activator.clientY + event.delta.y;
+				const hit = document.elementFromPoint(endX, endY);
+				const target = hit?.closest<HTMLElement>("[data-issue-drop-target]");
+				if (!target) return;
+				const kind = target.dataset.issueDropTarget;
+				const sprintId = target.dataset.sprintId;
+				const projectId = target.dataset.projectId;
+				if (kind === "sprint" && sprintId && projectId) {
+					void updateIssue({
+						issueId: activeId as Id<"issues">,
+						projectId: projectId as Id<"projects">,
+						sprintId: sprintId as Id<"sprints">,
+					})
+						.then(() => toast.success("Moved to sprint"))
+						.catch(() => toast.error("Failed to move issue"));
+				} else if (kind === "backlog" && projectId) {
+					void updateIssue({
+						issueId: activeId as Id<"issues">,
+						projectId: projectId as Id<"projects">,
+						// null = clear sprint → return to project backlog
+						sprintId: null,
+					})
+						.then(() => toast.success("Moved to backlog"))
+						.catch(() => toast.error("Failed to move issue"));
+				}
+				return;
+			}
+
 			const overId = String(over.id);
 
 			const sourceStatus = findItemColumn(activeId);
@@ -1400,6 +1439,7 @@ function SortableCard({
 		<div
 			ref={setNodeRef}
 			style={style}
+			data-issue-id={issue._id}
 			className={cn("transition-opacity", isDragging && "opacity-40")}
 			{...attributes}
 			{...listeners}

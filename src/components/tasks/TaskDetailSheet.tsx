@@ -263,9 +263,11 @@ export function TaskDetailSheet({
 		async (date: Date | undefined) => {
 			if (!taskId) return;
 			try {
+				// Map cleared (undefined) to null so the Convex patch actually
+				// removes the field — undefined keys are dropped on the wire.
 				await updateTask({
 					taskId,
-					dueDate: date?.getTime(),
+					dueDate: date ? date.getTime() : null,
 				});
 			} catch {
 				toast.error("Failed to update due date");
@@ -522,9 +524,10 @@ export function TaskDetailSheet({
 						<DatePicker
 							date={task.startDate ? new Date(task.startDate) : undefined}
 							onSelect={(date) => {
+								// null = explicit clear; undefined is dropped on the wire.
 								updateTask({
 									taskId: task._id,
-									startDate: date ? date.getTime() : undefined,
+									startDate: date ? date.getTime() : null,
 								}).catch(() => toast.error("Failed to update start date"));
 							}}
 							trigger={

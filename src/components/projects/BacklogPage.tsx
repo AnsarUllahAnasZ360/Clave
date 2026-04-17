@@ -167,7 +167,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 	}
 
 	return (
-		<div className="flex flex-1 flex-col bg-background mx-2 my-2 border border-border rounded-lg min-w-0 overflow-hidden">
+		<div className="flex flex-1 flex-col min-h-0 bg-background mx-2 my-2 border border-border rounded-lg min-w-0 overflow-hidden">
 			{/* Header */}
 			<div className="flex items-center gap-2 border-b border-border px-4 py-3 shrink-0">
 				<SidebarTrigger className="h-7 w-7" />
@@ -245,8 +245,8 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			</div>
 
 			{/* Content + preview sidebar */}
-			<div className="flex flex-1 min-h-0 min-w-0 overflow-y-hidden">
-				<div className="flex flex-col flex-1 min-h-0 min-w-0">
+			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+				<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
 					{/* Board view — organize backlog by status */}
 					{options.layout === "board" && (
 						<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -261,18 +261,18 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 					)}
 					{/* List view — browse backlog items */}
 					{options.layout === "list" && (
-						<div className="px-6 pb-6 w-full overflow-auto flex-1">
-							<IssueListView
-								issues={filteredListIssues}
-								projectId={project._id}
-								groupBy={options.groupBy}
-								subGroupBy={options.subGroupBy}
-								orderBy={options.orderBy}
-								displayProperties={options.displayProperties}
-								hideFilter
-								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-							/>
-						</div>
+						<IssueListView
+							issues={filteredListIssues}
+							projectId={project._id}
+							groupBy={options.groupBy}
+							subGroupBy={options.subGroupBy}
+							orderBy={options.orderBy}
+							orderDirection={options.orderDirection}
+							displayProperties={options.displayProperties}
+							showEmptyGroups={options.showEmptyGroups}
+							hideFilter
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+						/>
 					)}
 					{/* Timeline view — see backlog items with due dates */}
 					{options.layout === "timeline" && (
@@ -296,13 +296,18 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 					)}
 				</div>
 
-				{/* Issue detail preview panel */}
-				{selectedIssueId && (
-					<IssuePreviewSidebar
-						issueId={selectedIssueId}
-						onClose={() => setSelectedIssueId(null)}
-					/>
-				)}
+				{/* Issue detail preview panel — stable container prevents layout shift */}
+				<div
+					className="shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+					style={{ width: selectedIssueId ? 420 : 0 }}
+				>
+					{selectedIssueId && (
+						<IssuePreviewSidebar
+							issueId={selectedIssueId}
+							onClose={() => setSelectedIssueId(null)}
+						/>
+					)}
+				</div>
 			</div>
 		</div>
 	);

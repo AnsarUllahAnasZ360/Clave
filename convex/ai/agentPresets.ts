@@ -56,6 +56,8 @@ Always use structured markdown with clear headers. For issue lists, include iden
 			"listWhiteboards",
 			"getWhiteboard",
 			"exportWhiteboardForPlanning",
+			"readBoardWithVision",
+			"listBoardImages",
 			"createSprint",
 			"updateSprint",
 			"bulkCreateIssues",

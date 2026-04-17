@@ -343,8 +343,11 @@ export const update = mutation({
 		priority: v.optional(taskPriorityValidator),
 		type: v.optional(taskTypeValidator),
 		labelIds: v.optional(v.array(v.id("labels"))),
-		startDate: v.optional(v.number()),
-		dueDate: v.optional(v.number()),
+		// Explicit-clear sentinel: `null` wipes the field. Convex drops
+		// `undefined` values from mutation args on the wire, so an explicit
+		// null is the only way to signal "clear this date".
+		startDate: v.optional(v.union(v.number(), v.null())),
+		dueDate: v.optional(v.union(v.number(), v.null())),
 		estimate: v.optional(v.float64()),
 		tags: v.optional(v.array(v.string())),
 	},
@@ -357,10 +360,14 @@ export const update = mutation({
 		await requireWorkspaceMember(ctx, task.workspaceId);
 
 		const { taskId, ...updates } = args;
-		await ctx.db.patch(taskId, {
+		const patch: Record<string, unknown> = {
 			...updates,
 			updatedAt: Date.now(),
-		});
+		};
+		// Map null → undefined so ctx.db.patch deletes the field.
+		if (args.dueDate === null) patch.dueDate = undefined;
+		if (args.startDate === null) patch.startDate = undefined;
+		await ctx.db.patch(taskId, patch);
 	},
 });
 

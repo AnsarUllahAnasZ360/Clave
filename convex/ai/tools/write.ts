@@ -6,6 +6,7 @@ import type { Id } from "../../_generated/dataModel";
 import { sanitizeDrawableElements } from "../whiteboardMcp";
 import {
 	buildUserNameMap,
+	plateJsonToMarkdown,
 	resolveToolUserId,
 	resolveWorkspaceId,
 	TOOL_TIMEOUT_MS,
@@ -350,6 +351,12 @@ const issueBulkItemSchema = z.object({
 		.optional()
 		.describe("Sprint ID when issues should be created in that sprint"),
 	labelIds: z.array(z.string()).optional(),
+	attachBoardImageIds: z
+		.array(z.string())
+		.optional()
+		.describe(
+			"Optional whiteboardImages row IDs to embed as markdown images in this issue's description. Useful when a specific diagram/screenshot supports exactly one issue in the batch.",
+		),
 });
 
 // ── 1. bulkCreateIssues ───────────────────────────────────────────────────
@@ -439,6 +446,12 @@ export const createIssue = createTool({
 			.array(z.string())
 			.optional()
 			.describe("Array of label IDs to attach"),
+		attachBoardImageIds: z
+			.array(z.string())
+			.optional()
+			.describe(
+				"Optional whiteboardImages row IDs (from listImagesForBoard / readBoardWithVision) to embed as markdown images at the top of the description. Use when turning a board into an issue and the user wants the visual evidence inline.",
+			),
 	}),
 	execute: async (
 		ctx: ToolContext,
@@ -470,6 +483,7 @@ export const createIssue = createTool({
 					assigneeId: args.assigneeId,
 					projectId: args.projectId,
 					labelIds: args.labelIds,
+					attachBoardImageIds: args.attachBoardImageIds,
 				},
 			}),
 		});
@@ -1110,6 +1124,164 @@ export const updateDocument = createTool({
 	},
 });
 
+// ── 7c. appendToDocument ────────────────────────────────────────────────
+
+export const appendToDocument = createTool({
+	description:
+		"Append content to the end of an existing document without overwriting what is already there. Use this when the user asks to add a section, notes, or additional content to an existing document. Accepts Markdown which is appended after the current content with a blank line separator.",
+	inputSchema: z.object({
+		documentId: z.string().describe("Document ID to append to"),
+		content: z
+			.string()
+			.describe(
+				"Markdown content to append. Use proper markdown: # headings, **bold**, *italic*, - bullet lists, 1. numbered lists, ```code blocks```, > blockquotes, and | markdown tables |.",
+			),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<{ documentId: string; message: string } | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		const docId = args.documentId as Id<"documents">;
+		const document = await ctx.runQuery(
+			internal.ai.toolQueries.getDocumentById,
+			{ documentId: docId },
+		);
+		if (!document || document.workspaceId !== workspaceId) {
+			return { error: "Document not found." };
+		}
+
+		// Append to existing content (content is stored as Plate JSON or markdown)
+		const existingContent = document.content ?? "";
+		const separator = existingContent.length > 0 ? "\n\n" : "";
+		const newContent = `${existingContent}${separator}${args.content}`;
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.updateDocumentContent, {
+				userId,
+				documentId: docId,
+				content: newContent,
+			}),
+			TOOL_TIMEOUT_MS,
+			"appendToDocument",
+		);
+
+		// Reset Yjs state so the editor re-bootstraps
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.resetDocumentYjsState, {
+				documentId: docId,
+			}),
+			TOOL_TIMEOUT_MS,
+			"appendToDocument:resetYjs",
+		);
+
+		return {
+			documentId: args.documentId,
+			message: `Appended content to "${document.title}"`,
+		};
+	},
+});
+
+// ── 7d. updateDocumentSection ──────────────────────────────────────────
+
+export const updateDocumentSection = createTool({
+	description:
+		"Replace a specific section of a document identified by its heading. Finds the section starting at the given heading (e.g. '## Design') and replaces everything up to the next heading of the same or higher level. Use this for targeted edits to long documents without rewriting the entire content. The replacement content should include the heading line itself. Use getDocument or readDocumentChunked first to read the current content and identify section headings.",
+	inputSchema: z.object({
+		documentId: z.string().describe("Document ID to update"),
+		sectionHeading: z
+			.string()
+			.describe(
+				"The exact heading text to find (e.g. '## Design' or '### API Reference'). Must match the heading line in the Markdown output.",
+			),
+		newContent: z
+			.string()
+			.describe(
+				"The replacement content for the section, including the heading line. Everything from the matched heading to the next same-or-higher-level heading will be replaced.",
+			),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<
+		{ documentId: string; replaced: boolean; message: string } | ErrorResult
+	> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const userId = resolveToolUserId(ctx);
+
+		const docId = args.documentId as Id<"documents">;
+		const document = await ctx.runQuery(
+			internal.ai.toolQueries.getDocumentById,
+			{ documentId: docId },
+		);
+		if (!document || document.workspaceId !== workspaceId) {
+			return { error: "Document not found." };
+		}
+
+		// Convert to markdown, do the replacement, store the result.
+		// The editor re-parses via parseAnyContentToSlate on load.
+		const markdown = plateJsonToMarkdown(document.content);
+
+		// Find the heading level and position
+		const headingTrimmed = args.sectionHeading.trim();
+		const headingMatch = headingTrimmed.match(/^(#{1,6})\s/);
+		const headingLevel = headingMatch ? headingMatch[1].length : 0;
+
+		const startIdx = markdown.indexOf(headingTrimmed);
+		if (startIdx === -1) {
+			return {
+				documentId: args.documentId,
+				replaced: false,
+				message: `Section heading "${headingTrimmed}" not found in document. Use getDocument to check the current headings.`,
+			};
+		}
+
+		// Find the end of this section (next heading of same or higher level)
+		let endIdx = markdown.length;
+		if (headingLevel > 0) {
+			const afterHeading = startIdx + headingTrimmed.length;
+			const rest = markdown.slice(afterHeading);
+			// Match next heading of same or higher level
+			const pattern = new RegExp(`\n(#{1,${headingLevel}})\\s`);
+			const nextMatch = rest.match(pattern);
+			if (nextMatch?.index !== undefined) {
+				endIdx = afterHeading + nextMatch.index;
+			}
+		}
+
+		const newMarkdown =
+			markdown.slice(0, startIdx) +
+			args.newContent.trim() +
+			markdown.slice(endIdx);
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.updateDocumentContent, {
+				userId,
+				documentId: docId,
+				content: newMarkdown,
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateDocumentSection",
+		);
+
+		await withTimeout(
+			ctx.runMutation(internal.ai.toolMutations.resetDocumentYjsState, {
+				documentId: docId,
+			}),
+			TOOL_TIMEOUT_MS,
+			"updateDocumentSection:resetYjs",
+		);
+
+		return {
+			documentId: args.documentId,
+			replaced: true,
+			message: `Replaced section "${headingTrimmed}" in "${document.title}"`,
+		};
+	},
+});
+
 // ── 8. createProject ──────────────────────────────────────────────────────
 
 export const createProject = createTool({
@@ -1135,6 +1307,12 @@ export const createProject = createTool({
 			.number()
 			.optional()
 			.describe("Project end date as Unix timestamp (ms)"),
+		attachBoardImageIds: z
+			.array(z.string())
+			.optional()
+			.describe(
+				"Optional whiteboardImages row IDs (from listImagesForBoard / readBoardWithVision) to embed as markdown images at the top of the description. Use when turning a planning board into a project and the user wants the visual evidence inline.",
+			),
 	}),
 	execute: async (
 		ctx: ToolContext,
@@ -1166,6 +1344,7 @@ export const createProject = createTool({
 					leadId: args.leadId,
 					startDate: args.startDate,
 					endDate: args.endDate,
+					attachBoardImageIds: args.attachBoardImageIds,
 				},
 			}),
 		});
@@ -1843,6 +2022,8 @@ export const writeTools = {
 	batchUpdateIssues,
 	createDocument,
 	updateDocument,
+	appendToDocument,
+	updateDocumentSection,
 	createProject,
 	updateProject,
 	createLabel,
