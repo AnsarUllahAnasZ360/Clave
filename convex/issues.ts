@@ -1200,12 +1200,17 @@ export const update = mutation({
 		assigneeId: v.optional(v.id("users")),
 		assigneeIds: v.optional(v.array(v.id("users"))),
 		projectId: v.optional(v.id("projects")),
-		sprintId: v.optional(v.id("sprints")),
-		listId: v.optional(v.id("lists")),
-		milestoneId: v.optional(v.id("milestones")),
+		// `null` = explicit clear (e.g. drop an issue on a project backlog
+		// in the sidebar, which clears the sprint and returns the issue to
+		// the backlog bucket). Convex drops `undefined` keys from mutation
+		// args on the wire, so `null` is the only signal the server ever
+		// sees for "unset this field".
+		sprintId: v.optional(v.union(v.id("sprints"), v.null())),
+		listId: v.optional(v.union(v.id("lists"), v.null())),
+		milestoneId: v.optional(v.union(v.id("milestones"), v.null())),
 		labelIds: v.optional(v.array(v.id("labels"))),
-		startDate: v.optional(v.number()),
-		dueDate: v.optional(v.number()),
+		startDate: v.optional(v.union(v.number(), v.null())),
+		dueDate: v.optional(v.union(v.number(), v.null())),
 		estimate: v.optional(v.float64()),
 		tags: v.optional(v.array(v.string())),
 		gitBranchName: v.optional(v.string()),
@@ -1395,6 +1400,21 @@ export const update = mutation({
 			milestoneId: resolvedMilestoneId ?? undefined,
 			updatedAt: Date.now(),
 		};
+
+		// Map `null` explicit-clear sentinels to `undefined` for Convex's
+		// patch semantics (setting a field to undefined deletes it from the
+		// doc). We only rewrite when the caller explicitly passed null; a
+		// missing key (undefined) stays missing so the field is untouched.
+		if (args.dueDate === null) patch.dueDate = undefined;
+		if (args.startDate === null) patch.startDate = undefined;
+		// sprintId/listId/milestoneId already flow through the resolved*
+		// variables above, which emit `undefined` on clear. But when the
+		// caller explicitly passed `null`, the `...updates` spread injects
+		// `null` into the patch, which Convex would persist as a literal
+		// null rather than deleting the field. Rewrite to undefined.
+		if (args.sprintId === null) patch.sprintId = undefined;
+		if (args.listId === null) patch.listId = undefined;
+		if (args.milestoneId === null) patch.milestoneId = undefined;
 
 		// Mirror the multi-assignee array into the legacy `assigneeId` field so
 		// older read paths and indexes still see *something*. The first element

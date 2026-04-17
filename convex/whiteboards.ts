@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 
@@ -18,6 +19,70 @@ import { getRandomEmoji } from "./lib/randomEmoji";
 
 const DEFAULT_WORKSPACE_WHITEBOARD_LIMIT = 200;
 const MAX_WORKSPACE_WHITEBOARD_LIMIT = 500;
+
+/**
+ * Resolve a persisted Excalidraw image (from the whiteboardImages table) to a
+ * signed storage URL. Used by the `/api/whiteboard-image/[imageId]` Next.js
+ * route and by the AI approval path when embedding board images into issue /
+ * project descriptions as markdown.
+ */
+export const getImageUrlById = query({
+	args: { imageId: v.id("whiteboardImages") },
+	returns: v.union(v.string(), v.null()),
+	handler: async (ctx, args) => {
+		const row = await ctx.db.get(args.imageId);
+		if (!row) return null;
+		// Intentionally no auth check: the underlying storage URL is itself a
+		// signed credential, and whiteboardImages IDs are unguessable Convex
+		// document IDs. This lets the `/api/whiteboard-image/[imageId]` route
+		// and markdown image renderers resolve URLs without needing to forward
+		// an auth session from the browser.
+		return await ctx.storage.getUrl(row.storageId);
+	},
+});
+
+/**
+ * List all persisted images for a whiteboard, returned with their resolved
+ * storage URLs, captions, and OCR text. This is what the AI agent (and
+ * reviewers) use to pick which board images to embed into an issue / project
+ * description when turning a board into a plan.
+ */
+export const listImagesForBoard = query({
+	args: { whiteboardId: v.id("whiteboards") },
+	returns: v.array(
+		v.object({
+			_id: v.id("whiteboardImages"),
+			fileKey: v.string(),
+			mediaType: v.string(),
+			byteSize: v.number(),
+			caption: v.optional(v.string()),
+			ocrText: v.optional(v.string()),
+			url: v.union(v.string(), v.null()),
+		}),
+	),
+	handler: async (ctx, args) => {
+		const board = await ctx.db.get(args.whiteboardId);
+		if (!board) return [];
+		await requireWorkspaceMember(ctx, board.workspaceId);
+		const rows = await ctx.db
+			.query("whiteboardImages")
+			.withIndex("by_whiteboard", (q) =>
+				q.eq("whiteboardId", args.whiteboardId),
+			)
+			.collect();
+		return Promise.all(
+			rows.map(async (r) => ({
+				_id: r._id,
+				fileKey: r.fileKey,
+				mediaType: r.mediaType,
+				byteSize: r.byteSize,
+				caption: r.caption,
+				ocrText: r.ocrText,
+				url: await ctx.storage.getUrl(r.storageId),
+			})),
+		);
+	},
+});
 
 /** List whiteboards for a project, excluding soft-deleted, sorted by sortOrder */
 export const listByProject = query({
@@ -331,6 +396,16 @@ export const updateScene = mutation({
 			if (prevStorageId) {
 				await ctx.storage.delete(prevStorageId);
 			}
+			await ctx.scheduler.runAfter(
+				0,
+				internal.ai.whiteboardImageSync.syncBoardImages,
+				{ whiteboardId: args.whiteboardId },
+			);
+			await ctx.scheduler.runAfter(
+				0,
+				internal.ai.indexing.whiteboardIndexer.indexWhiteboard,
+				{ whiteboardId: args.whiteboardId },
+			);
 			return;
 		}
 
@@ -353,6 +428,16 @@ export const updateScene = mutation({
 		if (prevStorageId && prevStorageId !== args.sceneDataStorageId) {
 			await ctx.storage.delete(prevStorageId);
 		}
+		await ctx.scheduler.runAfter(
+			0,
+			internal.ai.whiteboardImageSync.syncBoardImages,
+			{ whiteboardId: args.whiteboardId },
+		);
+		await ctx.scheduler.runAfter(
+			0,
+			internal.ai.indexing.whiteboardIndexer.indexWhiteboard,
+			{ whiteboardId: args.whiteboardId },
+		);
 	},
 });
 
@@ -512,6 +597,13 @@ export const remove = mutation({
 		await ctx.db.patch(args.whiteboardId, {
 			deletedAt: Date.now(),
 		});
+
+		// Remove from RAG on soft delete.
+		await ctx.scheduler.runAfter(
+			0,
+			internal.ai.indexing.whiteboardIndexer.indexWhiteboard,
+			{ whiteboardId: args.whiteboardId },
+		);
 
 		await logActivity(ctx, {
 			workspaceId: whiteboard.workspaceId,

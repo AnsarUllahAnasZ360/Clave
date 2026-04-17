@@ -33,6 +33,7 @@ export const RAG_SOURCE_TYPES = [
 	"comment",
 	"github_file",
 	"doc_page",
+	"whiteboard",
 ] as const;
 
 export type RagSourceType = (typeof RAG_SOURCE_TYPES)[number];

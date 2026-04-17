@@ -981,6 +981,7 @@ function ProjectTreeItem({
 								<SprintNavItem
 									key={sprint._id}
 									sprint={sprint}
+									projectId={project._id as Id<"projects">}
 									projectSlug={project.slug}
 									workspaceSlug={workspaceSlug}
 									pathname={pathname}
@@ -1014,29 +1015,34 @@ function ProjectTreeItem({
 					{/* Backlog */}
 					<SidebarMenu>
 						<SidebarMenuItem>
-							<SidebarMenuButton
-								asChild
-								isActive={pathname.includes(
-									`/projects/${project.slug}/backlog`,
-								)}
-								tooltip="Backlog"
-								className="h-7 rounded-md px-2 text-muted-foreground"
+							<BacklogDropTarget
+								projectId={project._id as Id<"projects">}
+								projectName={project.name}
 							>
-								<Link
-									href={
-										`/${workspaceSlug}/projects/${project.slug}/backlog` as LinkProps<string>["href"]
-									}
-									prefetch={false}
-								>
-									<Archive className="h-[14px] w-[14px] shrink-0" />
-									<span className="flex-1 truncate text-xs">Backlog</span>
-									{project.backlogCount > 0 && (
-										<span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
-											{project.backlogCount}
-										</span>
+								<SidebarMenuButton
+									asChild
+									isActive={pathname.includes(
+										`/projects/${project.slug}/backlog`,
 									)}
-								</Link>
-							</SidebarMenuButton>
+									tooltip="Backlog"
+									className="h-7 rounded-md px-2 text-muted-foreground"
+								>
+									<Link
+										href={
+											`/${workspaceSlug}/projects/${project.slug}/backlog` as LinkProps<string>["href"]
+										}
+										prefetch={false}
+									>
+										<Archive className="h-[14px] w-[14px] shrink-0" />
+										<span className="flex-1 truncate text-xs">Backlog</span>
+										{project.backlogCount > 0 && (
+											<span className="text-[10px] text-muted-foreground/60 tabular-nums shrink-0">
+												{project.backlogCount}
+											</span>
+										)}
+									</Link>
+								</SidebarMenuButton>
+							</BacklogDropTarget>
 						</SidebarMenuItem>
 
 						{/* Docs/Boards are hidden when Backlog is the active project view */}
@@ -1258,6 +1264,7 @@ function SprintFolderItem({
 							<SprintNavItem
 								key={sprint._id}
 								sprint={sprint}
+								projectId={projectId as Id<"projects">}
 								projectSlug={projectSlug}
 								workspaceSlug={workspaceSlug}
 								pathname={pathname}
@@ -1307,19 +1314,48 @@ function SprintFolderItem({
 
 // ── Sprint nav item ─────────────────────────────────────────────────────────
 
+/**
+ * Marks the sidebar Backlog row as a drop target for issues dragged from
+ * the kanban/list views. The view's `handleDragEnd` uses
+ * `document.elementFromPoint` at the release position to find the nearest
+ * ancestor carrying the `data-issue-drop-target` attributes, then dispatches
+ * the appropriate mutation. This avoids the native-drag vs dnd-kit race
+ * (and the architectural weight of a unified root `DndContext`).
+ */
+function BacklogDropTarget({
+	projectId,
+	children,
+}: {
+	projectId: Id<"projects">;
+	projectName: string;
+	children: React.ReactNode;
+}) {
+	return (
+		<div
+			data-issue-drop-target="backlog"
+			data-project-id={projectId}
+			className="rounded-md"
+		>
+			{children}
+		</div>
+	);
+}
+
 function SprintNavItem({
 	sprint,
+	projectId,
 	projectSlug,
 	workspaceSlug,
 	pathname,
 }: {
 	sprint: SidebarSprintItem;
+	/** Sprint's parent project — read at drop time so an issue dragged
+	 *  from a different project is moved across atomically. */
+	projectId: Id<"projects">;
 	projectSlug: string;
 	workspaceSlug: string;
 	pathname: string;
 }) {
-	const updateIssue = useMutation(api.issues.update);
-	const [isDragOver, setIsDragOver] = useState(false);
 	const sprintHref =
 		`/${workspaceSlug}/projects/${projectSlug}/sprints/${sprint._id}` as LinkProps<string>["href"];
 	const isActive = pathname.includes(sprint._id);
@@ -1374,38 +1410,11 @@ function SprintNavItem({
 	return (
 		<SidebarMenu>
 			<SidebarMenuItem>
-				{/* biome-ignore lint/a11y/noStaticElementInteractions: drag/drop target for issues */}
 				<div
-					className={cn(
-						"flex items-center group/sprint min-w-0",
-						isDragOver && "ring-1 ring-primary/50 bg-primary/5 rounded-md",
-					)}
-					role="presentation"
-					onDragOver={(e) => {
-						if (e.dataTransfer.types.includes("application/clave-issue-id")) {
-							e.preventDefault();
-							e.dataTransfer.dropEffect = "move";
-							setIsDragOver(true);
-						}
-					}}
-					onDragLeave={() => setIsDragOver(false)}
-					onDrop={async (e) => {
-						e.preventDefault();
-						setIsDragOver(false);
-						const issueId = e.dataTransfer.getData(
-							"application/clave-issue-id",
-						);
-						if (!issueId) return;
-						try {
-							await updateIssue({
-								issueId: issueId as Id<"issues">,
-								sprintId: sprint._id as Id<"sprints">,
-							});
-							toast.success(`Moved to ${sprint.name}`);
-						} catch {
-							toast.error("Failed to move issue");
-						}
-					}}
+					data-issue-drop-target="sprint"
+					data-sprint-id={sprint._id}
+					data-project-id={projectId}
+					className="flex items-center group/sprint min-w-0"
 				>
 					{isRenaming ? (
 						<div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 h-7">

@@ -849,8 +849,10 @@ export const update = mutation({
 		),
 		leadId: v.optional(v.id("users")),
 		clientId: v.optional(v.id("clients")),
-		startDate: v.optional(v.number()),
-		endDate: v.optional(v.number()),
+		// `null` = explicit clear sentinel (Convex drops `undefined` keys
+		// from mutation args on the wire, so undefined can't mean "clear").
+		startDate: v.optional(v.union(v.number(), v.null())),
+		endDate: v.optional(v.union(v.number(), v.null())),
 		intent: v.optional(
 			v.union(
 				v.literal("delivery"),
@@ -900,10 +902,14 @@ export const update = mutation({
 		);
 
 		const { projectId, ...updates } = args;
-		await ctx.db.patch(projectId, {
+		const patch: Record<string, unknown> = {
 			...updates,
 			updatedAt: Date.now(),
-		});
+		};
+		// Map null → undefined so ctx.db.patch deletes the field.
+		if (args.startDate === null) patch.startDate = undefined;
+		if (args.endDate === null) patch.endDate = undefined;
+		await ctx.db.patch(projectId, patch);
 
 		// Activity log
 		await logActivity(ctx, {

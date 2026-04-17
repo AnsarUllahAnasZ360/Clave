@@ -8,7 +8,6 @@ import {
 	Code2,
 	Columns3Icon,
 	Film,
-	GlobeIcon,
 	Heading1Icon,
 	Heading2Icon,
 	Heading3Icon,
@@ -18,17 +17,13 @@ import {
 	ListIcon,
 	ListOrdered,
 	MicIcon,
-	PenLineIcon,
 	PenToolIcon,
 	PilcrowIcon,
 	Quote,
 	RadicalIcon,
-	SparklesIcon,
 	Square,
 	Table,
 	TableOfContentsIcon,
-	TextIcon,
-	WandIcon,
 } from "lucide-react";
 import { KEYS, type TComboboxInputElement } from "platejs";
 import type { PlateEditor, PlateElementProps } from "platejs/react";
@@ -68,75 +63,10 @@ function getEditorRuntimeId(editor: PlateEditor): string | undefined {
 	return String(editor.id);
 }
 
-/** Dispatch a custom event for AI slash actions. Handled by EditorAIBridge. */
-function dispatchAIAction(
-	editor: PlateEditor,
-	actionType: string,
-	requiresPrompt?: boolean,
-) {
-	// Defer until the slash input node has been removed and selection restored.
-	requestAnimationFrame(() => {
-		window.dispatchEvent(
-			new CustomEvent("plate:ai-slash-action", {
-				detail: {
-					actionType,
-					requiresPrompt,
-					editorId: getEditorRuntimeId(editor),
-				},
-			}),
-		);
-	});
-}
-
 const groups: Group[] = [
 	{
 		group: "AI",
 		items: [
-			{
-				icon: <PenLineIcon />,
-				keywords: ["ai", "continue", "write", "generate"],
-				label: "AI: Continue writing",
-				value: "ai_continue",
-				onSelect: (editor) => {
-					dispatchAIAction(editor, "document_continue");
-				},
-			},
-			{
-				icon: <TextIcon />,
-				keywords: ["ai", "summarize", "summary", "tldr"],
-				label: "AI: Summarize above",
-				value: "ai_summarize",
-				onSelect: (editor) => {
-					dispatchAIAction(editor, "document_summarize");
-				},
-			},
-			{
-				icon: <SparklesIcon />,
-				keywords: ["ai", "write", "prompt", "generate", "create"],
-				label: "AI: Write from prompt...",
-				value: "ai_write_prompt",
-				onSelect: (editor) => {
-					dispatchAIAction(editor, "document_write_from_prompt", true);
-				},
-			},
-			{
-				icon: <WandIcon />,
-				keywords: ["ai", "improve", "enhance", "better", "rewrite"],
-				label: "AI: Improve writing",
-				value: "ai_improve",
-				onSelect: (editor) => {
-					dispatchAIAction(editor, "document_improve");
-				},
-			},
-			{
-				icon: <GlobeIcon />,
-				keywords: ["ai", "translate", "language", "convert"],
-				label: "AI: Translate...",
-				value: "ai_translate",
-				onSelect: (editor) => {
-					dispatchAIAction(editor, "document_translate", true);
-				},
-			},
 			{
 				icon: <MicIcon />,
 				keywords: ["dictate", "voice", "speech", "audio", "transcribe"],
@@ -405,11 +335,6 @@ function getFilteredGroups(editor: PlateEditor): Group[] {
 			...group,
 			items: group.items.filter((item) => {
 				switch (item.value) {
-					case "ai_continue":
-					case "ai_summarize":
-					case "ai_write_prompt":
-					case "ai_improve":
-					case "ai_translate":
 					case "ai_dictate":
 					case "ai_clipboard":
 						return has("ai-editor");

@@ -26,10 +26,11 @@ describe("RAG_SOURCE_TYPES", () => {
 		expect(RAG_SOURCE_TYPES).toContain("comment");
 		expect(RAG_SOURCE_TYPES).toContain("github_file");
 		expect(RAG_SOURCE_TYPES).toContain("doc_page");
+		expect(RAG_SOURCE_TYPES).toContain("whiteboard");
 	});
 
-	it("has exactly 5 source types", () => {
-		expect(RAG_SOURCE_TYPES).toHaveLength(5);
+	it("has exactly 6 source types", () => {
+		expect(RAG_SOURCE_TYPES).toHaveLength(6);
 	});
 });
 

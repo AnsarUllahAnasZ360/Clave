@@ -21,6 +21,8 @@ describe("AI update tools", () => {
 				"batchUpdateIssues",
 				"createDocument",
 				"updateDocument",
+				"appendToDocument",
+				"updateDocumentSection",
 				"createProject",
 				"updateProject",
 				"createLabel",

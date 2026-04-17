@@ -20,8 +20,10 @@ export interface IssueCreatePreset {
 	listId?: string;
 	milestoneId?: string;
 	status?: string;
+	priority?: string;
 	assigneeId?: string;
 	assigneeIds?: string[];
+	labelIds?: string[];
 	/** Source of issue creation for formatting hints (e.g., "document" for plain text descriptions) */
 	source?: "document" | "project" | "board" | "tasks";
 }
@@ -125,11 +127,13 @@ export function IssueCreateProvider({
 		setFormState({
 			...DEFAULT_FORM_STATE,
 			status: (p.status as StatusKey) ?? "backlog",
+			priority: (p.priority as PriorityKey) ?? "no_priority",
 			projectId: p.projectId,
 			sprintId: p.sprintId ?? p.milestoneId,
 			listId: p.listId,
 			milestoneId: p.milestoneId,
 			assigneeIds: presetAssigneeIds,
+			labelIds: p.labelIds ?? [],
 		});
 	}, []);
 

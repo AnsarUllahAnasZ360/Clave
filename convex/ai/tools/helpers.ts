@@ -126,6 +126,21 @@ interface PlateNode {
 	text?: string;
 	content?: PlateNode[];
 	children?: PlateNode[];
+	url?: string;
+	alt?: string;
+	caption?: string;
+	lang?: string;
+	level?: number;
+	bold?: boolean;
+	italic?: boolean;
+	code?: boolean;
+	underline?: boolean;
+	strikethrough?: boolean;
+}
+
+export interface PlateMedia {
+	images: Array<{ url: string; alt: string }>;
+	tables: Array<{ rows: number; cols: number }>;
 }
 
 /**
@@ -194,6 +209,245 @@ export function plateJsonToPlainText(json: string | undefined): string {
 		.join("")
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
+}
+
+/**
+ * Convert Plate/ProseMirror JSON to Markdown, preserving headings,
+ * lists, tables, images, links, code blocks, blockquotes, and inline
+ * marks. Intended for AI tool output so the agent can reference
+ * structured content (e.g. ![alt](url) image links) when creating
+ * issues, sprints, or project descriptions from a document.
+ */
+export function plateJsonToMarkdown(json: string | undefined): string {
+	if (!json) return "";
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(json);
+	} catch {
+		return json;
+	}
+
+	// Handle both formats:
+	// - Slate/Plate: array of nodes  [{type:"p",...}, ...]
+	// - ProseMirror/wrapped: object  {type:"doc", children:[...]}  or  {children:[...]}
+	const doc: PlateNode = Array.isArray(parsed)
+		? { children: parsed as PlateNode[] }
+		: (parsed as PlateNode);
+
+	const lines: string[] = [];
+
+	function leaf(node: PlateNode): string {
+		if (node.text === undefined) return "";
+		let t = node.text;
+		if (!t) return t;
+		if (node.code) t = `\`${t}\``;
+		if (node.bold) t = `**${t}**`;
+		if (node.italic) t = `*${t}*`;
+		if (node.strikethrough) t = `~~${t}~~`;
+		return t;
+	}
+
+	function inline(nodes: PlateNode[] | undefined): string {
+		if (!Array.isArray(nodes)) return "";
+		let s = "";
+		for (const child of nodes) {
+			if (child.text !== undefined) {
+				s += leaf(child);
+				continue;
+			}
+			const type = child.type ?? "";
+			if (type === "a" || type === "link") {
+				s += `[${inline(child.children)}](${child.url ?? ""})`;
+			} else if (type === "img" || type === "image") {
+				const alt = child.alt ?? child.caption ?? "image";
+				s += `![${alt}](${child.url ?? ""})`;
+			} else if (type === "mention") {
+				s += `@${inline(child.children) || child.text || ""}`;
+			} else {
+				s += inline(child.children);
+			}
+		}
+		return s;
+	}
+
+	function headingLevel(type: string, node: PlateNode): number | null {
+		const m = /^h([1-6])$/.exec(type);
+		if (m) return Number(m[1]);
+		if (type === "heading") return Math.min(Math.max(node.level ?? 1, 1), 6);
+		return null;
+	}
+
+	function block(node: PlateNode, depth = 0): void {
+		const type = node.type ?? "";
+		const children = node.children ?? node.content;
+
+		const hLevel = headingLevel(type, node);
+		if (hLevel !== null) {
+			lines.push(`${"#".repeat(hLevel)} ${inline(children)}`.trimEnd());
+			lines.push("");
+			return;
+		}
+
+		if (type === "p" || type === "paragraph" || type === "") {
+			if (!type && Array.isArray(children)) {
+				for (const c of children) block(c, depth);
+				return;
+			}
+			const content = inline(children);
+			if (content.trim()) lines.push(content);
+			lines.push("");
+			return;
+		}
+
+		if (type === "blockquote") {
+			const content = inline(children).split("\n");
+			for (const l of content) lines.push(`> ${l}`);
+			lines.push("");
+			return;
+		}
+
+		if (type === "code_block" || type === "code-block" || type === "code") {
+			const text = (children ?? [])
+				.map((row) =>
+					Array.isArray(row.children)
+						? row.children.map((t) => t.text ?? "").join("")
+						: (row.text ?? ""),
+				)
+				.join("\n");
+			lines.push(`\`\`\`${node.lang ?? ""}`);
+			lines.push(text);
+			lines.push("```");
+			lines.push("");
+			return;
+		}
+
+		if (type === "ul" || type === "bulleted-list" || type === "bulleted_list") {
+			for (const li of children ?? []) {
+				lines.push(`${"  ".repeat(depth)}- ${inline(li.children)}`);
+			}
+			lines.push("");
+			return;
+		}
+
+		if (type === "ol" || type === "numbered-list" || type === "numbered_list") {
+			let i = 1;
+			for (const li of children ?? []) {
+				lines.push(`${"  ".repeat(depth)}${i}. ${inline(li.children)}`);
+				i++;
+			}
+			lines.push("");
+			return;
+		}
+
+		if (type === "li" || type === "list_item" || type === "list-item") {
+			lines.push(`${"  ".repeat(depth)}- ${inline(children)}`);
+			return;
+		}
+
+		if (type === "img" || type === "image") {
+			const alt = node.alt ?? node.caption ?? "image";
+			lines.push(`![${alt}](${node.url ?? ""})`);
+			if (node.caption && node.caption !== alt) {
+				lines.push(`_${node.caption}_`);
+			}
+			lines.push("");
+			return;
+		}
+
+		if (type === "table") {
+			const rows: string[][] = [];
+			for (const tr of children ?? []) {
+				if (tr.type !== "tr" && tr.type !== "table_row") continue;
+				const row: string[] = [];
+				for (const cell of tr.children ?? []) {
+					const cellText = inline(cell.children)
+						.replace(/\|/g, "\\|")
+						.replace(/\n+/g, " ")
+						.trim();
+					row.push(cellText || " ");
+				}
+				if (row.length > 0) rows.push(row);
+			}
+			if (rows.length > 0) {
+				const cols = Math.max(...rows.map((r) => r.length));
+				const pad = (r: string[]) => [
+					...r,
+					...Array(Math.max(0, cols - r.length)).fill(" "),
+				];
+				const header = pad(rows[0]);
+				lines.push(`| ${header.join(" | ")} |`);
+				lines.push(`| ${header.map(() => "---").join(" | ")} |`);
+				for (const r of rows.slice(1)) {
+					lines.push(`| ${pad(r).join(" | ")} |`);
+				}
+			}
+			lines.push("");
+			return;
+		}
+
+		if (type === "hr" || type === "divider") {
+			lines.push("---");
+			lines.push("");
+			return;
+		}
+
+		if (Array.isArray(children)) {
+			for (const c of children) block(c, depth);
+		}
+	}
+
+	block(doc);
+
+	return lines
+		.join("\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
+/**
+ * Walks a Plate document and extracts image URLs and table summaries
+ * so tools can surface them to the agent even if content is truncated.
+ */
+export function extractPlateMedia(json: string | undefined): PlateMedia {
+	const result: PlateMedia = { images: [], tables: [] };
+	if (!json) return result;
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(json);
+	} catch {
+		return result;
+	}
+
+	const doc: PlateNode = Array.isArray(parsed)
+		? { children: parsed as PlateNode[] }
+		: (parsed as PlateNode);
+
+	function walk(node: PlateNode): void {
+		const type = node.type;
+		if ((type === "img" || type === "image") && node.url) {
+			result.images.push({
+				url: node.url,
+				alt: node.alt ?? node.caption ?? "",
+			});
+		}
+		if (type === "table") {
+			const rows = (node.children ?? []).filter(
+				(c) => c.type === "tr" || c.type === "table_row",
+			);
+			const cols = rows.length
+				? Math.max(...rows.map((r) => (r.children ?? []).length))
+				: 0;
+			result.tables.push({ rows: rows.length, cols });
+		}
+		const children = node.children ?? node.content;
+		if (Array.isArray(children)) {
+			for (const c of children) walk(c);
+		}
+	}
+	walk(doc);
+	return result;
 }
 
 // ── Name resolution helpers ──────────────────────────────────────────────

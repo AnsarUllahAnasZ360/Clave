@@ -1,6 +1,6 @@
 import { saveMessages } from "@convex-dev/agent";
 import { ConvexError, v } from "convex/values";
-import { api, components } from "../_generated/api";
+import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
 	internalMutation,
@@ -10,7 +10,34 @@ import {
 	type QueryCtx,
 	query,
 } from "../_generated/server";
+import {
+	type BoardImageAttachment,
+	mergeDescriptionWithBoardImages,
+} from "./boardImageDescription";
 import { requireThreadOwnership } from "./chatQueries";
+
+/**
+ * Resolve a list of whiteboardImages row IDs to markdown-embed-ready
+ * attachments. Used by the create{Issue,Project} approval handlers to attach
+ * board visuals inline. Rows that no longer exist are silently dropped.
+ */
+async function resolveBoardImageAttachments(
+	ctx: MutationCtx,
+	imageIds: string[] | undefined,
+): Promise<BoardImageAttachment[]> {
+	if (!imageIds || imageIds.length === 0) return [];
+	const out: BoardImageAttachment[] = [];
+	for (const raw of imageIds) {
+		const row = await ctx.db.get(raw as Id<"whiteboardImages">);
+		if (!row) continue;
+		// Use a stable proxy URL so the embed survives signed-URL rotation.
+		out.push({
+			url: `/api/whiteboard-image/${row._id}`,
+			caption: row.caption,
+		});
+	}
+	return out;
+}
 
 type DeferredApprovalPayload = {
 	type: string;
@@ -150,6 +177,7 @@ async function assertThreadOwnedByActor(
 async function executeDeferredApprovalMutation(
 	ctx: MutationCtx,
 	payload: DeferredApprovalPayload,
+	actorUserId?: Id<"users">,
 ) {
 	let resultMessage = "Action executed successfully";
 
@@ -163,11 +191,20 @@ async function executeDeferredApprovalMutation(
 			assigneeId?: string;
 			projectId?: string;
 			labelIds?: string[];
+			attachBoardImageIds?: string[];
 		};
+		const attachments = await resolveBoardImageAttachments(
+			ctx,
+			args.attachBoardImageIds,
+		);
+		const descriptionWithImages = mergeDescriptionWithBoardImages(
+			args.description,
+			attachments,
+		);
 		const result = await ctx.runMutation(api.issues.create, {
 			workspaceId: payload.workspaceId as Id<"workspaces">,
 			title: args.title,
-			description: args.description,
+			description: descriptionWithImages,
 			status: args.status as
 				| "triage"
 				| "backlog"
@@ -208,47 +245,87 @@ async function executeDeferredApprovalMutation(
 					projectId?: string;
 					sprintId?: string;
 					labelIds?: string[];
+					attachBoardImageIds?: string[];
 			  }>
 			| undefined;
 		if (!rawIssues?.length) {
 			throw new ConvexError("bulkCreateIssues: no issues in payload");
 		}
+
+		// Batch-resolve identifiers and sortOrder once for all issues.
+		// This avoids calling api.issues.create N times which triggers
+		// N × (auth + settings patch + activity + notifications + indexing)
+		// and easily overflows the transaction document limit.
+		const settings = await ctx.db
+			.query("workspaceSettings")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+			.unique();
+		const prefix = (settings?.issuePrefix ?? "ISS").trim().toUpperCase();
+		let nextNumber = settings?.nextIssueNumber ?? 1;
+
+		const allIssues = await ctx.db
+			.query("issues")
+			.withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+			.collect();
+		let maxSortOrder = 0;
+		for (const issue of allIssues) {
+			if (issue.sortOrder > maxSortOrder) maxSortOrder = issue.sortOrder;
+		}
+
 		const identifiers: string[] = [];
 		for (const args of rawIssues) {
 			if (!args.title?.trim()) continue;
-			const result = await ctx.runMutation(api.issues.create, {
+			const attachments = await resolveBoardImageAttachments(
+				ctx,
+				args.attachBoardImageIds,
+			);
+			const descriptionWithImages = mergeDescriptionWithBoardImages(
+				args.description,
+				attachments,
+			);
+			const identifier = `${prefix}-${String(nextNumber).padStart(3, "0")}`;
+			nextNumber += 1;
+			maxSortOrder += 1024;
+			const status = (args.status ?? "backlog") as string;
+			const issueId = await ctx.db.insert("issues", {
 				workspaceId,
+				projectId: args.projectId
+					? (args.projectId as Id<"projects">)
+					: undefined,
+				sprintId: args.sprintId ? (args.sprintId as Id<"sprints">) : undefined,
+				identifier,
 				title: args.title.trim(),
-				description: args.description,
-				status: args.status as
-					| "triage"
-					| "backlog"
-					| "todo"
-					| "in_progress"
-					| "in_review"
-					| "done"
-					| "cancelled"
-					| undefined,
-				priority: args.priority as
-					| "urgent"
-					| "high"
-					| "medium"
-					| "low"
-					| "no_priority"
-					| undefined,
-				type: args.type as
-					| "issue"
-					| "bug"
-					| "improvement"
-					| "feature"
-					| undefined,
-				assigneeId: args.assigneeId as Id<"users"> | undefined,
-				projectId: args.projectId as Id<"projects"> | undefined,
-				sprintId: args.sprintId as Id<"sprints"> | undefined,
+				description: descriptionWithImages,
+				status,
+				priority: (args.priority ?? "no_priority") as string,
+				type: (args.type ?? "issue") as string,
+				assigneeId: args.assigneeId
+					? (args.assigneeId as Id<"users">)
+					: undefined,
+				assigneeIds: args.assigneeId
+					? [args.assigneeId as Id<"users">]
+					: undefined,
 				labelIds: args.labelIds as Array<Id<"labels">> | undefined,
+				sortOrder: maxSortOrder,
+				createdBy: actorUserId ?? (workspaceId as unknown as Id<"users">),
+				updatedAt: Date.now(),
+				completedAt:
+					status === "done" || status === "cancelled" ? Date.now() : undefined,
 			});
-			identifiers.push(result.identifier);
+			identifiers.push(identifier);
+			// Schedule indexing asynchronously (non-blocking)
+			await ctx.scheduler.runAfter(
+				0,
+				internal.ai.indexing.issueIndexer.indexIssue,
+				{ issueId },
+			);
 		}
+
+		// Persist the incremented counter once for the whole batch
+		if (settings) {
+			await ctx.db.patch(settings._id, { nextIssueNumber: nextNumber });
+		}
+
 		resultMessage = `Created ${identifiers.length} issues: ${identifiers.join(", ")}`;
 	} else if (payload.type === "updateIssue") {
 		// Route through api.issues.update for full RBAC, activity logging, and notifications
@@ -295,11 +372,20 @@ async function executeDeferredApprovalMutation(
 			leadId?: string;
 			startDate?: number;
 			endDate?: number;
+			attachBoardImageIds?: string[];
 		};
+		const attachments = await resolveBoardImageAttachments(
+			ctx,
+			args.attachBoardImageIds,
+		);
+		const descriptionWithImages = mergeDescriptionWithBoardImages(
+			args.description,
+			attachments,
+		);
 		await ctx.runMutation(api.projects.create, {
 			workspaceId: payload.workspaceId as Id<"workspaces">,
 			name: args.name,
-			description: args.description,
+			description: descriptionWithImages,
 			status: args.status as
 				| "backlog"
 				| "planned"
@@ -354,10 +440,20 @@ async function executeDeferredApprovalMutationForGoogleChat(
 			assigneeId?: string;
 			projectId?: string;
 			labelIds?: string[];
+			attachBoardImageIds?: string[];
 		};
 		if (!args?.title?.trim()) {
 			throw new ConvexError("createIssue payload missing title");
 		}
+
+		const attachments = await resolveBoardImageAttachments(
+			ctx,
+			args.attachBoardImageIds,
+		);
+		const descriptionWithImages = mergeDescriptionWithBoardImages(
+			args.description,
+			attachments,
+		);
 
 		const { identifier, sortOrder } = await resolveIssueIdentifierAndSortOrder(
 			ctx,
@@ -369,7 +465,7 @@ async function executeDeferredApprovalMutationForGoogleChat(
 			projectId: args.projectId as Id<"projects"> | undefined,
 			identifier,
 			title: args.title.trim(),
-			description: args.description,
+			description: descriptionWithImages,
 			status,
 			priority: args.priority ?? "no_priority",
 			type: args.type ?? "issue",
@@ -392,7 +488,7 @@ async function executeDeferredApprovalMutationForGoogleChat(
 			throw new ConvexError("bulkCreateIssues payload missing workspaceId");
 		}
 		await assertWorkspaceMember(ctx, workspaceId, actorUserId);
-		return await executeDeferredApprovalMutation(ctx, payload);
+		return await executeDeferredApprovalMutation(ctx, payload, actorUserId);
 	} else if (payload.type === "updateIssue") {
 		const issueId = payload.issueId as Id<"issues">;
 		if (!issueId) {
@@ -677,20 +773,41 @@ export const approveAction = mutation({
 	returns: v.null(),
 	handler: async (ctx, { approvalId }) => {
 		const approval = await ctx.db.get(approvalId);
-		if (!approval) throw new Error("Approval not found");
+		if (!approval) throw new ConvexError("Approval not found");
 		if (approval.status !== "pending") {
-			throw new Error(`Approval already ${approval.status}`);
+			throw new ConvexError(`Approval already ${approval.status}`);
 		}
 
 		// Verify thread ownership (not just workspace membership)
-		await requireThreadOwnership(ctx, approval.threadId);
+		const { userId } = await requireThreadOwnership(ctx, approval.threadId);
 
 		const payload = JSON.parse(
 			approval.actionPayload,
 		) as DeferredApprovalPayload;
-		const resultMessage = await executeDeferredApprovalMutation(ctx, payload);
 
-		// Mark approval as approved
+		let resultMessage: string;
+		try {
+			resultMessage = await executeDeferredApprovalMutation(
+				ctx,
+				payload,
+				userId,
+			);
+		} catch (error) {
+			const errMsg =
+				error instanceof ConvexError
+					? String(error.data)
+					: error instanceof Error
+						? error.message
+						: "Unknown error during approval execution";
+			// Mark approval as failed so the user sees what went wrong
+			await ctx.db.patch(approvalId, {
+				status: "rejected",
+				resultMessage: `Execution failed: ${errMsg}`,
+				resolvedAt: Date.now(),
+			});
+			throw new ConvexError(`Approval execution failed: ${errMsg}`);
+		}
+
 		await ctx.db.patch(approvalId, {
 			status: "approved",
 			resultMessage,

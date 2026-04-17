@@ -2,7 +2,12 @@ import { ConvexError, v } from "convex/values";
 import * as Y from "yjs";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalMutation, mutation, query } from "./_generated/server";
+import {
+	internalMutation,
+	internalQuery,
+	mutation,
+	query,
+} from "./_generated/server";
 import {
 	checkDocumentReadAccess,
 	checkDocumentWriteAccess,
@@ -339,5 +344,101 @@ export const migrateLegacyDocument = mutation({
 		});
 
 		return { migrated: true };
+	},
+});
+
+// ── Yjs → Plate JSON extraction ─────────────────────────────────────────
+
+/**
+ * Convert a Y.XmlText (slate-yjs format) into a Plate/Slate element.
+ *
+ * @slate-yjs/core stores Slate nodes as nested Y.XmlText instances:
+ * - Each Y.XmlText represents one Slate element (paragraph, heading, etc.)
+ * - Element properties (type, url, alt, etc.) are stored as XmlText attributes
+ * - Child nodes appear in the delta: string inserts become text leaves,
+ *   Y.XmlText inserts become recursive child elements
+ *
+ * This mirrors the `yTextToSlateElement` function in @slate-yjs/core.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: Yjs delta ops are untyped
+function yTextToSlateElement(yText: Y.XmlText): Record<string, unknown> {
+	const delta = yText.toDelta();
+	const children: unknown[] =
+		delta.length > 0
+			? // biome-ignore lint/suspicious/noExplicitAny: delta ops are untyped
+				delta.map((op: any) => deltaInsertToSlateNode(op))
+			: [{ text: "" }];
+
+	return { ...yText.getAttributes(), children };
+}
+
+// biome-ignore lint/suspicious/noExplicitAny: delta ops are untyped
+function deltaInsertToSlateNode(op: any): unknown {
+	if (typeof op.insert === "string") {
+		return { text: op.insert, ...op.attributes };
+	}
+	// op.insert is a nested Y.XmlText representing a child element
+	if (op.insert instanceof Y.XmlText) {
+		return yTextToSlateElement(op.insert);
+	}
+	return { text: "" };
+}
+
+/**
+ * Reconstruct a Yjs document from its stored snapshot + incremental
+ * updates and extract the Plate JSON content as a string.
+ *
+ * Called by the AI agent's getDocument tool when document.content is
+ * empty (i.e. the document uses Yjs v3 for real-time collaboration).
+ *
+ * Returns null if no Yjs state exists for the document.
+ */
+export const getDocumentContentFromYjs = internalQuery({
+	args: { documentId: v.id("documents") },
+	returns: v.union(v.string(), v.null()),
+	handler: async (ctx, args) => {
+		const snapshotRow = await ctx.db
+			.query("yjsSnapshotsV3")
+			.withIndex("by_document", (q) => q.eq("documentId", args.documentId))
+			.unique();
+
+		if (!snapshotRow) return null;
+
+		const updates = await ctx.db
+			.query("yjsUpdatesV3")
+			.withIndex("by_document_created", (q) =>
+				q.eq("documentId", args.documentId),
+			)
+			.order("asc")
+			.take(2000);
+
+		const ydoc = new Y.Doc();
+		try {
+			if (snapshotRow.snapshot) {
+				Y.applyUpdate(ydoc, new Uint8Array(snapshotRow.snapshot));
+			}
+			for (const updateRow of updates) {
+				try {
+					Y.applyUpdate(ydoc, new Uint8Array(updateRow.update));
+				} catch {
+					// Skip malformed updates
+				}
+			}
+
+			// Plate v52 + @slate-yjs/core stores content in a Y.XmlText
+			// shared type keyed "content". Each block element is a nested
+			// Y.XmlText in the root delta.
+			const sharedType = ydoc.get("content", Y.XmlText);
+			const rootElement = yTextToSlateElement(sharedType);
+			const children = (rootElement.children ?? []) as unknown[];
+
+			if (children.length === 0) return null;
+
+			// Wrap in { children: [...] } — plateJsonToMarkdown handles
+			// root nodes with no type by recursing into children.
+			return JSON.stringify({ children });
+		} finally {
+			ydoc.destroy();
+		}
 	},
 });

@@ -128,6 +128,58 @@ export const getComment = internalQuery({
 });
 
 /**
+ * Fetch minimal whiteboard data for RAG indexing.
+ * Returns the scene JSON storage pointer so the indexer can load large scenes
+ * from file storage, plus any persisted image OCR/captions.
+ */
+export const getWhiteboardForIndex = internalQuery({
+	args: { whiteboardId: v.id("whiteboards") },
+	returns: v.union(
+		v.object({
+			_id: v.id("whiteboards"),
+			workspaceId: v.id("workspaces"),
+			projectId: v.optional(v.id("projects")),
+			title: v.string(),
+			sceneData: v.optional(v.string()),
+			sceneDataStorageId: v.optional(v.id("_storage")),
+			deletedAt: v.optional(v.number()),
+			images: v.array(
+				v.object({
+					fileKey: v.string(),
+					ocrText: v.optional(v.string()),
+					caption: v.optional(v.string()),
+				}),
+			),
+		}),
+		v.null(),
+	),
+	handler: async (ctx, args) => {
+		const board = await ctx.db.get(args.whiteboardId);
+		if (!board) return null;
+		const images = await ctx.db
+			.query("whiteboardImages")
+			.withIndex("by_whiteboard", (q) =>
+				q.eq("whiteboardId", args.whiteboardId),
+			)
+			.collect();
+		return {
+			_id: board._id,
+			workspaceId: board.workspaceId,
+			projectId: board.projectId,
+			title: board.title,
+			sceneData: board.sceneData,
+			sceneDataStorageId: board.sceneDataStorageId,
+			deletedAt: board.deletedAt,
+			images: images.map((im) => ({
+				fileKey: im.fileKey,
+				ocrText: im.ocrText,
+				caption: im.caption,
+			})),
+		};
+	},
+});
+
+/**
  * Fetch a GitHub connection for a project (used by githubIndexer).
  * Returns the connection with the encrypted access token for decryption.
  */

@@ -126,7 +126,9 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 	const issueDisplayOpts = useDisplayOptions(issueViewContext);
 
 	const handleUpdateProject = useCallback(
-		async (updates: Record<string, string | number | string[] | undefined>) => {
+		async (
+			updates: Record<string, string | number | string[] | null | undefined>,
+		) => {
 			if (!project?._id) return;
 			try {
 				await updateProject({ projectId: project._id, ...updates });
@@ -213,7 +215,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 			<Tabs
 				value={activeTab}
 				onValueChange={setActiveTab}
-				className="flex flex-1 flex-col min-h-0"
+				className="flex flex-1 flex-col min-h-0 overflow-hidden"
 			>
 				{/* FIXED HEADER ZONE — Linear-style compact layout */}
 				<div className="shrink-0 bg-background border-b border-border">
@@ -304,16 +306,12 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 				</div>
 
 				{/* BODY: two independent scroll columns */}
-				<div className="flex flex-1 min-h-0 bg-background rounded-b-lg">
+				<div className="flex flex-1 min-h-0 overflow-hidden bg-background rounded-b-lg">
 					{/* Main content — flex column, fills height */}
 					<div
 						className={cn(
-							"flex-1 min-w-0 flex flex-col",
-							activeTab === "issues" &&
-								(issueDisplayOpts.options.layout === "board" ||
-									issueDisplayOpts.options.layout === "timeline")
-								? "min-h-0"
-								: "overflow-auto",
+							"flex-1 min-w-0 flex flex-col min-h-0",
+							activeTab === "issues" ? "overflow-hidden" : "overflow-auto",
 						)}
 					>
 						<TabsContent value="overview" className="mt-0">
@@ -342,12 +340,7 @@ export function ProjectDetailsPage({ slug }: ProjectDetailsPageProps) {
 
 						<TabsContent
 							value="issues"
-							className={cn(
-								"mt-0",
-								(issueDisplayOpts.options.layout === "board" ||
-									issueDisplayOpts.options.layout === "timeline") &&
-									"data-[state=active]:flex flex-col flex-1 min-h-0",
-							)}
+							className="mt-0 data-[state=active]:flex flex-col flex-1 min-h-0 overflow-hidden"
 						>
 							<ProjectIssuesTab
 								projectId={project._id}
@@ -649,8 +642,8 @@ function ProjectIssuesTab({
 	const projectMap = useMemo(() => new Map<string, string>(), []);
 
 	return (
-		<div className="flex flex-1 min-h-0 min-w-0 overflow-y-hidden">
-			<div className="flex flex-col flex-1 min-h-0 min-w-0">
+		<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+			<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
 				{/* Toolbar: Filter + Display | Create Issue */}
 				<div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-border/40 bg-muted/20 shrink-0">
 					<MyIssuesFilterPopover
@@ -736,18 +729,18 @@ function ProjectIssuesTab({
 					</div>
 				)}
 				{options.layout === "list" && (
-					<div className="px-6 pb-6 w-full overflow-auto flex-1 min-h-0 min-w-0">
-						<IssueListView
-							issues={filteredListIssues}
-							projectId={projectId}
-							groupBy={options.groupBy}
-							subGroupBy={options.subGroupBy}
-							orderBy={options.orderBy}
-							displayProperties={options.displayProperties}
-							hideFilter
-							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-						/>
-					</div>
+					<IssueListView
+						issues={filteredListIssues}
+						projectId={projectId}
+						groupBy={options.groupBy}
+						subGroupBy={options.subGroupBy}
+						orderBy={options.orderBy}
+						orderDirection={options.orderDirection}
+						displayProperties={options.displayProperties}
+						showEmptyGroups={options.showEmptyGroups}
+						hideFilter
+						onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+					/>
 				)}
 				{options.layout === "timeline" && (
 					<div className="flex-1 min-h-0 flex flex-col">
@@ -760,13 +753,18 @@ function ProjectIssuesTab({
 				)}
 			</div>
 
-			{/* Issue peek sidebar */}
-			{selectedIssueId && (
-				<IssuePreviewSidebar
-					issueId={selectedIssueId}
-					onClose={() => setSelectedIssueId(null)}
-				/>
-			)}
+			{/* Issue peek sidebar — stable container prevents layout shift */}
+			<div
+				className="shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+				style={{ width: selectedIssueId ? 420 : 0 }}
+			>
+				{selectedIssueId && (
+					<IssuePreviewSidebar
+						issueId={selectedIssueId}
+						onClose={() => setSelectedIssueId(null)}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }

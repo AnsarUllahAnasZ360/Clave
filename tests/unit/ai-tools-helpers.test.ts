@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	extractPlateMedia,
 	MAX_CONTENT_LENGTH,
+	plateJsonToMarkdown,
 	plateJsonToPlainText,
 	TOOL_TIMEOUT_MS,
 	truncateAtBoundary,
@@ -208,6 +210,250 @@ describe("ai/tools/helpers", () => {
 			};
 			const result = plateJsonToPlainText(JSON.stringify(doc));
 			expect(result).not.toContain("\n\n\n");
+		});
+	});
+
+	describe("plateJsonToMarkdown", () => {
+		it("returns empty string for undefined or empty input", () => {
+			expect(plateJsonToMarkdown(undefined)).toBe("");
+			expect(plateJsonToMarkdown("")).toBe("");
+		});
+
+		it("renders headings with the correct level", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{ type: "h1", children: [{ text: "Title" }] },
+					{ type: "h3", children: [{ text: "Sub" }] },
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("# Title");
+			expect(md).toContain("### Sub");
+		});
+
+		it("handles Slate/Yjs flat array format (no root wrapper)", () => {
+			const nodes = [
+				{ type: "h1", children: [{ text: "Sprint Plan" }] },
+				{ type: "p", children: [{ text: "Details here." }] },
+			];
+			const md = plateJsonToMarkdown(JSON.stringify(nodes));
+			expect(md).toContain("# Sprint Plan");
+			expect(md).toContain("Details here.");
+		});
+
+		it("handles root with no type but with children (Yjs extraction)", () => {
+			const doc = {
+				children: [{ type: "p", children: [{ text: "From Yjs." }] }],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("From Yjs.");
+		});
+
+		it("preserves bold, italic, and inline code marks", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "p",
+						children: [
+							{ text: "hello " },
+							{ text: "world", bold: true },
+							{ text: " " },
+							{ text: "x", italic: true },
+							{ text: " " },
+							{ text: "y", code: true },
+						],
+					},
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("**world**");
+			expect(md).toContain("*x*");
+			expect(md).toContain("`y`");
+		});
+
+		it("renders images as markdown with url and alt", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "img",
+						url: "https://uploadthing.com/f/abc.png",
+						alt: "Diagram",
+						children: [{ text: "" }],
+					},
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("![Diagram](https://uploadthing.com/f/abc.png)");
+		});
+
+		it("renders bullet and numbered lists", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "ul",
+						children: [
+							{ type: "li", children: [{ text: "one" }] },
+							{ type: "li", children: [{ text: "two" }] },
+						],
+					},
+					{
+						type: "ol",
+						children: [
+							{ type: "li", children: [{ text: "first" }] },
+							{ type: "li", children: [{ text: "second" }] },
+						],
+					},
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("- one");
+			expect(md).toContain("- two");
+			expect(md).toContain("1. first");
+			expect(md).toContain("2. second");
+		});
+
+		it("renders tables with header separator row", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "table",
+						children: [
+							{
+								type: "tr",
+								children: [
+									{ type: "td", children: [{ text: "Name" }] },
+									{ type: "td", children: [{ text: "Owner" }] },
+								],
+							},
+							{
+								type: "tr",
+								children: [
+									{ type: "td", children: [{ text: "Auth" }] },
+									{ type: "td", children: [{ text: "Alice" }] },
+								],
+							},
+						],
+					},
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("| Name | Owner |");
+			expect(md).toContain("| --- | --- |");
+			expect(md).toContain("| Auth | Alice |");
+		});
+
+		it("renders code blocks with language fence", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "code_block",
+						lang: "ts",
+						children: [
+							{ type: "code_line", children: [{ text: "const x = 1;" }] },
+						],
+					},
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("```ts");
+			expect(md).toContain("const x = 1;");
+			expect(md).toContain("```");
+		});
+
+		it("renders links inline", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "p",
+						children: [
+							{ text: "see " },
+							{
+								type: "a",
+								url: "https://clave.dev",
+								children: [{ text: "docs" }],
+							},
+						],
+					},
+				],
+			};
+			const md = plateJsonToMarkdown(JSON.stringify(doc));
+			expect(md).toContain("[docs](https://clave.dev)");
+		});
+	});
+
+	describe("extractPlateMedia", () => {
+		it("returns empty arrays for undefined input", () => {
+			expect(extractPlateMedia(undefined)).toEqual({
+				images: [],
+				tables: [],
+			});
+		});
+
+		it("collects all image URLs with alt text", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "img",
+						url: "https://x/1.png",
+						alt: "one",
+						children: [{ text: "" }],
+					},
+					{
+						type: "p",
+						children: [
+							{
+								type: "image",
+								url: "https://x/2.png",
+								caption: "two",
+								children: [{ text: "" }],
+							},
+						],
+					},
+				],
+			};
+			const media = extractPlateMedia(JSON.stringify(doc));
+			expect(media.images).toHaveLength(2);
+			expect(media.images[0]).toEqual({ url: "https://x/1.png", alt: "one" });
+			expect(media.images[1]).toEqual({ url: "https://x/2.png", alt: "two" });
+		});
+
+		it("summarizes tables by row and column count", () => {
+			const doc = {
+				type: "doc",
+				children: [
+					{
+						type: "table",
+						children: [
+							{
+								type: "tr",
+								children: [
+									{ type: "td", children: [{ text: "a" }] },
+									{ type: "td", children: [{ text: "b" }] },
+									{ type: "td", children: [{ text: "c" }] },
+								],
+							},
+							{
+								type: "tr",
+								children: [
+									{ type: "td", children: [{ text: "1" }] },
+									{ type: "td", children: [{ text: "2" }] },
+									{ type: "td", children: [{ text: "3" }] },
+								],
+							},
+						],
+					},
+				],
+			};
+			const media = extractPlateMedia(JSON.stringify(doc));
+			expect(media.tables).toEqual([{ rows: 2, cols: 3 }]);
 		});
 	});
 });

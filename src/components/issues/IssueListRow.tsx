@@ -426,12 +426,6 @@ export const IssueListRow = memo(function IssueListRow({
 		// biome-ignore lint/a11y/noStaticElementInteractions: spreadsheet-like list row with click-to-open and inline editing cells
 		<div
 			data-issue-id={issue._id}
-			draggable
-			onDragStart={(e) => {
-				e.dataTransfer.setData("application/clave-issue-id", issue._id);
-				e.dataTransfer.setData("text/plain", issue.identifier);
-				e.dataTransfer.effectAllowed = "move";
-			}}
 			className={cn(
 				"group flex items-center gap-x-6 h-9 border-b border-border/50 text-sm hover:bg-muted/40 transition-colors cursor-pointer",
 				isHighlighted && "bg-muted/60 ring-1 ring-primary/30",
@@ -443,28 +437,22 @@ export const IssueListRow = memo(function IssueListRow({
 			}}
 		>
 			{bulkSelect ? (
-				<button
-					type="button"
+				<div
+					role="presentation"
 					data-issue-select=""
 					className="w-[36px] shrink-0 flex items-center justify-center pl-1"
 					onClick={(e) => {
 						e.stopPropagation();
 						bulkSelect.onToggle(e.shiftKey);
 					}}
-					onKeyDown={(e) => {
-						if (e.key === " " || e.key === "Enter") {
-							e.preventDefault();
-							e.stopPropagation();
-							bulkSelect.onToggle(e.shiftKey);
-						}
-					}}
 				>
 					<Checkbox
 						checked={bulkSelect.selected}
-						className="pointer-events-none"
 						aria-label="Select issue"
+						tabIndex={-1}
+						className="pointer-events-none"
 					/>
-				</button>
+				</div>
 			) : null}
 			{columns.map((col) => {
 				switch (col) {
@@ -684,7 +672,7 @@ export const IssueListRow = memo(function IssueListRow({
 										<button
 											type="button"
 											aria-label="Edit assignees"
-											className="flex items-center gap-1 w-full rounded px-1 py-0.5 hover:bg-muted/80 transition-colors text-xs"
+											className="flex items-center gap-1.5 w-full h-7 rounded-md px-1.5 hover:bg-muted transition-colors text-xs"
 										>
 											{selectedAssigneeIds.length > 0 ? (
 												<div className="flex items-center gap-1 w-full">
@@ -731,8 +719,8 @@ export const IssueListRow = memo(function IssueListRow({
 													<span className="truncate">{assignee.name}</span>
 												</>
 											) : (
-												<span className="text-muted-foreground">
-													Unassigned
+												<span className="text-muted-foreground/50 group-hover:text-muted-foreground transition-colors">
+													+ Assignee
 												</span>
 											)}
 										</button>

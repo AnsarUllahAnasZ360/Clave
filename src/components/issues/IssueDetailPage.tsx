@@ -635,9 +635,11 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	const handleDueDateChange = useCallback(
 		async (date: Date | undefined) => {
 			try {
+				// Map cleared (undefined) to null so the Convex patch actually
+				// removes the field — undefined keys are dropped on the wire.
 				await updateIssue({
 					issueId: issueId as Id<"issues">,
-					dueDate: date?.getTime(),
+					dueDate: date ? date.getTime() : null,
 				});
 			} catch {
 				toast.error("Failed to update due date");

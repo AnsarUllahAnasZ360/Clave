@@ -19,7 +19,7 @@ import {
 	X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreateBranchDialog } from "@/components/github/CreateBranchDialog";
 import { EstimateInput } from "@/components/issues/EstimateInput";
 import { useWorkspace } from "@/components/providers/workspace-context";
@@ -39,11 +39,11 @@ import {
 import { DatePicker, GenericPicker } from "@/components/ui/pickers";
 import { Separator } from "@/components/ui/separator";
 import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
-import { extractTextFromContent } from "@/lib/content-converters";
 import { DEFAULT_PRIORITIES } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { IssueDescriptionEditorDynamic } from "./IssueDescriptionEditorDynamic";
 
 // ── Property row ────────────────────────────────────────────────────────────
 
@@ -158,8 +158,10 @@ export function IssuePreviewSidebar({
 }) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
-	const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 	const [createBranchOpen, setCreateBranchOpen] = useState(false);
+	const [editingTitle, setEditingTitle] = useState(false);
+	const [titleValue, setTitleValue] = useState("");
+	const titleInputRef = useRef<HTMLInputElement>(null);
 	const updateIssue = useMutation(api.issues.update);
 
 	const handleUpdate = useCallback(
@@ -171,6 +173,21 @@ export function IssuePreviewSidebar({
 
 	// Fetch issue data
 	const issue = useQuery(api.issues.getById, { issueId });
+
+	const handleTitleSave = useCallback(() => {
+		const trimmed = titleValue.trim();
+		if (trimmed && trimmed !== issue?.title) {
+			handleUpdate("title", trimmed);
+		}
+		setEditingTitle(false);
+	}, [titleValue, issue?.title, handleUpdate]);
+
+	useEffect(() => {
+		if (editingTitle && titleInputRef.current) {
+			titleInputRef.current.focus();
+			titleInputRef.current.select();
+		}
+	}, [editingTitle]);
 
 	// Fetch project for custom status merge
 	const projectForStatuses = useQuery(
@@ -320,16 +337,6 @@ export function IssuePreviewSidebar({
 				l !== null,
 		);
 
-	// Description truncation — extract plain text from content JSON
-	const description = issue.description
-		? extractTextFromContent(issue.description)
-		: "";
-	const isDescriptionLong = description.length > 200;
-	const displayDescription =
-		isDescriptionLong && !descriptionExpanded
-			? `${description.slice(0, 200)}...`
-			: description;
-
 	return (
 		<div className="w-[420px] shrink-0 border-l border-border/60 bg-background flex flex-col min-h-0 animate-in slide-in-from-right-4 duration-200">
 			{/* Header */}
@@ -339,7 +346,33 @@ export function IssuePreviewSidebar({
 						{issue.identifier}
 					</span>
 					<span className="text-muted-foreground/40">|</span>
-					<h2 className="text-sm font-semibold truncate">{issue.title}</h2>
+					{editingTitle ? (
+						<input
+							ref={titleInputRef}
+							value={titleValue}
+							onChange={(e) => setTitleValue(e.target.value)}
+							onBlur={handleTitleSave}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") handleTitleSave();
+								if (e.key === "Escape") {
+									setEditingTitle(false);
+									setTitleValue(issue.title);
+								}
+							}}
+							className="text-sm font-semibold bg-transparent border-b border-primary outline-none w-full min-w-0"
+						/>
+					) : (
+						<button
+							type="button"
+							className="text-sm font-semibold truncate cursor-pointer hover:text-foreground/80 transition-colors text-left min-w-0"
+							onClick={() => {
+								setTitleValue(issue.title);
+								setEditingTitle(true);
+							}}
+						>
+							{issue.title}
+						</button>
+					)}
 				</div>
 				<div className="flex items-center gap-0.5 shrink-0">
 					<Button
@@ -370,26 +403,13 @@ export function IssuePreviewSidebar({
 			<div className="flex-1 overflow-y-auto">
 				<div className="px-5 py-4 space-y-5">
 					{/* Description */}
-					{description ? (
-						<div>
-							<p className="text-[13px] text-foreground/70 leading-relaxed whitespace-pre-wrap">
-								{displayDescription}
-							</p>
-							{isDescriptionLong && (
-								<button
-									type="button"
-									onClick={() => setDescriptionExpanded((v) => !v)}
-									className="text-[12px] text-primary hover:underline mt-1"
-								>
-									{descriptionExpanded ? "Show less" : "Show more"}
-								</button>
-							)}
-						</div>
-					) : (
-						<p className="text-[13px] text-muted-foreground/50 italic">
-							No description
-						</p>
-					)}
+					<div className="text-[13px] [&_.plate-editor]:min-h-[60px] [&_.plate-editor]:text-[13px]">
+						<IssueDescriptionEditorDynamic
+							issueId={issue._id}
+							initialContent={issue.description}
+							issueTitle={issue.title}
+						/>
+					</div>
 
 					<Separator className="bg-border/40" />
 
@@ -697,7 +717,10 @@ export function IssuePreviewSidebar({
 						<PropertyRow icon={Calendar} label="Due date">
 							<DatePicker
 								date={issue.dueDate ? new Date(issue.dueDate) : undefined}
-								onSelect={(d) => handleUpdate("dueDate", d?.getTime())}
+								onSelect={(d) =>
+									// null = explicit clear (undefined gets stripped on the wire)
+									handleUpdate("dueDate", d ? d.getTime() : null)
+								}
 								trigger={
 									<button
 										type="button"
