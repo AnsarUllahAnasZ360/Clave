@@ -2,7 +2,7 @@
 
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { internal } from "../../convex/_generated/api";
+import { api, internal } from "../../convex/_generated/api";
 import { CHANGELOG_ENTRIES } from "../../convex/changelogEntries";
 import schema from "../../convex/schema";
 
@@ -157,5 +157,15 @@ describe("changelog sync (integration)", () => {
 		// User who had dismissed the orphan is now free to see the real latest.
 		const stuckUser = await t.run((ctx) => ctx.db.get(orphanDismisserId));
 		expect(stuckUser?.lastSeenVersion).toBeUndefined();
+	});
+
+	it("surfaces v0.3.0 as the latest version after sync", async () => {
+		const t = createBackend();
+		await t.mutation(internal.versions.syncChangelogInternal, {});
+
+		const latest = await t.query(api.versions.getLatest, {});
+		expect(latest).not.toBeNull();
+		expect(latest?.version).toBe("0.3.0");
+		expect(latest?.title).toContain("Active Sprints");
 	});
 });

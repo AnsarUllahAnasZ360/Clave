@@ -25,6 +25,27 @@ export type ChangelogEntry = {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
 	{
+		version: "0.3.0",
+		releasedAt: "2026-04-17T00:00:00Z",
+		title: "Active Sprints, doc-aware AI, better approvals",
+		features: [
+			"Active Sprints filter on My Issues — open the page and see only issues from active sprints; toggle off in one click",
+			"Set sprint status (active, planned, completed, cancelled) directly from the sprint detail page and the milestone panel",
+			"Sprint picker on issues now scopes to the issue's own project — no more picking sprints that don't belong to it",
+			"AI agent can read your documents — full Markdown with headings, tables, images, lists, and code blocks",
+			"AI can append to documents and edit specific sections without rewriting the whole doc",
+			"Whiteboards now feed the AI's knowledge (new 6th RAG source): images and text are indexed and searchable",
+			"Sprint filter in the popover groups sprints by status and shows the project name so you can tell them apart",
+		],
+		bugFixes: [
+			"Approving a batch of AI-proposed issues no longer crashes with a server error",
+			"Failed approvals now show the real reason instead of a generic server error",
+			"AI 'Get document' returned an empty doc for every collaborative document — it now reads them",
+			"Removed the inline AI slash commands and floating AI popover from the document editor (keeping the AI chat sidebar)",
+			"Whiteboard image sync tests no longer flake on the CI runtime",
+		],
+	},
+	{
 		version: "0.2.0",
 		releasedAt: "2026-04-14T00:00:00Z",
 		title: "Multi-assign, custom workflows, bulk delete",

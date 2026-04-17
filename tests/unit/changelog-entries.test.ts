@@ -40,4 +40,12 @@ describe("CHANGELOG_ENTRIES source of truth", () => {
 			expect(prev).toBeGreaterThanOrEqual(curr);
 		}
 	});
+
+	it("includes v0.3.0 (active sprints + doc-aware AI)", () => {
+		const v030 = CHANGELOG_ENTRIES.find((e) => e.version === "0.3.0");
+		expect(v030).toBeDefined();
+		expect(v030?.title).toContain("Active Sprints");
+		expect(v030?.features.length).toBeGreaterThan(0);
+		expect(v030?.bugFixes.length).toBeGreaterThan(0);
+	});
 });
