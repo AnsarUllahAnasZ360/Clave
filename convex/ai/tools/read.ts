@@ -1,19 +1,39 @@
 import { createTool } from "@convex-dev/agent";
 import { makeFunctionReference } from "convex/server";
 import { z } from "zod";
-import { internal } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
+import {
+	BOARD_EXPORT_CHUNK_CHARS,
+	chunkString,
+	extractBoardTextItems,
+	getSceneElementsArray,
+	itemsToMarkdown,
+} from "../whiteboardSceneExport";
+import {
+	extractEmbeddedBoardImages,
+	MAX_BOARD_VISION_IMAGES,
+} from "../whiteboardVision";
 import {
 	buildProjectNameMap,
 	buildUserNameMap,
+	extractPlateMedia,
 	MAX_CONTENT_LENGTH,
-	plateJsonToPlainText,
+	plateJsonToMarkdown,
 	resolveToolUserId,
 	resolveWorkspaceId,
 	TOOL_TIMEOUT_MS,
 	truncateAtBoundary,
 	withTimeout,
 } from "./helpers";
+
+const DOCUMENT_MARKDOWN_LIMIT = 12_000;
+const DOCUMENT_CHUNK_CHARS = 24_000;
+
+type ToolContentPart =
+	| { type: "text"; text: string }
+	| { type: "image-data"; data: string; mediaType: string };
+
 import type { ToolContext } from "./types";
 
 // ── Internal function references for RAG search ─────────────────────────
@@ -194,9 +214,20 @@ interface DocumentResult {
 	id: string;
 	title: string;
 	content: string;
+	format: "markdown";
 	truncated: boolean;
+	totalLength: number;
+	wordCount: number;
 	projectId: string | null;
+	projectName: string | null;
 	icon: string | null;
+	visibility: string;
+	createdBy: string;
+	lastEditedBy: string | null;
+	createdAt: number;
+	updatedAt: number | null;
+	images: Array<{ url: string; alt: string }>;
+	tables: Array<{ rows: number; cols: number }>;
 }
 
 interface DocumentSearchItem {
@@ -617,7 +648,7 @@ export const getIssueDetails = createTool({
 
 export const getDocument = createTool({
 	description:
-		"Get a document by its ID, returning its title and content. Use this when the user asks about a specific document. Content is truncated to stay within token limits.",
+		"Get a document by its ID, returning its title and full content rendered as Markdown. Preserves headings, lists, tables, code blocks, links, and images (as ![alt](url)) so you can reference them when creating issues, sprints, or project descriptions. Also returns a separate `images` array (URL + alt text) and `tables` summary so nothing is lost even when content is truncated. If `truncated` is true, use `readDocumentChunked` to read the full content in paginated chunks. When drafting descriptions for issues/sprints/projects from a document, quote headings and table rows directly and embed the original image URLs using Markdown image syntax so they render in-place.",
 	inputSchema: z.object({
 		documentId: z.string().describe("The document ID to retrieve"),
 	}),
@@ -626,35 +657,69 @@ export const getDocument = createTool({
 		args,
 	): Promise<DocumentResult | ErrorResult> => {
 		const workspaceId = await resolveWorkspaceId(ctx);
-		const document = await ctx.runQuery(
-			internal.ai.toolQueries.getDocumentById,
-			{
+		const [document, userNames, projectNames] = await Promise.all([
+			ctx.runQuery(internal.ai.toolQueries.getDocumentById, {
 				documentId: args.documentId as Id<"documents">,
-			},
-		);
+			}),
+			buildUserNameMap(ctx, workspaceId),
+			buildProjectNameMap(ctx, workspaceId),
+		]);
 
 		if (!document) {
 			return { error: "Document not found." };
 		}
 
-		// Verify document belongs to the resolved workspace
 		if (document.workspaceId !== workspaceId) {
 			return { error: "Document not found." };
 		}
 
-		const plainText = plateJsonToPlainText(document.content);
-		const truncated = plainText.length > MAX_CONTENT_LENGTH;
+		// Resolve content: try the documents table first, then fall back
+		// to reconstructing from Yjs v3 snapshots (real-time collab storage).
+		let rawContent = document.content;
+		if (!rawContent || plateJsonToMarkdown(rawContent).trim() === "") {
+			try {
+				const yjsContent = await ctx.runQuery(
+					internal.yjsV3.getDocumentContentFromYjs,
+					{ documentId: args.documentId as Id<"documents"> },
+				);
+				if (yjsContent) {
+					rawContent = yjsContent;
+				}
+			} catch {
+				// Yjs extraction failed — proceed with whatever we have
+			}
+		}
+
+		const markdown = plateJsonToMarkdown(rawContent);
+		const truncated = markdown.length > DOCUMENT_MARKDOWN_LIMIT;
 		const content = truncated
-			? truncateAtBoundary(plainText, MAX_CONTENT_LENGTH)
-			: plainText;
+			? truncateAtBoundary(markdown, DOCUMENT_MARKDOWN_LIMIT)
+			: markdown;
+		const media = extractPlateMedia(rawContent);
+		const wordCount = markdown.split(/\s+/).filter((w) => w.length > 0).length;
 
 		return {
 			id: document._id,
 			title: document.title,
 			content,
+			format: "markdown",
 			truncated,
+			totalLength: markdown.length,
+			wordCount,
 			projectId: document.projectId ?? null,
+			projectName: document.projectId
+				? (projectNames.get(document.projectId) ?? null)
+				: null,
 			icon: document.icon ?? null,
+			visibility: document.visibility ?? "private",
+			createdBy: userNames.get(document.createdBy) ?? "Unknown",
+			lastEditedBy: document.lastEditedBy
+				? (userNames.get(document.lastEditedBy) ?? null)
+				: null,
+			createdAt: document._creationTime,
+			updatedAt: document.updatedAt ?? null,
+			images: media.images,
+			tables: media.tables,
 		};
 	},
 });
@@ -732,6 +797,234 @@ export const searchDocuments = createTool({
 				}),
 			);
 	},
+});
+
+// ── 5b. readDocumentChunked ──────────────────────────────────────────────
+
+interface DocumentChunkResult {
+	documentId: string;
+	title: string;
+	projectId: string | null;
+	totalLength: number;
+	totalChunks: number;
+	chunkIndex: number;
+	content: string;
+	format: "markdown";
+}
+
+export const readDocumentChunked = createTool({
+	description:
+		"Read a large document in paginated chunks. Use when getDocument returns truncated: true. Call with chunkIndex 0 first; if totalChunks > 1, call again with chunkIndex 1, 2, ... until you have read every chunk. Each chunk is up to 24,000 characters of Markdown. Useful for long specs, PRDs, or meeting notes that exceed the single-call limit.",
+	inputSchema: z.object({
+		documentId: z
+			.string()
+			.describe("Document ID (from getDocument or searchDocuments)"),
+		chunkIndex: z
+			.number()
+			.optional()
+			.default(0)
+			.describe("Zero-based chunk index (default 0)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<DocumentChunkResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const document = await ctx.runQuery(
+			internal.ai.toolQueries.getDocumentById,
+			{ documentId: args.documentId as Id<"documents"> },
+		);
+
+		if (!document) {
+			return { error: "Document not found." };
+		}
+		if (document.workspaceId !== workspaceId) {
+			return { error: "Document not found." };
+		}
+
+		const markdown = plateJsonToMarkdown(document.content);
+		const chunks =
+			markdown.length === 0
+				? [""]
+				: chunkString(markdown, DOCUMENT_CHUNK_CHARS);
+		const totalChunks = Math.max(1, chunks.length);
+		const safeIndex = Math.min(
+			Math.max(0, args.chunkIndex ?? 0),
+			totalChunks - 1,
+		);
+
+		return {
+			documentId: document._id,
+			title: document.title,
+			projectId: document.projectId ?? null,
+			totalLength: markdown.length,
+			totalChunks,
+			chunkIndex: safeIndex,
+			content: chunks[safeIndex] ?? "",
+			format: "markdown",
+		};
+	},
+});
+
+// ── 5c. readDocumentWithVision ───────────────────────────────────────────
+
+const MAX_DOC_VISION_IMAGES = 8;
+const MAX_DOC_IMAGE_BYTES = 4_500_000; // ~4.5 MB limit per image
+
+export interface ReadDocumentWithVisionResult {
+	documentId: string;
+	title: string;
+	projectId: string | null;
+	wordCount: number;
+	totalLength: number;
+	totalChunks: number;
+	chunkIndex: number;
+	content: string;
+	format: "markdown";
+	imageCount: number;
+	images: Array<{ dataUrl: string; mediaType: string; alt: string }>;
+	tables: Array<{ rows: number; cols: number }>;
+}
+
+/**
+ * Build multipart vision output for readDocumentWithVision — matches
+ * the board vision builder pattern for consistency.
+ */
+export function buildReadDocumentWithVisionOutput(
+	output: ReadDocumentWithVisionResult | ErrorResult,
+):
+	| { type: "error-text"; value: string }
+	| { type: "content"; value: ToolContentPart[] } {
+	if (output && typeof output === "object" && "error" in output) {
+		return { type: "error-text", value: String(output.error) };
+	}
+	const result = output as ReadDocumentWithVisionResult;
+	const header = [
+		`# Document "${result.title}"`,
+		`Document ID: ${result.documentId}`,
+		`Words: ${result.wordCount}, length: ${result.totalLength} chars`,
+		`Chunk ${result.chunkIndex + 1}/${result.totalChunks}`,
+		result.imageCount > 0
+			? `${result.imageCount} image(s) attached below — inspect them visually for diagrams, flowcharts, screenshots, and tables.`
+			: "No images in this document.",
+		result.tables.length > 0
+			? `${result.tables.length} table(s) included in the markdown below.`
+			: null,
+		"",
+		result.content || "(empty document)",
+	]
+		.filter((l) => l !== null)
+		.join("\n");
+
+	const parts: ToolContentPart[] = [{ type: "text", text: header }];
+
+	for (const img of result.images) {
+		const comma = img.dataUrl.indexOf(",");
+		const data = comma >= 0 ? img.dataUrl.slice(comma + 1) : img.dataUrl;
+		parts.push({ type: "image-data", data, mediaType: img.mediaType });
+	}
+
+	return { type: "content", value: parts };
+}
+
+export const readDocumentWithVision = createTool({
+	description:
+		"Read a document AND see its embedded images (diagrams, flowcharts, screenshots, tables-as-images). Returns Markdown text plus vision attachments so the model can visually inspect images. Use this when the user asks the agent to understand diagrams, flowcharts, or visual content embedded in a document, or when creating issues/sprints from a document that contains visual specs. Images are only attached on chunkIndex 0 to avoid duplication. Tables in the document text are rendered as Markdown tables in the content field.",
+	inputSchema: z.object({
+		documentId: z.string().describe("Document ID to read with vision"),
+		chunkIndex: z
+			.number()
+			.optional()
+			.default(0)
+			.describe("Zero-based chunk index for large documents (default 0)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<ReadDocumentWithVisionResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const document = await ctx.runQuery(
+			internal.ai.toolQueries.getDocumentById,
+			{ documentId: args.documentId as Id<"documents"> },
+		);
+
+		if (!document) return { error: "Document not found." };
+		if (document.workspaceId !== workspaceId) {
+			return { error: "Document not found." };
+		}
+
+		const markdown = plateJsonToMarkdown(document.content);
+		const chunks =
+			markdown.length === 0
+				? [""]
+				: chunkString(markdown, DOCUMENT_CHUNK_CHARS);
+		const totalChunks = Math.max(1, chunks.length);
+		const chunkIndex = Math.min(
+			Math.max(0, args.chunkIndex ?? 0),
+			totalChunks - 1,
+		);
+		const content = chunks[chunkIndex] ?? "";
+		const media = extractPlateMedia(document.content);
+		const wordCount = markdown.split(/\s+/).filter((w) => w.length > 0).length;
+
+		// Fetch actual image data for vision — only on first chunk
+		const visionImages: Array<{
+			dataUrl: string;
+			mediaType: string;
+			alt: string;
+		}> = [];
+
+		if (chunkIndex === 0 && media.images.length > 0) {
+			const imagesToFetch = media.images.slice(0, MAX_DOC_VISION_IMAGES);
+			const settled = await Promise.allSettled(
+				imagesToFetch.map(async (img) => {
+					try {
+						const res = await fetch(img.url);
+						if (!res.ok) return null;
+						const ct = res.headers.get("content-type") ?? "image/png";
+						const buf = await res.arrayBuffer();
+						if (buf.byteLength > MAX_DOC_IMAGE_BYTES) return null;
+						const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+						const mediaType = ct.startsWith("image/")
+							? ct.split(";")[0]
+							: "image/png";
+						return {
+							dataUrl: `data:${mediaType};base64,${base64}`,
+							mediaType,
+							alt: img.alt,
+						};
+					} catch {
+						return null;
+					}
+				}),
+			);
+
+			for (const result of settled) {
+				if (result.status === "fulfilled" && result.value) {
+					visionImages.push(result.value);
+				}
+			}
+		}
+
+		return {
+			documentId: document._id,
+			title: document.title,
+			projectId: document.projectId ?? null,
+			wordCount,
+			totalLength: markdown.length,
+			totalChunks,
+			chunkIndex,
+			content,
+			format: "markdown",
+			imageCount: visionImages.length,
+			images: visionImages,
+			tables: media.tables,
+		};
+	},
+	toModelOutput: (_ctx, { output }) =>
+		buildReadDocumentWithVisionOutput(
+			output as ReadDocumentWithVisionResult | ErrorResult,
+		),
 });
 
 // ── 6. globalSearch ──────────────────────────────────────────────────────
@@ -1700,6 +1993,201 @@ export const exportWhiteboardForPlanning = createTool({
 	},
 });
 
+// ── 19. readBoardWithVision ───────────────────────────────────────────────
+
+export interface ReadBoardWithVisionResult {
+	whiteboardId: string;
+	title: string;
+	projectId: string | null;
+	projectName: string | null;
+	elementCount: number;
+	totalTextItems: number;
+	totalChunks: number;
+	chunkIndex: number;
+	markdown: string;
+	imageCount: number;
+	images: Array<{ dataUrl: string; mediaType: string }>;
+}
+
+/**
+ * Build the multipart tool output for readBoardWithVision — pure function
+ * so it can be unit-tested without a Convex runtime.
+ */
+export function buildReadBoardWithVisionOutput(
+	output: ReadBoardWithVisionResult | ErrorResult,
+):
+	| { type: "error-text"; value: string }
+	| { type: "content"; value: ToolContentPart[] } {
+	if (output && typeof output === "object" && "error" in output) {
+		return { type: "error-text", value: String(output.error) };
+	}
+	const result = output as ReadBoardWithVisionResult;
+	const header = [
+		`# Whiteboard "${result.title}"`,
+		`Board ID: ${result.whiteboardId}`,
+		result.projectName ? `Project: ${result.projectName}` : null,
+		`Elements: ${result.elementCount}, text items: ${result.totalTextItems}`,
+		`Chunk ${result.chunkIndex + 1}/${result.totalChunks}`,
+		result.imageCount > 0
+			? `${result.imageCount} embedded image(s) attached below — inspect them visually.`
+			: "No embedded images on this board.",
+		"",
+		result.markdown || "(no text extracted)",
+	]
+		.filter((l) => l !== null)
+		.join("\n");
+
+	const parts: ToolContentPart[] = [{ type: "text", text: header }];
+
+	for (const img of result.images) {
+		const comma = img.dataUrl.indexOf(",");
+		const data = comma >= 0 ? img.dataUrl.slice(comma + 1) : img.dataUrl;
+		parts.push({ type: "image-data", data, mediaType: img.mediaType });
+	}
+
+	return { type: "content", value: parts };
+}
+
+export const readBoardWithVision = createTool({
+	description:
+		"Read a whiteboard/board AND see its embedded images (diagrams, screenshots, photos). Returns text export plus vision attachments — unlike exportWhiteboardForPlanning, image pixels are passed to the model. Use this when turning a board into a sprint/project/issues, or when the user asks the agent to understand what is drawn on a board. Chunked like exportWhiteboardForPlanning: pass chunkIndex 0 first; images are only attached on chunkIndex 0 to avoid duplication.",
+	inputSchema: z.object({
+		whiteboardId: z.string().describe("Whiteboard ID to read"),
+		chunkIndex: z
+			.number()
+			.optional()
+			.default(0)
+			.describe("Zero-based chunk index for large boards (default 0)"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<ReadBoardWithVisionResult | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+
+		const board = await withTimeout(
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardById, {
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+			}),
+			TOOL_TIMEOUT_MS,
+			"readBoardWithVision",
+		);
+
+		if (!board) return { error: "Whiteboard not found or access denied." };
+		if (board.workspaceId !== workspaceId) {
+			return { error: "Whiteboard belongs to a different workspace." };
+		}
+
+		// Load full scene JSON: use file storage if the board was too large to inline.
+		let sceneJson = board.sceneData ?? "[]";
+		if (board.sceneDataStorageId) {
+			try {
+				const url = await ctx.runQuery(api.files.getUrl, {
+					storageId: board.sceneDataStorageId,
+				});
+				if (url) {
+					const res = await fetch(url);
+					if (res.ok) sceneJson = await res.text();
+				}
+			} catch {
+				// fall back to inline sceneData
+			}
+		}
+
+		const elements = getSceneElementsArray(sceneJson);
+		const items = extractBoardTextItems(elements);
+		const md = itemsToMarkdown(items);
+		const chunks =
+			md.length === 0 ? [""] : chunkString(md, BOARD_EXPORT_CHUNK_CHARS);
+		const totalChunks = Math.max(1, chunks.length);
+		const chunkIndex = Math.min(
+			Math.max(0, args.chunkIndex ?? 0),
+			totalChunks - 1,
+		);
+		const markdown = chunks[chunkIndex] ?? "";
+
+		// Only attach images on the first chunk to avoid paying for them
+		// multiple times if the model paginates through a big board.
+		const rawImages =
+			chunkIndex === 0 ? extractEmbeddedBoardImages(sceneJson) : [];
+		const images = rawImages
+			.slice(0, MAX_BOARD_VISION_IMAGES)
+			.map((img) => ({ dataUrl: img.url, mediaType: img.mediaType }));
+
+		return {
+			whiteboardId: board._id,
+			title: board.title,
+			projectId: board.projectId ?? null,
+			projectName: null,
+			elementCount: elements.filter(
+				(el) =>
+					el &&
+					typeof el === "object" &&
+					!(el as { isDeleted?: boolean }).isDeleted,
+			).length,
+			totalTextItems: items.length,
+			totalChunks,
+			chunkIndex,
+			markdown,
+			imageCount: images.length,
+			images,
+		};
+	},
+	toModelOutput: (_ctx, { output }) =>
+		buildReadBoardWithVisionOutput(
+			output as ReadBoardWithVisionResult | ErrorResult,
+		),
+});
+
+// ── 20. listBoardImages ───────────────────────────────────────────────────
+
+interface BoardImageListItem {
+	imageId: string;
+	fileKey: string;
+	mediaType: string;
+	byteSize: number;
+	caption: string | null;
+	ocrText: string | null;
+}
+
+export const listBoardImages = createTool({
+	description:
+		"List persisted image attachments (diagrams, screenshots, sketches) from a whiteboard. Returns each image's imageId — pass those to createIssue/createProject/bulkCreateIssues as `attachBoardImageIds` to embed the images in the generated description as markdown. Use after readBoardWithVision when the user wants specific board visuals inlined into issues or projects.",
+	inputSchema: z.object({
+		whiteboardId: z.string().describe("The whiteboard ID to list images for"),
+	}),
+	execute: async (
+		ctx: ToolContext,
+		args,
+	): Promise<BoardImageListItem[] | ErrorResult> => {
+		const workspaceId = await resolveWorkspaceId(ctx);
+		const board = await withTimeout(
+			ctx.runQuery(internal.ai.toolQueries.getWhiteboardById, {
+				whiteboardId: args.whiteboardId as Id<"whiteboards">,
+			}),
+			TOOL_TIMEOUT_MS,
+			"listBoardImages",
+		);
+		if (!board) return { error: "Whiteboard not found." };
+		if (board.workspaceId !== workspaceId) {
+			return { error: "Whiteboard belongs to a different workspace." };
+		}
+
+		const rows = await ctx.runQuery(
+			internal.ai.whiteboardImageSync.listBoardImages,
+			{ whiteboardId: args.whiteboardId as Id<"whiteboards"> },
+		);
+		return rows.map((r) => ({
+			imageId: r._id,
+			fileKey: r.fileKey,
+			mediaType: r.mediaType,
+			byteSize: r.byteSize,
+			caption: r.caption ?? null,
+			ocrText: r.ocrText ?? null,
+		}));
+	},
+});
+
 // ── Export all read tools as a named toolset ─────────────────────────────
 
 export const readTools = {
@@ -1707,6 +2195,8 @@ export const readTools = {
 	listProjects,
 	getIssueDetails,
 	getDocument,
+	readDocumentChunked,
+	readDocumentWithVision,
 	searchDocuments,
 	globalSearch,
 	listWorkspaceMembers,
@@ -1720,4 +2210,6 @@ export const readTools = {
 	listWhiteboards,
 	getWhiteboard,
 	exportWhiteboardForPlanning,
+	readBoardWithVision,
+	listBoardImages,
 };

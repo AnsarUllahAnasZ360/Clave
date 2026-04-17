@@ -4,6 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import {
 	Calendar,
+	Check,
+	ChevronDown,
 	Circle,
 	CircleCheck,
 	CircleDashed,
@@ -19,6 +21,12 @@ import { toast } from "sonner";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { DatePicker } from "@/components/ui/pickers";
 import { Progress } from "@/components/ui/progress";
@@ -286,18 +294,82 @@ export function MilestoneDetailPanel({
 							{/* Status */}
 							<div className="flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">Status</span>
-								<Badge
-									variant={isCompleted ? "default" : "secondary"}
-									className="text-xs"
-								>
-									{milestone.status === "active"
-										? "Active"
-										: milestone.status === "planned"
-											? "Planned"
-											: milestone.status === "completed"
-												? "Completed"
-												: "Cancelled"}
-								</Badge>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<button
+											type="button"
+											className="inline-flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+										>
+											<Badge
+												variant={isCompleted ? "default" : "secondary"}
+												className="text-xs"
+											>
+												{milestone.status === "active"
+													? "Active"
+													: milestone.status === "planned"
+														? "Planned"
+														: milestone.status === "completed"
+															? "Completed"
+															: "Cancelled"}
+												<ChevronDown className="ml-0.5 h-2.5 w-2.5 opacity-60" />
+											</Badge>
+										</button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end" className="w-36">
+										{(
+											[
+												{
+													key: "active",
+													label: "Active",
+													color: "bg-green-500",
+												},
+												{
+													key: "planned",
+													label: "Planned",
+													color: "bg-blue-500",
+												},
+												{
+													key: "completed",
+													label: "Completed",
+													color: "bg-muted-foreground",
+												},
+												{
+													key: "cancelled",
+													label: "Cancelled",
+													color: "bg-muted-foreground/50",
+												},
+											] as const
+										).map((opt) => (
+											<DropdownMenuItem
+												key={opt.key}
+												onClick={async () => {
+													try {
+														await updateMilestone({
+															sprintId: milestone._id,
+															status: opt.key,
+														});
+														toast.success(`Sprint marked as ${opt.label}`);
+													} catch (error) {
+														toast.error(
+															error instanceof Error
+																? error.message
+																: "Failed to update status",
+														);
+													}
+												}}
+												className="gap-2 text-xs"
+											>
+												<span
+													className={`inline-block h-2 w-2 rounded-full ${opt.color}`}
+												/>
+												{opt.label}
+												{milestone.status === opt.key && (
+													<Check className="ml-auto h-3 w-3 text-primary" />
+												)}
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuContent>
+								</DropdownMenu>
 							</div>
 
 							{/* Start date */}

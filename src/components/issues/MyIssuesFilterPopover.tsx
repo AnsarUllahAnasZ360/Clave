@@ -38,14 +38,45 @@ const EMPTY_FILTERS: IssueFilters = {
 	types: [],
 };
 
-export function useIssueFilters() {
+const ACTIVE_SPRINT_STORAGE_KEY = "clave:active-sprint-mode";
+
+/**
+ * Issue filter hook with "Active Sprint" mode.
+ *
+ * When `activeSprintMode` is on (the default), issues are automatically
+ * filtered to only those belonging to sprints with status "active".
+ * Pass `activeSprintIds` — the IDs of all active sprints in the workspace —
+ * so the filter function knows which sprint IDs qualify.
+ *
+ * The mode is persisted to localStorage. Manually selecting individual
+ * sprints via the filter popover turns the mode off.
+ */
+export function useIssueFilters(activeSprintIds?: string[]) {
 	const [filters, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
+
+	// Active Sprint mode — persisted to localStorage, default true
+	const [activeSprintMode, setActiveSprintModeRaw] = useState(() => {
+		if (typeof window === "undefined") return true;
+		const stored = localStorage.getItem(ACTIVE_SPRINT_STORAGE_KEY);
+		return stored === null ? true : stored === "true";
+	});
+
+	const setActiveSprintMode = useCallback((value: boolean) => {
+		setActiveSprintModeRaw(value);
+		if (typeof window !== "undefined") {
+			localStorage.setItem(ACTIVE_SPRINT_STORAGE_KEY, String(value));
+		}
+	}, []);
 
 	const setFilter = useCallback(
 		<K extends keyof IssueFilters>(key: K, value: IssueFilters[K]) => {
 			setFilters((prev) => ({ ...prev, [key]: value }));
+			// Manually selecting sprints turns off active sprint mode
+			if (key === "milestoneIds") {
+				setActiveSprintMode(false);
+			}
 		},
-		[],
+		[setActiveSprintMode],
 	);
 
 	const clearFilter = useCallback((key: keyof IssueFilters) => {
@@ -57,9 +88,15 @@ export function useIssueFilters() {
 
 	const clearAll = useCallback(() => {
 		setFilters(EMPTY_FILTERS);
-	}, []);
+		setActiveSprintMode(false);
+	}, [setActiveSprintMode]);
 
 	const activeFilterCount = useMemo(() => {
+		const sprintModeActive =
+			activeSprintMode &&
+			activeSprintIds &&
+			activeSprintIds.length > 0 &&
+			filters.milestoneIds.length === 0;
 		return (
 			filters.statuses.length +
 			filters.priorities.length +
@@ -67,9 +104,21 @@ export function useIssueFilters() {
 			filters.labelIds.length +
 			filters.assigneeIds.length +
 			filters.milestoneIds.length +
-			filters.types.length
+			filters.types.length +
+			(sprintModeActive ? 1 : 0)
 		);
-	}, [filters]);
+	}, [filters, activeSprintMode, activeSprintIds]);
+
+	// Resolve which sprint IDs to use for filtering:
+	// - activeSprintMode ON + no manual sprint filter → use activeSprintIds
+	// - manual milestoneIds selected → use those (activeSprintMode is off)
+	const effectiveSprintIds = useMemo(() => {
+		if (filters.milestoneIds.length > 0) return filters.milestoneIds;
+		if (activeSprintMode && activeSprintIds && activeSprintIds.length > 0) {
+			return activeSprintIds;
+		}
+		return [];
+	}, [filters.milestoneIds, activeSprintMode, activeSprintIds]);
 
 	const applyFilters = useCallback(
 		<
@@ -87,7 +136,18 @@ export function useIssueFilters() {
 		>(
 			issues: T[],
 		): T[] => {
-			if (activeFilterCount === 0) return issues;
+			const hasExplicitFilters =
+				filters.statuses.length > 0 ||
+				filters.priorities.length > 0 ||
+				filters.projectId !== null ||
+				filters.labelIds.length > 0 ||
+				filters.assigneeIds.length > 0 ||
+				filters.milestoneIds.length > 0 ||
+				filters.types.length > 0;
+			const hasSprintFilter = effectiveSprintIds.length > 0;
+
+			if (!hasExplicitFilters && !hasSprintFilter) return issues;
+
 			return issues.filter((issue) => {
 				if (
 					filters.statuses.length > 0 &&
@@ -106,8 +166,6 @@ export function useIssueFilters() {
 						return false;
 				}
 				if (filters.assigneeIds.length > 0) {
-					// Multi-assign aware: an issue matches if ANY of its assignees
-					// (legacy single + multi array) is in the selected filter set.
 					const effective = new Set<string>();
 					if (issue.assigneeId) effective.add(issue.assigneeId);
 					if (issue.assigneeIds) {
@@ -117,9 +175,9 @@ export function useIssueFilters() {
 					if (!filters.assigneeIds.some((id) => effective.has(id)))
 						return false;
 				}
-				if (filters.milestoneIds.length > 0) {
+				if (hasSprintFilter) {
 					const sprintLikeId = issue.sprintId ?? issue.milestoneId;
-					if (!sprintLikeId || !filters.milestoneIds.includes(sprintLikeId))
+					if (!sprintLikeId || !effectiveSprintIds.includes(sprintLikeId))
 						return false;
 				}
 				if (filters.types.length > 0) {
@@ -128,7 +186,7 @@ export function useIssueFilters() {
 				return true;
 			});
 		},
-		[filters, activeFilterCount],
+		[filters, effectiveSprintIds],
 	);
 
 	return {
@@ -138,6 +196,8 @@ export function useIssueFilters() {
 		clearAll,
 		activeFilterCount,
 		applyFilters,
+		activeSprintMode,
+		setActiveSprintMode,
 	};
 }
 
@@ -198,7 +258,12 @@ export function MyIssuesFilterPopover({
 	projects: { _id: string; name: string }[];
 	labels: { _id: string; name: string; color: string }[];
 	members?: { id: string; name: string }[];
-	milestones?: { id: string; name: string }[];
+	milestones?: {
+		id: string;
+		name: string;
+		status?: string;
+		projectName?: string;
+	}[];
 }) {
 	const [activeCategory, setActiveCategory] =
 		useState<FilterCategoryId>("status");
@@ -383,18 +448,31 @@ export function MyIssuesFilterPopover({
 					/>
 				));
 
-			case "sprint":
+			case "sprint": {
 				if (milestones.length === 0) {
 					return <FilterEmptyState message="No sprints available" />;
 				}
-				return milestones.map((ms) => (
+				// Group sprints: active first, then planned, then rest
+				const statusOrder: Record<string, number> = {
+					active: 0,
+					planned: 1,
+					completed: 2,
+					cancelled: 3,
+				};
+				const sorted = [...milestones].sort((a, b) => {
+					const aOrder = statusOrder[a.status ?? ""] ?? 9;
+					const bOrder = statusOrder[b.status ?? ""] ?? 9;
+					return aOrder - bOrder;
+				});
+				return sorted.map((ms) => (
 					<FilterOptionItem
 						key={ms.id}
 						checked={temp.milestoneIds.includes(ms.id)}
 						onToggle={() => toggleArrayItem("milestoneIds", ms.id)}
-						label={ms.name}
+						label={`${ms.name}${ms.projectName ? ` — ${ms.projectName}` : ""}${ms.status === "active" ? " (active)" : ""}`}
 					/>
 				));
+			}
 
 			case "type":
 				return typeOptions.map((opt) => (
@@ -457,6 +535,8 @@ export function IssueFilterChips({
 	labelMap,
 	memberMap = new Map(),
 	milestoneMap = new Map(),
+	activeSprintMode,
+	onToggleActiveSprintMode,
 }: {
 	filters: IssueFilters;
 	setFilter: <K extends keyof IssueFilters>(
@@ -468,6 +548,8 @@ export function IssueFilterChips({
 	labelMap: Map<string, { name: string; color: string }>;
 	memberMap?: Map<string, string>;
 	milestoneMap?: Map<string, string>;
+	activeSprintMode?: boolean;
+	onToggleActiveSprintMode?: () => void;
 }) {
 	const workspace = useWorkspaceOptional();
 	const issueConfig = useEffectiveIssueConfig(workspace?.workspaceId);
@@ -523,6 +605,13 @@ export function IssueFilterChips({
 			key: `label-${id}`,
 			label: `Label: ${label?.name ?? "Unknown"}`,
 			onRemove: () => removeArrayItem("labelIds", id),
+		});
+	}
+	if (activeSprintMode && onToggleActiveSprintMode) {
+		chips.push({
+			key: "active-sprint-mode",
+			label: "Active Sprints",
+			onRemove: onToggleActiveSprintMode,
 		});
 	}
 	for (const id of filters.milestoneIds) {

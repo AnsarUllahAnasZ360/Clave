@@ -111,7 +111,11 @@ const ALL_ACTIONS = [...PRIMARY_ACTIONS, ...SECONDARY_ACTIONS];
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export function AISelectionToolbar({
+export function AISelectionToolbar(_props: AISelectionToolbarProps) {
+	return null;
+}
+
+function _AISelectionToolbarLegacy({
 	visible,
 	position,
 	selectedText,

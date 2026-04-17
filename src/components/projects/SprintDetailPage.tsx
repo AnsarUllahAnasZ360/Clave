@@ -1,10 +1,11 @@
 "use client";
 
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
-import { useQuery } from "convex/react";
-import { Plus } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { DisplayOptionsPanel } from "@/components/issues/DisplayOptionsPanel";
 import { InlineFilterBar } from "@/components/issues/InlineFilterBar";
 import type { IssueCardData } from "@/components/issues/IssueBoardCard";
@@ -22,6 +23,12 @@ import {
 } from "@/components/providers/workspace-data-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDisplayOptions } from "@/hooks/use-display-options";
@@ -60,6 +67,7 @@ export function SprintDetailPage({
 }: SprintDetailPageProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const { openQuickCreate } = useIssueCreate();
+	const updateSprint = useMutation(api.sprints.update);
 
 	const sprint = useQuery(api.sprints.getById, {
 		sprintId: sprintId as Id<"sprints">,
@@ -68,6 +76,28 @@ export function SprintDetailPage({
 		workspaceId,
 		slug: projectSlug,
 	});
+
+	const handleStatusChange = useCallback(
+		async (newStatus: "active" | "planned" | "completed" | "cancelled") => {
+			if (!sprint) return;
+			try {
+				await updateSprint({
+					sprintId: sprint._id,
+					status: newStatus,
+				});
+				toast.success(
+					`Sprint marked as ${statusConfig[newStatus]?.label ?? newStatus}`,
+				);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to update sprint status",
+				);
+			}
+		},
+		[sprint, updateSprint],
+	);
 
 	const sprintIssues = useQuery(
 		api.issues.listBySprint,
@@ -242,7 +272,7 @@ export function SprintDetailPage({
 	const status = statusConfig[sprint.status] ?? statusConfig.planned;
 
 	return (
-		<div className="flex flex-1 flex-col bg-background mx-2 my-2 border border-border rounded-lg min-w-0 overflow-hidden">
+		<div className="flex flex-1 flex-col min-h-0 bg-background mx-2 my-2 border border-border rounded-lg min-w-0 overflow-hidden">
 			{/* Header */}
 			<div className="flex items-center gap-2 border-b border-border px-4 py-3 shrink-0">
 				<SidebarTrigger className="h-7 w-7" />
@@ -262,12 +292,49 @@ export function SprintDetailPage({
 						<span className="text-base leading-none">{sprint.icon}</span>
 					)}
 					<h1 className="text-sm font-semibold">{sprint.name}</h1>
-					<Badge
-						variant="outline"
-						className={cn("text-[10px] h-5", status.className)}
-					>
-						{status.label}
-					</Badge>
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<button
+								type="button"
+								className="inline-flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+							>
+								<Badge
+									variant="outline"
+									className={cn("text-[10px] h-5", status.className)}
+								>
+									{status.label}
+									<ChevronDown className="ml-0.5 h-2.5 w-2.5 opacity-60" />
+								</Badge>
+							</button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="start" className="w-40">
+							{Object.entries(statusConfig).map(([key, cfg]) => (
+								<DropdownMenuItem
+									key={key}
+									onClick={() =>
+										handleStatusChange(
+											key as "active" | "planned" | "completed" | "cancelled",
+										)
+									}
+									className="gap-2 text-xs"
+								>
+									<span
+										className={cn(
+											"inline-block h-2 w-2 rounded-full",
+											key === "active" && "bg-green-500",
+											key === "planned" && "bg-blue-500",
+											key === "completed" && "bg-muted-foreground",
+											key === "cancelled" && "bg-muted-foreground/50",
+										)}
+									/>
+									{cfg.label}
+									{sprint.status === key && (
+										<Check className="ml-auto h-3 w-3 text-primary" />
+									)}
+								</DropdownMenuItem>
+							))}
+						</DropdownMenuContent>
+					</DropdownMenu>
 				</div>
 
 				<div className="flex items-center gap-2 ml-auto text-xs text-muted-foreground">
@@ -337,8 +404,8 @@ export function SprintDetailPage({
 			</div>
 
 			{/* Content + peek sidebar row */}
-			<div className="flex flex-1 min-h-0 min-w-0 overflow-y-hidden">
-				<div className="flex flex-col flex-1 min-h-0 min-w-0">
+			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+				<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
 					{/* Issue views */}
 					{options.layout === "board" && (
 						<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -353,18 +420,18 @@ export function SprintDetailPage({
 						</div>
 					)}
 					{options.layout === "list" && (
-						<div className="px-6 pb-6 w-full overflow-auto flex-1">
-							<IssueListView
-								issues={filteredListIssues}
-								projectId={project._id}
-								groupBy={options.groupBy}
-								subGroupBy={options.subGroupBy}
-								orderBy={options.orderBy}
-								displayProperties={options.displayProperties}
-								hideFilter
-								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
-							/>
-						</div>
+						<IssueListView
+							issues={filteredListIssues}
+							projectId={project._id}
+							groupBy={options.groupBy}
+							subGroupBy={options.subGroupBy}
+							orderBy={options.orderBy}
+							orderDirection={options.orderDirection}
+							displayProperties={options.displayProperties}
+							showEmptyGroups={options.showEmptyGroups}
+							hideFilter
+							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
+						/>
 					)}
 					{options.layout === "timeline" && (
 						<div className="flex-1 min-h-0 flex flex-col">
@@ -377,13 +444,18 @@ export function SprintDetailPage({
 					)}
 				</div>
 
-				{/* Issue peek sidebar */}
-				{selectedIssueId && (
-					<IssuePreviewSidebar
-						issueId={selectedIssueId}
-						onClose={() => setSelectedIssueId(null)}
-					/>
-				)}
+				{/* Issue peek sidebar — stable container prevents layout shift */}
+				<div
+					className="shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+					style={{ width: selectedIssueId ? 420 : 0 }}
+				>
+					{selectedIssueId && (
+						<IssuePreviewSidebar
+							issueId={selectedIssueId}
+							onClose={() => setSelectedIssueId(null)}
+						/>
+					)}
+				</div>
 			</div>
 		</div>
 	);

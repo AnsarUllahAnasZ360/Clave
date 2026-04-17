@@ -3,6 +3,7 @@
 import {
 	closestCenter,
 	DndContext,
+	type DragEndEvent,
 	PointerSensor,
 	useDroppable,
 	useSensor,
@@ -20,12 +21,24 @@ import {
 	ChevronRight,
 	CircleDashed,
 	Flag,
+	Plus,
 	Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { IssueBulkActionBar } from "@/components/issues/IssueBulkActionBar";
+import {
+	type IssueCreatePreset,
+	useIssueCreate,
+} from "@/components/issues/IssueCreateContext";
 import {
 	type IssueListData,
 	IssueListRow,
@@ -49,6 +62,7 @@ import type {
 	DisplayPropertyId,
 	GroupByOption,
 	OrderByOption,
+	OrderDirection,
 	SubGroupByOption,
 } from "@/lib/display-options";
 import { displayPropertiesToColumns } from "@/lib/display-options";
@@ -111,7 +125,7 @@ const COLUMN_WIDTHS: Record<ListColumnId, string> = {
 	status: "w-[110px]",
 	title: "flex-1 min-w-0",
 	priority: "w-[32px]",
-	assignee: "w-[120px]",
+	assignee: "w-[140px]",
 	labels: "w-[120px]",
 	project: "w-[120px]",
 	milestone: "w-[100px]",
@@ -134,28 +148,33 @@ function sortIssues(
 	issues: IssueListData[],
 	sortBy: ListSortBy,
 	statusOrder: Record<string, number>,
+	direction: "asc" | "desc" = "asc",
 ): IssueListData[] {
 	const sorted = [...issues];
+	const dir = direction === "desc" ? -1 : 1;
 	switch (sortBy) {
 		case "status":
 			sorted.sort(
-				(a, b) => (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99),
+				(a, b) =>
+					dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99)),
 			);
 			break;
 		case "priority":
 			sorted.sort(
 				(a, b) =>
-					(PRIORITY_ORDER[a.priority] ?? 99) -
-					(PRIORITY_ORDER[b.priority] ?? 99),
+					dir *
+					((PRIORITY_ORDER[a.priority] ?? 99) -
+						(PRIORITY_ORDER[b.priority] ?? 99)),
 			);
 			break;
 		case "created":
-			sorted.sort((a, b) => b._creationTime - a._creationTime);
+			sorted.sort((a, b) => dir * (b._creationTime - a._creationTime));
 			break;
 		case "updated":
 			sorted.sort(
 				(a, b) =>
-					(b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime),
+					dir *
+					((b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)),
 			);
 			break;
 		case "dueDate":
@@ -163,11 +182,11 @@ function sortIssues(
 				if (!a.dueDate && !b.dueDate) return 0;
 				if (!a.dueDate) return 1;
 				if (!b.dueDate) return -1;
-				return a.dueDate - b.dueDate;
+				return dir * (a.dueDate - b.dueDate);
 			});
 			break;
 		case "manual":
-			sorted.sort((a, b) => a.sortOrder - b.sortOrder);
+			sorted.sort((a, b) => dir * (a.sortOrder - b.sortOrder));
 			break;
 	}
 	return sorted;
@@ -363,14 +382,25 @@ export type IssueListViewProps = {
 	subGroupBy?: SubGroupByOption;
 	/** Sort/order by option from display settings */
 	orderBy?: OrderByOption;
+	/** Sort direction — ascending or descending */
+	orderDirection?: OrderDirection;
 	/** Display properties from display settings — mapped to columns */
 	displayProperties?: DisplayPropertyId[];
+	/** Hide empty groups when grouping is active */
+	showEmptyGroups?: boolean;
 	/** Hide the internal filter toolbar (when parent already provides one) */
 	hideFilter?: boolean;
 	/** Callback when an issue row is clicked (for peek sidebar). If not provided, navigates to issue page. */
 	onIssueClick?: (issueId: string) => void;
 	/** Multi-select + bulk actions on list rows (ClickUp-style). */
 	enableBulkSelect?: boolean;
+	/** All workspace sprints — used for per-issue sprint picker when no single project is selected (e.g. My Issues page). */
+	allWorkspaceSprints?: Array<{
+		_id: string;
+		name: string;
+		projectId?: string;
+		projectName?: string;
+	}>;
 };
 
 export function IssueListView({
@@ -379,12 +409,16 @@ export function IssueListView({
 	groupBy: groupByProp = "status",
 	subGroupBy: subGroupByProp = "none",
 	orderBy: orderByProp = "manual",
+	orderDirection: orderDirectionProp = "asc",
 	displayProperties,
+	showEmptyGroups: showEmptyGroupsProp = true,
 	hideFilter,
 	onIssueClick,
+	allWorkspaceSprints,
 }: IssueListViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
 	const router = useRouter();
+	const { openQuickCreate } = useIssueCreate();
 
 	// Load effective statuses (workspace + optional project override).
 	const project = useQuery(
@@ -414,9 +448,34 @@ export function IssueListView({
 	);
 	// Prevent accidental navigation when a drag ends (mouse up can trigger click).
 	const suppressClickRef = useRef(false);
-	// Preserve scroll position when a drop triggers data refresh.
-	const restoreScrollTopRef = useRef<number | null>(null);
-	const requestRestoreRef = useRef(false);
+	const containerRef = useRef<HTMLDivElement>(null);
+
+	// ── Scroll-position preservation ────────────────────────────────────
+	// Snapshot scrollTop on every render so we can restore it synchronously
+	// in useLayoutEffect if the DOM update would otherwise reset scroll
+	// (e.g. SortableContext items change, sidebar width transition, etc.).
+	const savedScrollTopRef = useRef<number>(0);
+	// Track whether we're past the first render (skip restore on mount).
+	const hasMountedRef = useRef(false);
+
+	// Capture current scrollTop *before* React commits to the DOM.
+	// Runs every render — reading scrollTop is cheap.
+	if (containerRef.current) {
+		savedScrollTopRef.current = containerRef.current.scrollTop;
+	}
+
+	useLayoutEffect(() => {
+		if (!hasMountedRef.current) {
+			hasMountedRef.current = true;
+			return;
+		}
+		const el = containerRef.current;
+		if (!el) return;
+		// Restore the pre-render scrollTop synchronously before paint.
+		if (el.scrollTop !== savedScrollTopRef.current) {
+			el.scrollTop = savedScrollTopRef.current;
+		}
+	});
 
 	// ── Filter state ─────────────────────────────────────────────────────
 	const {
@@ -452,14 +511,90 @@ export function IssueListView({
 	);
 	const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
 
+	// ── Create-from-group helper ─────────────────────────────────────────
+	const buildPresetFromGroup = useCallback(
+		(groupKey: string, parentGroupKey?: string): IssueCreatePreset => {
+			const preset: IssueCreatePreset = {};
+
+			// Start with the parent project context
+			if (projectId) preset.projectId = projectId as string;
+
+			// Apply single-value filters as defaults
+			if (filters.statuses.length === 1) preset.status = filters.statuses[0];
+			if (filters.priorities.length === 1)
+				preset.priority = filters.priorities[0];
+			if (filters.assigneeIds.length === 1)
+				preset.assigneeIds = [filters.assigneeIds[0]];
+			if (filters.projectId) preset.projectId = filters.projectId;
+			if (filters.milestoneIds.length === 1)
+				preset.sprintId = filters.milestoneIds[0];
+			if (filters.labelIds.length > 0) preset.labelIds = [...filters.labelIds];
+
+			// Apply the group dimension — overrides the filter for that field
+			const applyGroupKey = (dimension: string, key: string) => {
+				switch (dimension) {
+					case "status":
+						preset.status = key;
+						break;
+					case "priority":
+						preset.priority = key;
+						break;
+					case "assignee":
+						if (key !== "unassigned" && key !== "multiple")
+							preset.assigneeIds = [key];
+						break;
+					case "project":
+						if (key !== "no_project") preset.projectId = key;
+						break;
+					case "milestone":
+						if (key !== "no_milestone") preset.sprintId = key;
+						break;
+				}
+			};
+
+			// Apply parent group first, then the sub-group
+			if (parentGroupKey) applyGroupKey(groupBy, parentGroupKey);
+			applyGroupKey(parentGroupKey ? subGroupBy : groupBy, groupKey);
+
+			return preset;
+		},
+		[projectId, filters, groupBy, subGroupBy],
+	);
+
 	// ── Data fetching for resolving names ───────────────────────────────
 	const members = useWorkspaceMembers();
 	const projects = useWorkspaceProjects();
 	const labels = useWorkspaceLabels();
-	const allSprints = useQuery(
+
+	// When no projectId prop (e.g. My Issues), derive from selected issues
+	// so the bulk sprint picker shows the right project's sprints.
+	const selectedProjectId = useMemo(() => {
+		if (projectId) return projectId;
+		if (selectedIds.size === 0) return undefined;
+		const projectIds = new Set<string>();
+		for (const id of selectedIds) {
+			const issue = issues.find((i) => (i._id as string) === id);
+			if (issue?.projectId) projectIds.add(issue.projectId as string);
+		}
+		// Only use if all selected issues share the same project
+		if (projectIds.size === 1) {
+			const [pid] = projectIds;
+			return pid as Id<"projects">;
+		}
+		return undefined;
+	}, [projectId, selectedIds, issues]);
+
+	const projectSprints = useQuery(
 		api.sprints.listByProject,
-		projectId ? { projectId } : "skip",
+		selectedProjectId
+			? { projectId: selectedProjectId as Id<"projects"> }
+			: "skip",
 	);
+
+	// Use project-specific sprints when available, fall back to workspace-wide
+	// sprints (passed from parent) so the sprint picker works on pages like
+	// My Issues where no single project is selected.
+	const allSprints = projectSprints ?? allWorkspaceSprints ?? null;
 
 	// ── Mutations ───────────────────────────────────────────────────────
 	const updateIssue = useMutation(api.issues.update);
@@ -502,8 +637,22 @@ export function IssueListView({
 
 	const milestoneOptions = useMemo(() => {
 		if (!allSprints) return [];
-		return allSprints.map((m) => ({ id: m._id as string, name: m.name }));
+		return allSprints.map((m) => ({
+			id: m._id as string,
+			name: m.name,
+			projectId: "projectId" in m ? (m.projectId as string) : undefined,
+		}));
 	}, [allSprints]);
+
+	// Per-issue sprint options: only show sprints for the issue's project.
+	// No project → no sprints (sprints always belong to a project).
+	const getMilestoneOptionsForIssue = useCallback(
+		(issueProjectId?: string | null) => {
+			if (!issueProjectId) return [];
+			return milestoneOptions.filter((m) => m.projectId === issueProjectId);
+		},
+		[milestoneOptions],
+	);
 
 	const milestoneMap = useMemo(() => {
 		const map = new Map<string, string>();
@@ -550,8 +699,8 @@ export function IssueListView({
 	);
 
 	const sortedIssues = useMemo(
-		() => sortIssues(filteredIssues, sortBy, statusOrder),
-		[filteredIssues, sortBy, statusOrder],
+		() => sortIssues(filteredIssues, sortBy, statusOrder, orderDirectionProp),
+		[filteredIssues, sortBy, statusOrder, orderDirectionProp],
 	);
 
 	const groupedIssues = useMemo(() => {
@@ -578,11 +727,17 @@ export function IssueListView({
 			}
 		}
 
+		// Hide empty groups when the display option is off
+		if (!showEmptyGroupsProp && groupBy !== "none") {
+			return groups.filter((g) => g.issues.length > 0);
+		}
+
 		return groups;
 	}, [
 		sortedIssues,
 		groupBy,
 		subGroupBy,
+		showEmptyGroupsProp,
 		memberMap,
 		projectMap,
 		milestoneMap,
@@ -849,13 +1004,47 @@ export function IssueListView({
 		return map;
 	}, [sortedIssues, groupBy]);
 	const handleDragEnd = useCallback(
-		(event: {
-			active: { id: string | number };
-			over: { id: string | number } | null;
-		}) => {
-			if (!canDragAcrossGroups) return;
-			if (!event.over) return;
+		(event: DragEndEvent) => {
 			const activeId = String(event.active.id);
+
+			// Sidebar hit-test: if the drag released outside any in-view
+			// droppable, check whether the release point falls on a sidebar
+			// drop target marked with `data-issue-drop-target`. Same pattern
+			// as IssueBoardView — lets users drag into the sidebar's
+			// sprint/backlog nodes without a unified root DndContext.
+			if (!event.over) {
+				const activator = event.activatorEvent as PointerEvent | null;
+				if (!activator) return;
+				const endX = activator.clientX + event.delta.x;
+				const endY = activator.clientY + event.delta.y;
+				const hit = document.elementFromPoint(endX, endY);
+				const target = hit?.closest<HTMLElement>("[data-issue-drop-target]");
+				if (!target) return;
+				const kind = target.dataset.issueDropTarget;
+				const sprintId = target.dataset.sprintId;
+				const projectId = target.dataset.projectId;
+				if (kind === "sprint" && sprintId && projectId) {
+					void updateIssue({
+						issueId: activeId as Id<"issues">,
+						projectId: projectId as Id<"projects">,
+						sprintId: sprintId as Id<"sprints">,
+					})
+						.then(() => toast.success("Moved to sprint"))
+						.catch(() => toast.error("Failed to move issue"));
+				} else if (kind === "backlog" && projectId) {
+					void updateIssue({
+						issueId: activeId as Id<"issues">,
+						projectId: projectId as Id<"projects">,
+						// null = clear sprint → return to project backlog
+						sprintId: null,
+					})
+						.then(() => toast.success("Moved to backlog"))
+						.catch(() => toast.error("Failed to move issue"));
+				}
+				return;
+			}
+
+			if (!canDragAcrossGroups) return;
 			const overId = String(event.over.id);
 			// Prefer explicit group drop zone, but also support dropping onto a row
 			// inside the destination group (typical sortable list behavior).
@@ -865,8 +1054,6 @@ export function IssueListView({
 			if (!nextGroupKey) return;
 			const currentGroupKey = issueIdToGroupKey.get(activeId);
 			if (currentGroupKey === nextGroupKey) return;
-			// Request scroll restoration after the status mutation triggers re-render.
-			requestRestoreRef.current = true;
 			if (groupBy === "status") {
 				void handleStatusChange(activeId as Id<"issues">, nextGroupKey);
 			} else if (groupBy === "priority") {
@@ -888,27 +1075,9 @@ export function IssueListView({
 			handleAssigneeChange,
 			issueIdToGroupKey,
 			groupBy,
+			updateIssue,
 		],
 	);
-
-	useEffect(() => {
-		if (!requestRestoreRef.current) return;
-		const el = containerRef.current;
-		if (!el) return;
-		const top = restoreScrollTopRef.current;
-		if (top == null) return;
-		// Restore on next frames so DOM/layout has settled.
-		const raf1 = requestAnimationFrame(() => {
-			el.scrollTop = top;
-			const raf2 = requestAnimationFrame(() => {
-				el.scrollTop = top;
-				requestRestoreRef.current = false;
-			});
-			// We can't cancel raf2 easily without storing it; best-effort restore is fine.
-			void raf2;
-		});
-		return () => cancelAnimationFrame(raf1);
-	}, []);
 
 	function SortableIssueRow({
 		issueId,
@@ -1025,7 +1194,13 @@ export function IssueListView({
 	const handleDueDateChange = useCallback(
 		async (issueId: Id<"issues">, dueDate: number | undefined) => {
 			try {
-				await updateIssue({ issueId, dueDate });
+				// `undefined` means "clear it" — map to `null` sentinel so the
+				// Convex mutation can actually delete the field (undefined keys
+				// get stripped from the wire payload).
+				await updateIssue({
+					issueId,
+					dueDate: dueDate === undefined ? null : dueDate,
+				});
 			} catch {
 				toast.error("Failed to update due date");
 			}
@@ -1099,7 +1274,6 @@ export function IssueListView({
 	}, []);
 
 	// ── Keyboard navigation ─────────────────────────────────────────────
-	const containerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		const container = containerRef.current;
@@ -1227,7 +1401,7 @@ export function IssueListView({
 				<div
 					key={`header-${key}`}
 					className={cn(
-						"flex items-center gap-2 w-full h-8 px-2 text-xs font-medium text-muted-foreground border-b border-border/30 shrink-0",
+						"group/header flex items-center gap-2 w-full h-8 px-2 text-xs font-medium text-muted-foreground border-b border-border/30 shrink-0",
 						parentKey && "pl-6",
 					)}
 				>
@@ -1258,10 +1432,30 @@ export function IssueListView({
 						<span className="font-medium text-foreground">{group.label}</span>
 						<span className="text-muted-foreground ml-auto">{group.count}</span>
 					</button>
+
+					{/* Quick-create with group context */}
+					<button
+						type="button"
+						className="opacity-0 group-hover/header:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-muted transition-all shrink-0"
+						onClick={(e) => {
+							e.stopPropagation();
+							openQuickCreate(buildPresetFromGroup(group.key, parentKey));
+						}}
+						title={`Create issue in ${group.label}`}
+					>
+						<Plus className="h-3.5 w-3.5" />
+					</button>
 				</div>
 			);
 		},
-		[collapsedGroups, toggleGroup, getGroupCheckboxState, toggleSelectGroup],
+		[
+			collapsedGroups,
+			toggleGroup,
+			getGroupCheckboxState,
+			toggleSelectGroup,
+			openQuickCreate,
+			buildPresetFromGroup,
+		],
 	);
 
 	function renderIssueRow(issue: IssueListData) {
@@ -1292,7 +1486,9 @@ export function IssueListView({
 						memberOptions={memberOptions}
 						labelOptions={labelOptions}
 						projectOptions={projectOptions}
-						milestoneOptions={milestoneOptions}
+						milestoneOptions={getMilestoneOptionsForIssue(
+							issue.projectId as string | undefined,
+						)}
 						assignee={props.assignee}
 						projectName={props.projectName}
 						milestoneName={props.milestoneName}
@@ -1332,7 +1528,7 @@ export function IssueListView({
 	}
 
 	return (
-		<div className="flex flex-col h-full">
+		<div className="flex flex-col flex-1 min-h-0">
 			{/* Filter toolbar — hidden when parent provides its own */}
 			{!hideFilter && (
 				<div className="flex items-center gap-1 px-6 py-1.5 border-b border-border/30">
@@ -1376,36 +1572,33 @@ export function IssueListView({
 				/>
 			)}
 
-			<DndContext
-				sensors={sensors}
-				collisionDetection={closestCenter}
-				onDragStart={() => {
-					suppressClickRef.current = true;
-					// Capture current scroll position so drop doesn't jump to top.
-					restoreScrollTopRef.current = containerRef.current?.scrollTop ?? 0;
-				}}
-				onDragEnd={(e) => {
-					// Clear suppression after pointer-up settles.
-					requestAnimationFrame(() => {
-						requestAnimationFrame(() => {
-							suppressClickRef.current = false;
-						});
-					});
-					handleDragEnd(e);
-				}}
-				onDragCancel={() => {
-					suppressClickRef.current = false;
-				}}
+			<div
+				ref={containerRef}
+				className="flex-1 overflow-y-auto overflow-x-auto outline-none px-6 min-w-0 overscroll-contain"
+				role="listbox"
+				tabIndex={0}
 			>
-				<SortableContext
-					items={flatIssueIds}
-					strategy={verticalListSortingStrategy}
+				<DndContext
+					sensors={sensors}
+					collisionDetection={closestCenter}
+					onDragStart={() => {
+						suppressClickRef.current = true;
+					}}
+					onDragEnd={(e) => {
+						requestAnimationFrame(() => {
+							requestAnimationFrame(() => {
+								suppressClickRef.current = false;
+							});
+						});
+						handleDragEnd(e);
+					}}
+					onDragCancel={() => {
+						suppressClickRef.current = false;
+					}}
 				>
-					<div
-						ref={containerRef}
-						className="flex-1 overflow-y-auto overflow-x-auto outline-none px-6 min-w-0"
-						role="listbox"
-						tabIndex={0}
+					<SortableContext
+						items={flatIssueIds}
+						strategy={verticalListSortingStrategy}
 					>
 						{renderColumnHeader()}
 						{groupedIssues.map((group) => {
@@ -1451,14 +1644,16 @@ export function IssueListView({
 								</GroupDropZone>
 							);
 						})}
-					</div>
-				</SortableContext>
-			</DndContext>
+					</SortableContext>
+				</DndContext>
+			</div>
 
 			<IssueBulkActionBar
 				selectedIds={selectedIds}
 				onClearSelection={() => setSelectedIds(new Set())}
-				projectId={projectId}
+				projectId={
+					(selectedProjectId as Id<"projects"> | undefined) ?? projectId
+				}
 				sprintOptions={(allSprints ?? []).map((s) => ({
 					id: s._id as string,
 					name: s.name,

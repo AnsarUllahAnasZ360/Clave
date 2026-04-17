@@ -1164,14 +1164,32 @@ export function MyIssuesPage() {
 		reset: resetDisplayOptions,
 	} = useDisplayOptions("my-issues");
 
-	// Issue filters
+	// Lookup data
+	const members = useWorkspaceMembers();
+	const projects = useWorkspaceProjects();
+	const labels = useWorkspaceLabels();
+	const workspaceSprints = useQuery(api.sprints.listByWorkspace, {
+		workspaceId,
+	});
+
+	// Compute active sprint IDs for default filtering
+	const activeSprintIds = useMemo(() => {
+		if (!workspaceSprints) return [];
+		return workspaceSprints
+			.filter((s) => s.status === "active")
+			.map((s) => s._id as string);
+	}, [workspaceSprints]);
+
+	// Issue filters (with active sprint mode)
 	const {
 		filters,
 		setFilter,
 		clearAll: clearAllFilters,
 		activeFilterCount,
 		applyFilters,
-	} = useIssueFilters();
+		activeSprintMode,
+		setActiveSprintMode,
+	} = useIssueFilters(activeSprintIds);
 
 	// Queries for each tab
 	const assignedIssues = useQuery(api.issues.myIssuesAssigned, { workspaceId });
@@ -1180,14 +1198,6 @@ export function MyIssuesPage() {
 		workspaceId,
 	});
 	const activityIssues = useQuery(api.issues.myIssuesActivity, {
-		workspaceId,
-	});
-
-	// Lookup data
-	const members = useWorkspaceMembers();
-	const projects = useWorkspaceProjects();
-	const labels = useWorkspaceLabels();
-	const workspaceSprints = useQuery(api.sprints.listByWorkspace, {
 		workspaceId,
 	});
 
@@ -1388,8 +1398,29 @@ export function MyIssuesPage() {
 					milestones={(workspaceSprints ?? []).map((s) => ({
 						id: s._id as string,
 						name: s.name,
+						status: s.status,
+						projectName: s.projectName,
 					}))}
 				/>
+				<Button
+					variant={activeSprintMode ? "default" : "ghost"}
+					size="sm"
+					onClick={() => setActiveSprintMode(!activeSprintMode)}
+					className={cn(
+						"h-7 gap-1.5 text-xs",
+						activeSprintMode
+							? "bg-sienna-500/15 text-sienna-500 hover:bg-sienna-500/25 border border-sienna-500/30"
+							: "text-muted-foreground",
+					)}
+				>
+					<Timer className="h-3.5 w-3.5" />
+					Active Sprints
+					{activeSprintMode && activeSprintIds.length > 0 && (
+						<span className="text-[10px] tabular-nums opacity-70">
+							{activeSprintIds.length}
+						</span>
+					)}
+				</Button>
 				<DisplayOptionsPanel
 					layout={displayOptions.layout}
 					groupBy={displayOptions.groupBy}
@@ -1444,6 +1475,10 @@ export function MyIssuesPage() {
 						)
 					}
 					milestoneMap={milestoneMap}
+					activeSprintMode={activeSprintMode}
+					onToggleActiveSprintMode={() =>
+						setActiveSprintMode(!activeSprintMode)
+					}
 				/>
 			)}
 
@@ -1480,21 +1515,35 @@ export function MyIssuesPage() {
 									? "status"
 									: displayOptions.groupBy
 							}
+							subGroupBy={displayOptions.subGroupBy}
 							orderBy={displayOptions.orderBy}
+							orderDirection={displayOptions.orderDirection}
 							displayProperties={displayOptions.displayProperties}
+							showEmptyGroups={displayOptions.showEmptyGroups}
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 							hideFilter
+							allWorkspaceSprints={(workspaceSprints ?? []).map((s) => ({
+								_id: s._id as string,
+								name: s.name,
+								projectId: s.projectId as string,
+								projectName: s.projectName,
+							}))}
 						/>
 					)}
 				</div>
 
-				{/* Preview sidebar */}
-				{selectedIssueId && (
-					<IssuePreviewSidebar
-						issueId={selectedIssueId}
-						onClose={() => setSelectedIssueId(null)}
-					/>
-				)}
+				{/* Preview sidebar — stable container prevents layout shift */}
+				<div
+					className="shrink-0 overflow-hidden transition-[width] duration-200 ease-out"
+					style={{ width: selectedIssueId ? 420 : 0 }}
+				>
+					{selectedIssueId && (
+						<IssuePreviewSidebar
+							issueId={selectedIssueId}
+							onClose={() => setSelectedIssueId(null)}
+						/>
+					)}
+				</div>
 
 				{/* Insights panel — sits beside the board, doesn't overlap */}
 				{showInsights && activeIssues[activeTab] && (
