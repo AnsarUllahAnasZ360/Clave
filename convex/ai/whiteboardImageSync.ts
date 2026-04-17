@@ -35,11 +35,12 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-	// Copy into a fresh ArrayBuffer so the type is unambiguously ArrayBuffer
-	// (crypto.subtle.digest rejects SharedArrayBuffer-typed views under strict TS).
-	const buf = new ArrayBuffer(bytes.byteLength);
-	new Uint8Array(buf).set(bytes);
-	const hash = await crypto.subtle.digest("SHA-256", buf);
+	// Copy into a fresh Uint8Array backed by a plain ArrayBuffer. Node's
+	// SubtleCrypto (used in CI) accepts TypedArrays directly but rejects
+	// some bare ArrayBuffer inputs; always hand it a Uint8Array view.
+	const copy = new Uint8Array(bytes.byteLength);
+	copy.set(bytes);
+	const hash = await crypto.subtle.digest("SHA-256", copy);
 	const view = new Uint8Array(hash);
 	let hex = "";
 	for (const b of view) hex += b.toString(16).padStart(2, "0");

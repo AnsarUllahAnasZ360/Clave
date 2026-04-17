@@ -86,4 +86,14 @@ describe("sha256Hex / base64ToBytes", () => {
 			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
 		);
 	});
+
+	it("handles empty input without throwing on Node SubtleCrypto", async () => {
+		// Regression: Node's SubtleCrypto (used in CI) rejects bare ArrayBuffer
+		// inputs with ERR_INVALID_ARG_TYPE. sha256Hex must always hand it a
+		// TypedArray view. An empty input is a cheap smoke test for that path.
+		const hex = await sha256Hex(new Uint8Array(0));
+		expect(hex).toBe(
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		);
+	});
 });
