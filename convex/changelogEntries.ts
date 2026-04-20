@@ -25,6 +25,37 @@ export type ChangelogEntry = {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
 	{
+		version: "0.4.0",
+		releasedAt: "2026-04-20T00:00:00Z",
+		title: "Sidebar drag-and-drop, filter-aware creation, assignee fixes",
+		features: [
+			"Drag any issue from a board or list view onto a sidebar sprint, backlog, or project to move it — target row lights up sienna to confirm",
+			"Hover a collapsed project or sprint folder while dragging and it auto-expands after a short dwell, so nested drop targets are reachable without clicking first",
+			"Dragged card shrinks when it enters the sidebar so you can aim at narrow sprint rows",
+			"My Issues board view now has an inline '+ Add issue' at the bottom of every status column",
+			"Inline and toolbar create on My Issues pre-fill the current user as assignee plus any active single-valued filter (project, priority, labels, status, sprint) — new issues immediately match the view",
+			"Project-page toolbar 'Create issue' now carries every active single-valued filter into the modal, not just sprint",
+			"Per-group '+' in the list view respects the page-level filter state when the parent owns it (previously read an unused local filter)",
+			"Quick create (C) and full create (V) shortcuts auto-inherit the current sprint when you're on a sprint detail URL",
+			"Dedicated 'Backlog' button on the issue and task bulk action bars — one click instead of three",
+			"'Move to backlog' on every issue's row and card `…` menu",
+			"Project row in the sidebar is a drop target — drop an issue on a project to move it to that project's backlog",
+			"Issue preview sidebar now scrolls and includes the full activity + comments section (threaded replies, @mentions, attachments, AI reply)",
+			"'Unassigned' option inside the assignee dropdown on issues (preview sidebar) and tasks (detail sheet, quick create) — clears everyone in one click",
+			"Sidebar keeps the full project tree visible while viewing the backlog page so sprint drop targets stay reachable",
+			"AI activity summary card renders full-width below the Activity header on both the issue detail page and the preview sidebar",
+		],
+		bugFixes: [
+			"Unassigning an issue actually clears the assignee now — every picker sends an empty array instead of undefined, which Convex was dropping on the wire and leaving the server untouched",
+			"Sidebar drops from the board view work — the floating drag overlay no longer blocks pointer hit-tests against the sidebar",
+			"Sidebar drops at the board/sidebar edge no longer get hijacked by in-view collision detection; pointer position is the source of truth",
+			"Production crash on any issue with a link in its description — the link element now guards against the optional Suggestion plugin being absent",
+			"Issue title in the preview sidebar wraps instead of truncating",
+			"Issue preview sidebar's activity section is reachable on short viewports (the panel is now actually scrollable)",
+			"Drag performance: one global pointermove handler replaces per-item listeners and per-row layout thrash",
+		],
+	},
+	{
 		version: "0.3.0",
 		releasedAt: "2026-04-17T00:00:00Z",
 		title: "Active Sprints, doc-aware AI, better approvals",

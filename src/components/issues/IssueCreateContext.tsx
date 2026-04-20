@@ -1,11 +1,13 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import {
 	createContext,
 	useCallback,
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import type { IssueTypeKey, PriorityKey, StatusKey } from "@/lib/issue-config";
@@ -113,6 +115,38 @@ export function IssueCreateProvider({
 	const [formState, setFormState] =
 		useState<IssueFormState>(DEFAULT_FORM_STATE);
 
+	// Track current pathname in a ref so the shortcut handler (mounted once
+	// at provider init) always reads the latest URL without re-registering.
+	const pathname = usePathname();
+	const pathnameRef = useRef(pathname);
+	useEffect(() => {
+		pathnameRef.current = pathname;
+	}, [pathname]);
+
+	/**
+	 * Infer sprint context from the current route. Sprint detail URLs look
+	 * like `/{workspace}/projects/{projectSlug}/sprints/{sprintId}` — when a
+	 * caller doesn't specify a sprintId AND didn't pre-scope to a different
+	 * project, we auto-attach the visible sprint so the generic "+" flow
+	 * lands in the right place.
+	 */
+	const enrichFromRoute = useCallback(
+		(p: IssueCreatePreset): IssueCreatePreset => {
+			if (p.sprintId) return p;
+			// Don't infer across projects — if the caller pinned a project,
+			// we can't safely attach a sprint from a possibly different URL.
+			if (p.projectId) return p;
+			// `usePathname()` returns null outside the app router context
+			// (e.g. unit tests, storybook). Guard rather than crash.
+			const current = pathnameRef.current;
+			if (!current) return p;
+			const match = current.match(/\/sprints\/([^/?#]+)/);
+			if (!match) return p;
+			return { ...p, sprintId: match[1] };
+		},
+		[],
+	);
+
 	const updateForm = useCallback((updates: Partial<IssueFormState>) => {
 		setFormState((prev) => ({ ...prev, ...updates }));
 	}, []);
@@ -139,22 +173,22 @@ export function IssueCreateProvider({
 
 	const openQuickCreate = useCallback(
 		(p?: IssueCreatePreset) => {
-			const pr = p ?? {};
+			const pr = enrichFromRoute(p ?? {});
 			setPreset(pr);
 			applyPreset(pr);
 			setActiveModal("quick");
 		},
-		[applyPreset],
+		[applyPreset, enrichFromRoute],
 	);
 
 	const openFullCreate = useCallback(
 		(p?: IssueCreatePreset) => {
-			const pr = p ?? {};
+			const pr = enrichFromRoute(p ?? {});
 			setPreset(pr);
 			applyPreset(pr);
 			setActiveModal("full");
 		},
-		[applyPreset],
+		[applyPreset, enrichFromRoute],
 	);
 
 	const closeCreate = useCallback(() => {
@@ -194,22 +228,24 @@ export function IssueCreateProvider({
 
 			if (e.key === "c" || e.key === "C") {
 				e.preventDefault();
-				setPreset({});
-				setFormState(DEFAULT_FORM_STATE);
+				const pr = enrichFromRoute({});
+				setPreset(pr);
+				applyPreset(pr);
 				setActiveModal("quick");
 			}
 
 			if (e.key === "v" || e.key === "V") {
 				e.preventDefault();
-				setPreset({});
-				setFormState(DEFAULT_FORM_STATE);
+				const pr = enrichFromRoute({});
+				setPreset(pr);
+				applyPreset(pr);
 				setActiveModal("full");
 			}
 		}
 
 		document.addEventListener("keydown", handleKeyDown);
 		return () => document.removeEventListener("keydown", handleKeyDown);
-	}, []);
+	}, [enrichFromRoute, applyPreset]);
 
 	const value = useMemo(
 		() => ({

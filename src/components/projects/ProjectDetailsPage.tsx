@@ -499,17 +499,48 @@ function ProjectIssuesTab({
 		[filters.milestoneIds],
 	);
 
+	// Toolbar "+ Create issue" preset: always scoped to this project, plus
+	// any single-valued filter the user has applied (sprint, status,
+	// priority) and all selected labels / assignees. Keeps the new issue
+	// in the current filtered view without manual re-entry.
 	const handleCreateIssue = useCallback(() => {
+		const preset: {
+			projectId: string;
+			sprintId?: string;
+			status?: string;
+			priority?: string;
+			labelIds?: string[];
+			assigneeIds?: string[];
+		} = { projectId: projectId as string };
+
 		if (boardSprintIdFromFilter) {
-			openQuickCreate({
-				projectId: projectId as string,
-				sprintId: boardSprintIdFromFilter as string,
-				status: "todo",
-			});
-		} else {
-			openQuickCreate({ projectId: projectId as string });
+			preset.sprintId = boardSprintIdFromFilter as string;
 		}
-	}, [openQuickCreate, projectId, boardSprintIdFromFilter]);
+		if (filters.statuses.length === 1) {
+			preset.status = filters.statuses[0];
+		} else if (boardSprintIdFromFilter) {
+			// Preserve the long-standing default when a sprint was picked.
+			preset.status = "todo";
+		}
+		if (filters.priorities.length === 1) {
+			preset.priority = filters.priorities[0];
+		}
+		if (filters.labelIds.length > 0) {
+			preset.labelIds = filters.labelIds;
+		}
+		if (filters.assigneeIds.length > 0) {
+			preset.assigneeIds = filters.assigneeIds;
+		}
+		openQuickCreate(preset);
+	}, [
+		openQuickCreate,
+		projectId,
+		boardSprintIdFromFilter,
+		filters.statuses,
+		filters.priorities,
+		filters.labelIds,
+		filters.assigneeIds,
+	]);
 	const [showFilters, setShowFilters] = useState(false);
 
 	// ── Lookup data for filter popover ───────────────────────────────────
@@ -739,6 +770,7 @@ function ProjectIssuesTab({
 						displayProperties={options.displayProperties}
 						showEmptyGroups={options.showEmptyGroups}
 						hideFilter
+						externalFilters={filters}
 						onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 					/>
 				)}

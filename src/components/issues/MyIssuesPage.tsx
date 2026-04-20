@@ -27,7 +27,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { IssueBulkActionBar } from "@/components/issues/IssueBulkActionBar";
-import { useIssueCreate } from "@/components/issues/IssueCreateContext";
+import {
+	type IssueCreatePreset,
+	useIssueCreate,
+} from "@/components/issues/IssueCreateContext";
 import {
 	formatEstimate,
 	type IssueListData,
@@ -35,6 +38,7 @@ import {
 import { IssueListView } from "@/components/issues/IssueListView";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
+	useCurrentUser,
 	useWorkspaceLabels,
 	useWorkspaceMembers,
 	useWorkspaceProjects,
@@ -1168,6 +1172,7 @@ export function MyIssuesPage() {
 	const members = useWorkspaceMembers();
 	const projects = useWorkspaceProjects();
 	const labels = useWorkspaceLabels();
+	const currentUser = useCurrentUser();
 	const workspaceSprints = useQuery(api.sprints.listByWorkspace, {
 		workspaceId,
 	});
@@ -1190,6 +1195,37 @@ export function MyIssuesPage() {
 		activeSprintMode,
 		setActiveSprintMode,
 	} = useIssueFilters(activeSprintIds);
+
+	// Defaults for inline-create on this view. Always assigns the creator
+	// (so a new issue immediately matches the "my issues" filter) and
+	// mirrors any active single-valued filters so the new card also
+	// satisfies them.
+	const createDefaults = useMemo(() => {
+		const defaults: {
+			projectId?: string;
+			priority?: string;
+			assigneeIds?: string[];
+			labelIds?: string[];
+		} = {};
+		if (currentUser?._id) defaults.assigneeIds = [currentUser._id as string];
+		if (filters.projectId) defaults.projectId = filters.projectId;
+		if (filters.priorities.length === 1)
+			defaults.priority = filters.priorities[0];
+		if (filters.labelIds.length > 0) defaults.labelIds = filters.labelIds;
+		return defaults;
+	}, [currentUser, filters.projectId, filters.priorities, filters.labelIds]);
+
+	// Preset for the toolbar "+ New issue" button. Same idea as
+	// `createDefaults` but also folds in `status` (and sprint, if single-
+	// selected) since the full modal has a field for each — the inline
+	// column-level create already carries its own status from the column.
+	const toolbarCreatePreset = useMemo<IssueCreatePreset>(() => {
+		const preset: IssueCreatePreset = { ...createDefaults };
+		if (filters.statuses.length === 1) preset.status = filters.statuses[0];
+		if (filters.milestoneIds.length === 1)
+			preset.sprintId = filters.milestoneIds[0];
+		return preset;
+	}, [createDefaults, filters.statuses, filters.milestoneIds]);
 
 	// Queries for each tab
 	const assignedIssues = useQuery(api.issues.myIssuesAssigned, { workspaceId });
@@ -1335,7 +1371,7 @@ export function MyIssuesPage() {
 						type="button"
 						size="sm"
 						className="h-7 gap-1.5 shrink-0"
-						onClick={() => openQuickCreate()}
+						onClick={() => openQuickCreate(toolbarCreatePreset)}
 					>
 						<Plus className="h-3.5 w-3.5" />
 						New issue
@@ -1499,6 +1535,7 @@ export function MyIssuesPage() {
 								displayOptions.displayProperties,
 							)}
 							swimlaneBy={displayOptions.swimlaneBy}
+							createDefaults={createDefaults}
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>
 					) : (
@@ -1522,6 +1559,7 @@ export function MyIssuesPage() {
 							showEmptyGroups={displayOptions.showEmptyGroups}
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 							hideFilter
+							externalFilters={filters}
 							allWorkspaceSprints={(workspaceSprints ?? []).map((s) => ({
 								_id: s._id as string,
 								name: s.name,

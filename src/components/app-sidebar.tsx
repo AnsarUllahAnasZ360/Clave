@@ -63,6 +63,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspacePresenceIndicator } from "@/components/workspace/WorkspacePresenceIndicator";
 import { WorkspaceSelector } from "@/components/workspace/workspace-selector";
+import { useDragHoverExpand } from "@/hooks/use-drag-hover-expand";
 import { useSidebarSections } from "@/hooks/use-sidebar-sections";
 import { useWorkspacePresence } from "@/hooks/use-workspace-presence";
 import { cn } from "@/lib/utils";
@@ -160,6 +161,17 @@ export function AppSidebar() {
 
 	const sidebarProjects = useQuery(api.projects.listSidebarTree, {
 		workspaceId,
+	});
+
+	// Auto-expand the top-level "Projects" section when something is dragged
+	// over its header — otherwise the whole tree (and its drop targets) is
+	// inaccessible while the section is collapsed.
+	const handleExpandProjectsSection = useCallback(() => {
+		toggle("projects");
+	}, [toggle]);
+	const projectsSectionHoverRef = useDragHoverExpand<HTMLDivElement>({
+		enabled: !sections.projects,
+		onExpand: handleExpandProjectsSection,
 	});
 
 	// Expand/collapse state
@@ -495,7 +507,10 @@ export function AppSidebar() {
 						onOpenChange={() => toggle("projects")}
 					>
 						<SidebarGroup>
-							<div className="flex items-center group-data-[collapsible=icon]:hidden">
+							<div
+								ref={projectsSectionHoverRef}
+								className="flex items-center group-data-[collapsible=icon]:hidden"
+							>
 								<CollapsibleTrigger asChild>
 									<button
 										type="button"
@@ -742,15 +757,6 @@ function ProjectTreeItem({
 	const isProjectActive = pathname.startsWith(
 		`/${workspaceSlug}/projects/${project.slug}`,
 	);
-	// Backlog route matching: be resilient to workspace prefix and whether the
-	// route segment uses the project slug or id.
-	const isBacklogActive = useMemo(() => {
-		const needles = [
-			`/projects/${project.slug}/backlog`,
-			`/projects/${project._id}/backlog`,
-		];
-		return needles.some((n) => pathname.includes(n));
-	}, [pathname, project.slug, project._id]);
 
 	// Rename / delete state
 	const [isRenaming, setIsRenaming] = useState(false);
@@ -797,10 +803,30 @@ function ProjectTreeItem({
 		}
 	}, [project._id, project.name, removeProject]);
 
+	// Auto-expand on drag hover so users can drop an issue onto a sprint /
+	// backlog nested under a collapsed project without clicking first.
+	const handleExpandProject = useCallback(() => {
+		onToggleProject(project._id);
+	}, [onToggleProject, project._id]);
+	const hoverExpandRef = useDragHoverExpand<HTMLDivElement>({
+		enabled: !isExpanded,
+		onExpand: handleExpandProject,
+	});
+
 	return (
 		<SidebarMenuItem>
-			{/* Project row */}
-			<div className="flex items-center group/project min-w-0">
+			{/* Project row — also acts as a drop target: dropping an issue here
+			    moves it into this project's backlog (sprint/list cleared). */}
+			<div
+				ref={hoverExpandRef}
+				data-issue-drop-target="project"
+				data-project-id={project._id}
+				className={cn(
+					"flex items-center group/project min-w-0 rounded-md transition-colors",
+					"data-[drop-hover=true]:bg-sienna-500/10 data-[drop-hover=true]:ring-1 data-[drop-hover=true]:ring-sienna-500",
+					"data-[drop-success=true]:bg-sienna-500/25 data-[drop-success=true]:ring-1 data-[drop-success=true]:ring-sienna-500",
+				)}
+			>
 				<button
 					type="button"
 					onClick={() => onToggleProject(project._id)}
@@ -952,65 +978,60 @@ function ProjectTreeItem({
 			{/* Expanded children */}
 			{isExpanded && (
 				<div className="ml-5 border-l border-border/40 pl-1 overflow-hidden">
-					{/* Backlog is a focused view; when active, keep the tree scoped to it. */}
-					{!isBacklogActive && (
-						<>
-							{/* Sprint folders */}
-							{project.sprintFolders.map((folder) => (
-								<SprintFolderItem
-									key={folder._id}
-									folder={folder}
-									projectId={project._id}
-									projectSlug={project.slug}
-									workspaceSlug={workspaceSlug}
-									pathname={pathname}
-									isExpanded={expandedFolders.has(folder._id)}
-									onToggle={() => onToggleFolder(folder._id)}
-									onStartInlineCreate={onStartInlineCreate}
-									inlineCreate={inlineCreate}
-									inlineName={inlineName}
-									onInlineNameChange={onInlineNameChange}
-									onInlineKeyDown={onInlineKeyDown}
-									onInlineBlur={onInlineBlur}
-									inlineInputRef={inlineInputRef}
-								/>
-							))}
+					{/* Sprint folders */}
+					{project.sprintFolders.map((folder) => (
+						<SprintFolderItem
+							key={folder._id}
+							folder={folder}
+							projectId={project._id}
+							projectSlug={project.slug}
+							workspaceSlug={workspaceSlug}
+							pathname={pathname}
+							isExpanded={expandedFolders.has(folder._id)}
+							onToggle={() => onToggleFolder(folder._id)}
+							onStartInlineCreate={onStartInlineCreate}
+							inlineCreate={inlineCreate}
+							inlineName={inlineName}
+							onInlineNameChange={onInlineNameChange}
+							onInlineKeyDown={onInlineKeyDown}
+							onInlineBlur={onInlineBlur}
+							inlineInputRef={inlineInputRef}
+						/>
+					))}
 
-							{/* Loose sprints (not in any folder) */}
-							{project.looseSprints.map((sprint) => (
-								<SprintNavItem
-									key={sprint._id}
-									sprint={sprint}
-									projectId={project._id as Id<"projects">}
-									projectSlug={project.slug}
-									workspaceSlug={workspaceSlug}
-									pathname={pathname}
-								/>
-							))}
+					{/* Loose sprints (not in any folder) */}
+					{project.looseSprints.map((sprint) => (
+						<SprintNavItem
+							key={sprint._id}
+							sprint={sprint}
+							projectId={project._id as Id<"projects">}
+							projectSlug={project.slug}
+							workspaceSlug={workspaceSlug}
+							pathname={pathname}
+						/>
+					))}
 
-							{/* Inline create (sprint or folder at project level) */}
-							{inlineCreate &&
-								inlineCreate.projectId === project._id &&
-								!inlineCreate.folderId && (
-									<div className="px-2 py-1">
-										<input
-											ref={inlineInputRef}
-											type="text"
-											value={inlineName}
-											onChange={(e) => onInlineNameChange(e.target.value)}
-											onKeyDown={onInlineKeyDown}
-											onBlur={onInlineBlur}
-											placeholder={
-												inlineCreate.type === "folder"
-													? "Folder name..."
-													: "Sprint name..."
-											}
-											className="w-full h-6 text-xs bg-transparent border-b border-border focus:border-foreground outline-none placeholder:text-muted-foreground/50"
-										/>
-									</div>
-								)}
-						</>
-					)}
+					{/* Inline create (sprint or folder at project level) */}
+					{inlineCreate &&
+						inlineCreate.projectId === project._id &&
+						!inlineCreate.folderId && (
+							<div className="px-2 py-1">
+								<input
+									ref={inlineInputRef}
+									type="text"
+									value={inlineName}
+									onChange={(e) => onInlineNameChange(e.target.value)}
+									onKeyDown={onInlineKeyDown}
+									onBlur={onInlineBlur}
+									placeholder={
+										inlineCreate.type === "folder"
+											? "Folder name..."
+											: "Sprint name..."
+									}
+									className="w-full h-6 text-xs bg-transparent border-b border-border focus:border-foreground outline-none placeholder:text-muted-foreground/50"
+								/>
+							</div>
+						)}
 
 					{/* Backlog */}
 					<SidebarMenu>
@@ -1045,30 +1066,25 @@ function ProjectTreeItem({
 							</BacklogDropTarget>
 						</SidebarMenuItem>
 
-						{/* Docs/Boards are hidden when Backlog is the active project view */}
-						{!isBacklogActive && (
-							<>
-								{/* Docs linked to this project */}
-								{project.docs?.map((doc) => (
-									<DocNavItem
-										key={doc._id}
-										doc={doc}
-										workspaceSlug={workspaceSlug}
-										pathname={pathname}
-									/>
-								))}
+						{/* Docs linked to this project */}
+						{project.docs?.map((doc) => (
+							<DocNavItem
+								key={doc._id}
+								doc={doc}
+								workspaceSlug={workspaceSlug}
+								pathname={pathname}
+							/>
+						))}
 
-								{/* Boards linked to this project */}
-								{project.boards?.map((board) => (
-									<BoardNavItem
-										key={board._id}
-										board={board}
-										workspaceSlug={workspaceSlug}
-										pathname={pathname}
-									/>
-								))}
-							</>
-						)}
+						{/* Boards linked to this project */}
+						{project.boards?.map((board) => (
+							<BoardNavItem
+								key={board._id}
+								board={board}
+								workspaceSlug={workspaceSlug}
+								pathname={pathname}
+							/>
+						))}
 					</SidebarMenu>
 				</div>
 			)}
@@ -1167,9 +1183,18 @@ function SprintFolderItem({
 		}
 	}, [folder._id, folder.name, removeFolder]);
 
+	// Auto-expand on drag hover to reveal nested sprints as drop targets.
+	const hoverExpandRef = useDragHoverExpand<HTMLDivElement>({
+		enabled: !isExpanded,
+		onExpand: onToggle,
+	});
+
 	return (
 		<div>
-			<div className="flex items-center group/folder min-w-0">
+			<div
+				ref={hoverExpandRef}
+				className="flex items-center group/folder min-w-0"
+			>
 				{isFolderRenaming ? (
 					<div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 h-7">
 						<Timer className="h-3.5 w-3.5 text-green-500 shrink-0" />
@@ -1334,7 +1359,11 @@ function BacklogDropTarget({
 		<div
 			data-issue-drop-target="backlog"
 			data-project-id={projectId}
-			className="rounded-md"
+			className={cn(
+				"rounded-md transition-colors",
+				"data-[drop-hover=true]:bg-sienna-500/10 data-[drop-hover=true]:ring-1 data-[drop-hover=true]:ring-sienna-500",
+				"data-[drop-success=true]:bg-sienna-500/25 data-[drop-success=true]:ring-1 data-[drop-success=true]:ring-sienna-500",
+			)}
 		>
 			{children}
 		</div>
@@ -1414,7 +1443,11 @@ function SprintNavItem({
 					data-issue-drop-target="sprint"
 					data-sprint-id={sprint._id}
 					data-project-id={projectId}
-					className="flex items-center group/sprint min-w-0"
+					className={cn(
+						"flex items-center group/sprint min-w-0 rounded-md transition-colors",
+						"data-[drop-hover=true]:bg-sienna-500/10 data-[drop-hover=true]:ring-1 data-[drop-hover=true]:ring-sienna-500",
+						"data-[drop-success=true]:bg-sienna-500/25 data-[drop-success=true]:ring-1 data-[drop-success=true]:ring-sienna-500",
+					)}
 				>
 					{isRenaming ? (
 						<div className="flex items-center gap-1.5 flex-1 min-w-0 px-2 h-7">

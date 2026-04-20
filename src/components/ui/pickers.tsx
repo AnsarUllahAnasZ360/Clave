@@ -27,6 +27,11 @@ interface PickerProps<T> {
 	selectedId?: string;
 	placeholder?: string;
 	renderItem: (item: T, isSelected: boolean) => React.ReactNode;
+	/** When provided, renders a top-of-list "clear" item that calls this
+	 *  callback. Typical use: "Unassigned" for assignee pickers. */
+	onClear?: () => void;
+	/** Label shown on the clear item. Defaults to "Clear". */
+	clearLabel?: string;
 }
 
 export function GenericPicker<
@@ -38,6 +43,8 @@ export function GenericPicker<
 	selectedId,
 	placeholder = "Search...",
 	renderItem,
+	onClear,
+	clearLabel = "Clear",
 }: PickerProps<T>) {
 	const [open, setOpen] = useState(false);
 
@@ -49,6 +56,28 @@ export function GenericPicker<
 					<CommandInput placeholder={placeholder} />
 					<CommandList>
 						<CommandEmpty>No results found.</CommandEmpty>
+						{onClear ? (
+							<CommandGroup>
+								<CommandItem
+									value={clearLabel}
+									onSelect={() => {
+										onClear();
+										setOpen(false);
+									}}
+									className="cursor-pointer text-muted-foreground"
+								>
+									<span className="flex items-center gap-2">
+										<span className="flex items-center justify-center h-4 w-4">
+											×
+										</span>
+										{clearLabel}
+										{selectedId === undefined && (
+											<span className="ml-auto text-primary">✓</span>
+										)}
+									</span>
+								</CommandItem>
+							</CommandGroup>
+						) : null}
 						<CommandGroup>
 							{items.map((item) => (
 								<CommandItem

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	Archive,
 	CheckCircle,
 	Circle,
 	CircleNotch,
@@ -182,6 +183,19 @@ export function BulkActionBar({
 					))}
 				</DropdownMenuContent>
 			</DropdownMenu>
+
+			{/* Dedicated "Move to backlog" shortcut. Tasks don't have a
+			    separate sprint field — "backlog" is a status value, so this
+			    is a one-click shortcut for the common Status → Backlog path. */}
+			<Button
+				variant="outline"
+				size="sm"
+				className="h-8"
+				onClick={() => handleBulkStatus("backlog")}
+			>
+				<Archive className="h-4 w-4 mr-1.5" />
+				Backlog
+			</Button>
 
 			{/* Assign dropdown */}
 			<DropdownMenu>

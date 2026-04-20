@@ -399,6 +399,8 @@ export function TaskDetailSheet({
 								onSelect={handleAssigneeChange}
 								selectedId={task.assigneeId ?? undefined}
 								placeholder="Assign to..."
+								onClear={handleUnassign}
+								clearLabel="Unassigned"
 								renderItem={(item) => (
 									<div className="flex items-center gap-2 w-full">
 										<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">

@@ -529,7 +529,11 @@ export function IssueDetailPage({ identifier }: { identifier: string }) {
 	const handleAssigneesChange = useCallback(
 		async (assigneeIds: string[] | undefined) => {
 			try {
-				const mappedIds = assigneeIds?.map((id) => id as Id<"users">);
+				// Convex drops `undefined` keys on the wire, so passing an
+				// `undefined` array leaves the server untouched — the "can't
+				// unassign" bug. `update` treats `[]` as "clear both
+				// assigneeId and assigneeIds".
+				const mappedIds = (assigneeIds ?? []).map((id) => id as Id<"users">);
 				await updateIssue({
 					issueId: issueId as Id<"issues">,
 					assigneeIds: mappedIds,

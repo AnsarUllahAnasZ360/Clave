@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { Flag, Signal, Trash2, X } from "lucide-react";
+import { Archive, Flag, Signal, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { MultiAssigneePicker } from "@/components/issues/MultiAssigneePicker";
@@ -255,6 +255,20 @@ export function IssueBulkActionBar({
 					</DropdownMenuContent>
 				</DropdownMenu>
 			) : null}
+
+			{/* Dedicated "Move to backlog" — available in every scope
+			    (sprint detail, board, list) so users don't have to hunt for
+			    it inside the Sprint menu. Clears sprint/milestone on each
+			    selected issue via the same bulkSetSprint(null) path. */}
+			<Button
+				variant="outline"
+				size="sm"
+				className="h-8 gap-1.5"
+				onClick={() => void handleBulkSprint(null)}
+			>
+				<Archive className="h-3.5 w-3.5" />
+				<span className="hidden sm:inline">Backlog</span>
+			</Button>
 
 			<Button
 				variant="ghost"

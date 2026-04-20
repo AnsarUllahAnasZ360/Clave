@@ -2,6 +2,7 @@
 
 import { format } from "date-fns";
 import {
+	Archive,
 	Calendar,
 	Copy,
 	ExternalLink,
@@ -74,6 +75,9 @@ export type IssueBoardCardProps = {
 	/** Used for "Copy link" in the quick menu */
 	issueUrl?: string;
 	onDelete?: () => void;
+	/** Quick "Move to backlog" shortcut on the card menu. Parent wires the
+	 *  updateIssue mutation so the card stays presentational. */
+	onMoveToBacklog?: () => void;
 	/** Resolved assignee data */
 	assignee?: { name: string; avatarUrl?: string } | null;
 	/** Resolved multiple assignees */
@@ -92,6 +96,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 	displayProperties = DEFAULT_DISPLAY,
 	issueUrl,
 	onDelete,
+	onMoveToBacklog,
 	assignee,
 	assignees,
 	labels,
@@ -235,6 +240,21 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 								<Copy className="h-4 w-4" />
 								Copy ID
 							</DropdownMenuItem>
+							{onMoveToBacklog ? (
+								<>
+									<DropdownMenuSeparator />
+									<DropdownMenuItem
+										onClick={(e) => {
+											e.stopPropagation();
+											onMoveToBacklog();
+										}}
+										className="gap-2"
+									>
+										<Archive className="h-4 w-4" />
+										Move to backlog
+									</DropdownMenuItem>
+								</>
+							) : null}
 							{onDelete ? (
 								<>
 									<DropdownMenuSeparator />

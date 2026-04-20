@@ -28,7 +28,11 @@ import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { AICommentReply } from "@/components/ai/comments/AICommentReply";
-import { AISummarizeActivity } from "@/components/ai/comments/AISummarizeActivity";
+import {
+	AISummarizeButton,
+	AISummarizePanel,
+	AISummarizeProvider,
+} from "@/components/ai/comments/AISummarizeActivity";
 import {
 	CommentContent,
 	extractCommentText,
@@ -782,147 +786,154 @@ export function IssueActivitySection({ issueId }: { issueId: Id<"issues"> }) {
 	}
 
 	return (
-		<div className="space-y-4 pb-8">
-			{/* Header with toggle */}
-			<div className="flex items-center justify-between">
-				<h3 className="text-[13px] font-medium text-foreground/80 flex items-center gap-2">
-					<MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
-					Activity
-					{comments.length > 0 && (
-						<span className="text-xs text-muted-foreground/70">
-							({comments.length})
-						</span>
-					)}
-				</h3>
-				<div className="flex items-center gap-1.5">
-					<AISummarizeActivity
-						workspaceId={workspaceId}
-						issueId={issueId}
-						commentCount={comments.length}
-					/>
-					<div className="flex items-center rounded-md border border-border/60 text-[11px]">
-						<button
-							type="button"
-							onClick={() => setViewMode("all")}
-							className={cn(
-								"px-2.5 py-1 rounded-l-md transition-colors",
-								viewMode === "all"
-									? "bg-muted text-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-						>
-							All
-						</button>
-						<button
-							type="button"
-							onClick={() => setViewMode("comments")}
-							className={cn(
-								"px-2.5 py-1 rounded-r-md transition-colors",
-								viewMode === "comments"
-									? "bg-muted text-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-						>
-							Comments
-						</button>
+		<AISummarizeProvider
+			workspaceId={workspaceId}
+			issueId={issueId}
+			commentCount={comments.length}
+		>
+			<div className="space-y-4 pb-8">
+				{/* Header with toggle */}
+				<div className="flex items-center justify-between">
+					<h3 className="text-[13px] font-medium text-foreground/80 flex items-center gap-2">
+						<MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+						Activity
+						{comments.length > 0 && (
+							<span className="text-xs text-muted-foreground/70">
+								({comments.length})
+							</span>
+						)}
+					</h3>
+					<div className="flex items-center gap-1.5">
+						<AISummarizeButton />
+						<div className="flex items-center rounded-md border border-border/60 text-[11px]">
+							<button
+								type="button"
+								onClick={() => setViewMode("all")}
+								className={cn(
+									"px-2.5 py-1 rounded-l-md transition-colors",
+									viewMode === "all"
+										? "bg-muted text-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+							>
+								All
+							</button>
+							<button
+								type="button"
+								onClick={() => setViewMode("comments")}
+								className={cn(
+									"px-2.5 py-1 rounded-r-md transition-colors",
+									viewMode === "comments"
+										? "bg-muted text-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+							>
+								Comments
+							</button>
+						</div>
 					</div>
 				</div>
-			</div>
 
-			{/* Feed */}
-			{feedItems.length === 0 ? (
-				<p className="text-[13px] text-muted-foreground/50 py-6 text-center">
-					No activity yet. Start the discussion below.
-				</p>
-			) : (
-				<div className="divide-y divide-border/30">
-					{feedItems.map((item) => {
-						if (item.type === "activity") {
-							return <ActivityItem key={item.data._id} entry={item.data} />;
-						}
-						return (
-							<CommentThread
-								key={item.data._id}
-								comment={item.data}
-								replies={repliesByParent.get(item.data._id) ?? []}
-								currentUserId={currentUserId}
-								editingId={editingId}
-								onStartEdit={handleStartEdit}
-								onSaveEdit={handleSaveEdit}
-								onCancelEdit={handleCancelEdit}
-								replyingTo={replyingTo}
-								onStartReply={handleStartReply}
-								onSubmitReply={handleSubmitReplyActual}
-								onCancelReply={() => {
-									setReplyingTo(null);
-									setAiReplyContent(null);
-								}}
-								onDelete={setDeleteConfirmId}
-								onCreateSubIssue={handleCreateSubIssue}
-								onAIReply={handleAIReply}
-								submitting={submitting}
-								mentionSuggestion={mentionSuggestion}
-								workspaceSlug={workspaceSlug}
-								workspaceId={workspaceId}
-								issueId={issueId}
-								aiReplyContent={
-									replyingTo === item.data._id ? aiReplyContent : null
-								}
-							/>
-						);
-					})}
-				</div>
-			)}
+				{/* Summary panel — outside the header's flex row so it renders at
+				    full section width instead of being clamped to the button's
+				    narrow column. */}
+				<AISummarizePanel />
 
-			{/* Comment input */}
-			<CommentInput
-				issueId={issueId}
-				mentionSuggestion={mentionSuggestion}
-				currentUser={currentUser}
-			/>
+				{/* Feed */}
+				{feedItems.length === 0 ? (
+					<p className="text-[13px] text-muted-foreground/50 py-6 text-center">
+						No activity yet. Start the discussion below.
+					</p>
+				) : (
+					<div className="divide-y divide-border/30">
+						{feedItems.map((item) => {
+							if (item.type === "activity") {
+								return <ActivityItem key={item.data._id} entry={item.data} />;
+							}
+							return (
+								<CommentThread
+									key={item.data._id}
+									comment={item.data}
+									replies={repliesByParent.get(item.data._id) ?? []}
+									currentUserId={currentUserId}
+									editingId={editingId}
+									onStartEdit={handleStartEdit}
+									onSaveEdit={handleSaveEdit}
+									onCancelEdit={handleCancelEdit}
+									replyingTo={replyingTo}
+									onStartReply={handleStartReply}
+									onSubmitReply={handleSubmitReplyActual}
+									onCancelReply={() => {
+										setReplyingTo(null);
+										setAiReplyContent(null);
+									}}
+									onDelete={setDeleteConfirmId}
+									onCreateSubIssue={handleCreateSubIssue}
+									onAIReply={handleAIReply}
+									submitting={submitting}
+									mentionSuggestion={mentionSuggestion}
+									workspaceSlug={workspaceSlug}
+									workspaceId={workspaceId}
+									issueId={issueId}
+									aiReplyContent={
+										replyingTo === item.data._id ? aiReplyContent : null
+									}
+								/>
+							);
+						})}
+					</div>
+				)}
 
-			{/* Unsubscribe link */}
-			{isSubscribed && (
-				<button
-					type="button"
-					className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2"
-					onClick={async () => {
-						try {
-							await unsubscribeMutation({ issueId });
-							toast.success("Unsubscribed from issue");
-						} catch {
-							toast.error("Failed to unsubscribe");
-						}
-					}}
+				{/* Comment input */}
+				<CommentInput
+					issueId={issueId}
+					mentionSuggestion={mentionSuggestion}
+					currentUser={currentUser}
+				/>
+
+				{/* Unsubscribe link */}
+				{isSubscribed && (
+					<button
+						type="button"
+						className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-2"
+						onClick={async () => {
+							try {
+								await unsubscribeMutation({ issueId });
+								toast.success("Unsubscribed from issue");
+							} catch {
+								toast.error("Failed to unsubscribe");
+							}
+						}}
+					>
+						<BellOff className="h-3 w-3" />
+						Unsubscribe from this issue
+					</button>
+				)}
+
+				{/* Delete confirmation dialog */}
+				<AlertDialog
+					open={deleteConfirmId !== null}
+					onOpenChange={(open) => !open && setDeleteConfirmId(null)}
 				>
-					<BellOff className="h-3 w-3" />
-					Unsubscribe from this issue
-				</button>
-			)}
-
-			{/* Delete confirmation dialog */}
-			<AlertDialog
-				open={deleteConfirmId !== null}
-				onOpenChange={(open) => !open && setDeleteConfirmId(null)}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Delete comment</AlertDialogTitle>
-						<AlertDialogDescription>
-							Are you sure you want to delete this comment? This action cannot
-							be undone.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}
-						>
-							Delete
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-		</div>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Delete comment</AlertDialogTitle>
+							<AlertDialogDescription>
+								Are you sure you want to delete this comment? This action cannot
+								be undone.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								onClick={() => deleteConfirmId && handleDelete(deleteConfirmId)}
+							>
+								Delete
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			</div>
+		</AISummarizeProvider>
 	);
 }

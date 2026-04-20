@@ -2,6 +2,7 @@
 
 import { format } from "date-fns";
 import {
+	Archive,
 	Calendar,
 	Check,
 	Copy,
@@ -146,6 +147,11 @@ export type IssueListRowProps = {
 	isHighlighted?: boolean;
 	issueUrl?: string;
 	onDelete?: (issueId: Id<"issues">) => void;
+	/** Quick "Move to backlog" shortcut — clears sprint and list so the
+	 *  issue lands in the project backlog. When omitted the menu item is
+	 *  hidden (e.g. on workspace-scoped views where sprint/list aren't
+	 *  meaningful for the selected issue). */
+	onMoveToBacklog?: (issueId: Id<"issues">) => void;
 	memberOptions: MemberOption[];
 	labelOptions: LabelOption[];
 	projectOptions: ProjectOption[];
@@ -268,6 +274,7 @@ export const IssueListRow = memo(function IssueListRow({
 	isHighlighted,
 	issueUrl,
 	onDelete,
+	onMoveToBacklog,
 	memberOptions,
 	labelOptions,
 	projectOptions,
@@ -412,10 +419,10 @@ export const IssueListRow = memo(function IssueListRow({
 				const next = isSelected
 					? prev.filter((id) => id !== memberIdTyped)
 					: [...prev, memberIdTyped];
-				onAssigneesChange(
-					issue._id,
-					next.length > 0 ? (next as unknown as string[]) : undefined,
-				);
+				// Always pass the array — empty array is the canonical
+				// "unassign" signal. Sending `undefined` lets Convex drop
+				// the field on the wire, which leaves the server untouched.
+				onAssigneesChange(issue._id, next as unknown as string[]);
 				return next;
 			});
 		},
@@ -592,6 +599,21 @@ export const IssueListRow = memo(function IssueListRow({
 													<Copy className="h-4 w-4" />
 													Copy ID
 												</DropdownMenuItem>
+												{onMoveToBacklog ? (
+													<>
+														<DropdownMenuSeparator />
+														<DropdownMenuItem
+															onClick={(e) => {
+																e.stopPropagation();
+																onMoveToBacklog(issue._id as Id<"issues">);
+															}}
+															className="gap-2"
+														>
+															<Archive className="h-4 w-4" />
+															Move to backlog
+														</DropdownMenuItem>
+													</>
+												) : null}
 												{onDelete ? (
 													<>
 														<DropdownMenuSeparator />
@@ -743,7 +765,10 @@ export const IssueListRow = memo(function IssueListRow({
 													<CommandItem
 														value="Unassigned"
 														onSelect={() => {
-															onAssigneesChange?.(issue._id, undefined);
+															// Empty array (not `undefined`) — Convex drops
+															// undefined on the wire, leaving the server
+															// untouched; `[]` is the canonical clear signal.
+															onAssigneesChange?.(issue._id, []);
 															setSelectedAssigneeIds([]);
 														}}
 														className="cursor-pointer"

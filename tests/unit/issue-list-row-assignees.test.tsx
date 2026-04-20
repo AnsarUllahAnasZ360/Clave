@@ -56,7 +56,7 @@ describe("IssueListRow assignees (list view)", () => {
 		expect(onAssigneesChange.mock.calls[1][1]).toEqual(["user_a", "user_b"]);
 	});
 
-	it("sends undefined when the last assignee is removed", () => {
+	it("sends an empty array when the last assignee is removed", () => {
 		const onAssigneesChange = vi.fn();
 
 		render(
@@ -91,7 +91,10 @@ describe("IssueListRow assignees (list view)", () => {
 		fireEvent.click(screen.getByText("Ada"));
 
 		expect(onAssigneesChange).toHaveBeenCalledTimes(1);
-		expect(onAssigneesChange.mock.calls[0][1]).toBeUndefined();
+		// `[]` is the canonical "clear assignees" signal — Convex drops
+		// `undefined` on the wire, which left the server untouched. The
+		// update mutation explicitly treats `[]` as clear both fields.
+		expect(onAssigneesChange.mock.calls[0][1]).toEqual([]);
 	});
 
 	it("supports clearing via the Unassigned option", () => {
@@ -135,6 +138,9 @@ describe("IssueListRow assignees (list view)", () => {
 		fireEvent.click(screen.getByText("Unassigned"));
 
 		expect(onAssigneesChange).toHaveBeenCalledTimes(1);
-		expect(onAssigneesChange.mock.calls[0][1]).toBeUndefined();
+		// `[]` is the canonical "clear assignees" signal — Convex drops
+		// `undefined` on the wire, which left the server untouched. The
+		// update mutation explicitly treats `[]` as clear both fields.
+		expect(onAssigneesChange.mock.calls[0][1]).toEqual([]);
 	});
 });

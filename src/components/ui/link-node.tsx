@@ -9,9 +9,13 @@ import { PlateElement } from "platejs/react";
 import { cn } from "@/lib/utils";
 
 export function LinkElement(props: PlateElementProps<TLinkElement>) {
+	// Suggestion plugin is optional: the "simple" Plate variant used by
+	// issue descriptions ships LinkKit but omits SuggestionKit. Before this
+	// guard, opening an issue whose body had any link crashed the route
+	// with "Cannot read properties of undefined (reading 'suggestionData')".
 	const suggestionData = props.editor
 		.getApi(SuggestionPlugin)
-		.suggestion.suggestionData(props.element) as
+		?.suggestion?.suggestionData(props.element) as
 		| TInlineSuggestionData
 		| undefined;
 

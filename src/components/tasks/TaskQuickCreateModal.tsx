@@ -348,6 +348,8 @@ export function TaskQuickCreateModal({
 					onSelect={(item) => setAssigneeId(item.id)}
 					selectedId={assigneeId}
 					placeholder="Assign owner..."
+					onClear={() => setAssigneeId(undefined)}
+					clearLabel="Unassigned"
 					renderItem={(item) => (
 						<div className="flex items-center gap-2 w-full">
 							<div className="size-5 rounded-full bg-muted flex items-center justify-center text-xs font-bold">

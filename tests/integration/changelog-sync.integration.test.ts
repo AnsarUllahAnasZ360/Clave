@@ -159,13 +159,13 @@ describe("changelog sync (integration)", () => {
 		expect(stuckUser?.lastSeenVersion).toBeUndefined();
 	});
 
-	it("surfaces v0.3.0 as the latest version after sync", async () => {
+	it("surfaces v0.4.0 as the latest version after sync", async () => {
 		const t = createBackend();
 		await t.mutation(internal.versions.syncChangelogInternal, {});
 
 		const latest = await t.query(api.versions.getLatest, {});
 		expect(latest).not.toBeNull();
-		expect(latest?.version).toBe("0.3.0");
-		expect(latest?.title).toContain("Active Sprints");
+		expect(latest?.version).toBe("0.4.0");
+		expect(latest?.title).toContain("Sidebar drag-and-drop");
 	});
 });

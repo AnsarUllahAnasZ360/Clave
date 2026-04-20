@@ -39,6 +39,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import { PRIORITY_LABELS, type StatusKey } from "@/lib/issue-config";
+import {
+	pulseDropTarget,
+	resolveSidebarDropTarget,
+	setSidebarDragActive,
+	subscribeSidebarHover,
+} from "@/lib/sidebar-drag";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -73,6 +79,16 @@ const PRIORITY_ORDER = ["urgent", "high", "medium", "low", "no_priority"];
 
 // ── Props ─────────────────────────────────────────────────────────────────
 
+/** Defaults applied to inline-create on this board. Used when the parent
+ *  view (e.g., My Issues) has active filters that the new issue should
+ *  auto-match so it immediately appears in the view. */
+export interface IssueBoardCreateDefaults {
+	projectId?: string;
+	priority?: string;
+	assigneeIds?: string[];
+	labelIds?: string[];
+}
+
 export type IssueBoardViewProps = {
 	projectId?: Id<"projects">;
 	displayProperties?: DisplayProperties;
@@ -84,6 +100,8 @@ export type IssueBoardViewProps = {
 	boardSprintId?: Id<"sprints">;
 	/** Pre-fetched issues to use instead of internal queries (e.g., from My Issues) */
 	externalIssues?: IssueCardData[];
+	/** Per-column inline-create defaults mirroring the parent view's filters. */
+	createDefaults?: IssueBoardCreateDefaults;
 	/** When provided, clicking a card calls this instead of navigating to issue page */
 	onIssueClick?: (issueId: string) => void;
 };
@@ -139,6 +157,7 @@ export function IssueBoardView({
 	swimlaneBy = "none",
 	boardSprintId,
 	externalIssues,
+	createDefaults,
 	onIssueClick: externalOnIssueClick,
 }: IssueBoardViewProps) {
 	const { workspaceId, workspaceSlug } = useWorkspace();
@@ -245,6 +264,15 @@ export function IssueBoardView({
 	const [localIssues, setLocalIssues] = useState<IssueCardData[]>([]);
 	const [activeItem, setActiveItem] = useState<IssueCardData | null>(null);
 
+	// When the pointer enters a sidebar drop target mid-drag, shrink the
+	// DragOverlay so the user can aim at narrow sprint / backlog rows without
+	// covering them with the full-width card.
+	const [overlayOverSidebar, setOverlayOverSidebar] = useState(false);
+	useEffect(() => {
+		const unsub = subscribeSidebarHover(setOverlayOverSidebar);
+		return unsub;
+	}, []);
+
 	function normalizeWheelDeltaY(e: WheelEvent): number {
 		if (e.deltaMode === 1) return e.deltaY * 16;
 		if (e.deltaMode === 2)
@@ -350,6 +378,7 @@ export function IssueBoardView({
 			const id = String(event.active.id);
 			const item = localIssues.find((i) => i._id === id);
 			setActiveItem(item ?? null);
+			setSidebarDragActive(true);
 		},
 		[localIssues],
 	);
@@ -358,47 +387,65 @@ export function IssueBoardView({
 		(event: DragEndEvent) => {
 			const { active, over } = event;
 			setActiveItem(null);
+			setSidebarDragActive(false);
 
 			const activeId = String(active.id);
 
-			// Sidebar hit-test: if the drag ended outside any in-view droppable
-			// (over === null), check whether the release point falls on a
-			// sidebar drop target marked with `data-issue-drop-target`. This
-			// lets users drag a kanban card into the sidebar's sprint/backlog
-			// nodes without needing a unified root DndContext or a native
-			// HTML5 drag bridge — both of which conflict with dnd-kit's
-			// pointer capture for within-column reorder.
-			if (!over) {
-				const activator = event.activatorEvent as PointerEvent | null;
-				if (!activator) return;
-				const endX = activator.clientX + event.delta.x;
-				const endY = activator.clientY + event.delta.y;
-				const hit = document.elementFromPoint(endX, endY);
-				const target = hit?.closest<HTMLElement>("[data-issue-drop-target]");
-				if (!target) return;
-				const kind = target.dataset.issueDropTarget;
-				const sprintId = target.dataset.sprintId;
-				const projectId = target.dataset.projectId;
-				if (kind === "sprint" && sprintId && projectId) {
+			// Sidebar hit-test runs BEFORE in-view drop handling. dnd-kit's
+			// collision detection fires against the dragged card's rect — when
+			// the user releases over the sidebar while the card's rect still
+			// overlaps a board column, `over` points to that column. Pointer
+			// position is the honest signal for "did they aim at the sidebar?".
+			const sidebarTarget = resolveSidebarDropTarget(event);
+			if (sidebarTarget) {
+				// Optimistic removal: most sidebar drops move the issue out of
+				// the current board's scope (different project, or out of the
+				// backlog/sprint filter). Strip it now so the board tracks the
+				// list view's feel. If the filter still matches post-mutation,
+				// the sync effect re-adds the card from the refreshed query —
+				// worst case is a sub-second flicker for same-scope drops.
+				setLocalIssues((prev) => prev.filter((i) => i._id !== activeId));
+
+				if (sidebarTarget.kind === "sprint") {
 					void updateIssue({
 						issueId: activeId as Id<"issues">,
-						projectId: projectId as Id<"projects">,
-						sprintId: sprintId as Id<"sprints">,
+						projectId: sidebarTarget.projectId as Id<"projects">,
+						sprintId: sidebarTarget.sprintId as Id<"sprints">,
 					})
-						.then(() => toast.success("Moved to sprint"))
+						.then(() => {
+							toast.success("Moved to sprint");
+							pulseDropTarget("sprint", {
+								projectId: sidebarTarget.projectId,
+								sprintId: sidebarTarget.sprintId,
+							});
+						})
 						.catch(() => toast.error("Failed to move issue"));
-				} else if (kind === "backlog" && projectId) {
+				} else if (
+					sidebarTarget.kind === "backlog" ||
+					sidebarTarget.kind === "project"
+				) {
 					void updateIssue({
 						issueId: activeId as Id<"issues">,
-						projectId: projectId as Id<"projects">,
-						// null = clear sprint → return to project backlog
+						projectId: sidebarTarget.projectId as Id<"projects">,
 						sprintId: null,
+						listId: null,
 					})
-						.then(() => toast.success("Moved to backlog"))
+						.then(() => {
+							toast.success(
+								sidebarTarget.kind === "project"
+									? "Moved to project"
+									: "Moved to backlog",
+							);
+							pulseDropTarget(sidebarTarget.kind, {
+								projectId: sidebarTarget.projectId,
+							});
+						})
 						.catch(() => toast.error("Failed to move issue"));
 				}
 				return;
 			}
+
+			if (!over) return;
 
 			const overId = String(over.id);
 
@@ -588,6 +635,7 @@ export function IssueBoardView({
 
 	const handleDragCancel = useCallback(() => {
 		setActiveItem(null);
+		setSidebarDragActive(false);
 	}, []);
 
 	// Card click — open sidebar if handler provided, else navigate
@@ -619,6 +667,22 @@ export function IssueBoardView({
 			}
 		},
 		[removeIssue],
+	);
+
+	const onMoveIssueToBacklog = useCallback(
+		async (issueId: string) => {
+			try {
+				await updateIssue({
+					issueId: issueId as Id<"issues">,
+					sprintId: null,
+					listId: null,
+				});
+				toast.success("Moved to backlog");
+			} catch {
+				toast.error("Failed to move to backlog");
+			}
+		},
+		[updateIssue],
 	);
 
 	// Scroll edge indicators (must be before any early returns — Rules of Hooks)
@@ -1029,9 +1093,11 @@ export function IssueBoardView({
 										projectId={projectId}
 										swimlaneBy={swimlaneBy}
 										boardSprintId={boardSprintId}
+										createDefaults={createDefaults}
 										onCardClick={onCardClick}
 										workspaceSlug={workspaceSlug}
 										onDeleteIssue={onDeleteIssue}
+										onMoveIssueToBacklog={onMoveIssueToBacklog}
 									/>
 								))}
 							</div>
@@ -1053,9 +1119,11 @@ export function IssueBoardView({
 											displayProperties={displayProperties}
 											projectId={projectId}
 											sprintId={boardSprintId}
+											createDefaults={createDefaults}
 											onCardClick={onCardClick}
 											workspaceSlug={workspaceSlug}
 											onDeleteIssue={onDeleteIssue}
+											onMoveIssueToBacklog={onMoveIssueToBacklog}
 										/>
 									);
 								})}
@@ -1108,10 +1176,21 @@ export function IssueBoardView({
 				</div>
 			</div>
 
-			{/* Drag overlay */}
-			<DragOverlay>
+			{/* Drag overlay — `pointer-events-none` is critical for sidebar
+			    drops: `document.elementFromPoint` (used by the sidebar hover
+			    tracker and drop resolver) returns the topmost element at a
+			    point, which would otherwise always be this overlay, never
+			    the sidebar node underneath. */}
+			<DragOverlay style={{ pointerEvents: "none" }}>
 				{activeItem ? (
-					<div className="shadow-lg rounded-lg scale-[1.02] opacity-90 w-[272px]">
+					<div
+						className={cn(
+							"shadow-lg rounded-lg pointer-events-none transition-all duration-150 origin-center",
+							overlayOverSidebar
+								? "scale-[0.45] opacity-80 w-[272px]"
+								: "scale-[1.02] opacity-90 w-[272px]",
+						)}
+					>
 						<IssueBoardCard
 							issue={activeItem}
 							displayProperties={displayProperties}
@@ -1164,9 +1243,11 @@ function BoardColumn({
 	displayProperties,
 	projectId,
 	sprintId,
+	createDefaults,
 	onCardClick,
 	workspaceSlug,
 	onDeleteIssue,
+	onMoveIssueToBacklog,
 }: {
 	column: StatusColumnConfig;
 	items: IssueCardData[];
@@ -1175,9 +1256,11 @@ function BoardColumn({
 	displayProperties?: DisplayProperties;
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
+	createDefaults?: IssueBoardCreateDefaults;
 	onCardClick: (identifier: string) => void;
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
+	onMoveIssueToBacklog?: (issueId: string) => void;
 }) {
 	const { isOver, setNodeRef } = useDroppable({ id: column.id });
 	const itemIds = useMemo(() => items.map((i) => i._id), [items]);
@@ -1211,22 +1294,30 @@ function BoardColumn({
 								onCardClick={onCardClick}
 								workspaceSlug={workspaceSlug}
 								onDeleteIssue={onDeleteIssue}
+								onMoveIssueToBacklog={onMoveIssueToBacklog}
 							/>
 						))
 					)}
 				</div>
 			</SortableContext>
 
-			{/* Quick add at bottom -- only shown when a project context exists */}
-			{projectId && (
-				<div className="px-1.5 pb-2 mt-auto shrink-0">
-					<IssueInlineCreate
-						status={column.id}
-						projectId={projectId}
-						sprintId={sprintId}
-					/>
-				</div>
-			)}
+			{/* Quick add at bottom. On workspace-scoped boards (My Issues,
+			    no pinned project) projectId is undefined — the create
+			    mutation accepts optional projectId, so the new issue lands
+			    workspace-level. `createDefaults` mirrors the parent view's
+			    active filters (assignee on My Issues, plus priority/project
+			    /labels when those filters are set) so the new issue matches
+			    the view and shows up immediately. */}
+			<div className="px-1.5 pb-2 mt-auto shrink-0">
+				<IssueInlineCreate
+					status={column.id}
+					projectId={createDefaults?.projectId ?? projectId}
+					sprintId={sprintId}
+					priority={createDefaults?.priority}
+					assigneeIds={createDefaults?.assigneeIds}
+					labelIds={createDefaults?.labelIds}
+				/>
+			</div>
 		</div>
 	);
 }
@@ -1243,9 +1334,11 @@ function SwimlaneRow({
 	projectId,
 	swimlaneBy,
 	boardSprintId,
+	createDefaults,
 	onCardClick,
 	workspaceSlug,
 	onDeleteIssue,
+	onMoveIssueToBacklog,
 }: {
 	swimlane: SwimlaneGroup;
 	columns: StatusColumnConfig[];
@@ -1256,9 +1349,11 @@ function SwimlaneRow({
 	projectId?: Id<"projects">;
 	swimlaneBy: SwimlaneSetting;
 	boardSprintId?: Id<"sprints">;
+	createDefaults?: IssueBoardCreateDefaults;
 	onCardClick: (identifier: string) => void;
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
+	onMoveIssueToBacklog?: (issueId: string) => void;
 }) {
 	const sprintIdForCreate = resolveSprintIdForBoardCreate(
 		swimlaneBy,
@@ -1307,9 +1402,11 @@ function SwimlaneRow({
 								displayProperties={displayProperties}
 								projectId={projectId}
 								sprintId={sprintIdForCreate}
+								createDefaults={createDefaults}
 								onCardClick={onCardClick}
 								workspaceSlug={workspaceSlug}
 								onDeleteIssue={onDeleteIssue}
+								onMoveIssueToBacklog={onMoveIssueToBacklog}
 							/>
 						);
 					})}
@@ -1330,9 +1427,11 @@ function SwimlaneCell({
 	displayProperties,
 	projectId,
 	sprintId,
+	createDefaults,
 	onCardClick,
 	workspaceSlug,
 	onDeleteIssue,
+	onMoveIssueToBacklog,
 }: {
 	columnId: IssueStatus;
 	swimlaneKey: string;
@@ -1342,9 +1441,11 @@ function SwimlaneCell({
 	displayProperties?: DisplayProperties;
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
+	createDefaults?: IssueBoardCreateDefaults;
 	onCardClick: (identifier: string) => void;
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
+	onMoveIssueToBacklog?: (issueId: string) => void;
 }) {
 	const droppableId = makeSwimlaneDroppableId(columnId, swimlaneKey);
 	const { isOver, setNodeRef } = useDroppable({ id: droppableId });
@@ -1373,20 +1474,22 @@ function SwimlaneCell({
 								onCardClick={onCardClick}
 								workspaceSlug={workspaceSlug}
 								onDeleteIssue={onDeleteIssue}
+								onMoveIssueToBacklog={onMoveIssueToBacklog}
 							/>
 						))
 					)}
 				</div>
 			</SortableContext>
-			{projectId ? (
-				<div className="mt-auto shrink-0 pt-1">
-					<IssueInlineCreate
-						status={columnId}
-						projectId={projectId}
-						sprintId={sprintId}
-					/>
-				</div>
-			) : null}
+			<div className="mt-auto shrink-0 pt-1">
+				<IssueInlineCreate
+					status={columnId}
+					projectId={createDefaults?.projectId ?? projectId}
+					sprintId={sprintId}
+					priority={createDefaults?.priority}
+					assigneeIds={createDefaults?.assigneeIds}
+					labelIds={createDefaults?.labelIds}
+				/>
+			</div>
 		</div>
 	);
 }
@@ -1401,6 +1504,7 @@ function SortableCard({
 	onCardClick,
 	workspaceSlug,
 	onDeleteIssue,
+	onMoveIssueToBacklog,
 }: {
 	issue: IssueCardData;
 	memberLookup: Map<string, { name: string; avatarUrl?: string }>;
@@ -1409,6 +1513,7 @@ function SortableCard({
 	onCardClick?: (identifier: string) => void;
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
+	onMoveIssueToBacklog?: (issueId: string) => void;
 }) {
 	const {
 		attributes,
@@ -1449,6 +1554,11 @@ function SortableCard({
 				displayProperties={displayProperties}
 				issueUrl={`/${workspaceSlug}/issues/${issue.identifier}`}
 				onDelete={() => onDeleteIssue(issue._id, issue.identifier)}
+				onMoveToBacklog={
+					onMoveIssueToBacklog
+						? () => onMoveIssueToBacklog(issue._id)
+						: undefined
+				}
 				assignee={assignee}
 				labels={labels}
 				onClick={onCardClick ? () => onCardClick(issue.identifier) : undefined}

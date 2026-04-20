@@ -43,6 +43,7 @@ import { DEFAULT_PRIORITIES } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { IssueActivitySection } from "./IssueActivitySection";
 import { IssueDescriptionEditorDynamic } from "./IssueDescriptionEditorDynamic";
 
 // ── Property row ────────────────────────────────────────────────────────────
@@ -338,7 +339,7 @@ export function IssuePreviewSidebar({
 		);
 
 	return (
-		<div className="w-[420px] shrink-0 border-l border-border/60 bg-background flex flex-col min-h-0 animate-in slide-in-from-right-4 duration-200">
+		<div className="w-[420px] shrink-0 border-l border-border/60 bg-background flex flex-col h-full min-h-0 animate-in slide-in-from-right-4 duration-200">
 			{/* Header */}
 			<div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
 				<div className="flex items-center gap-2 min-w-0">
@@ -364,7 +365,7 @@ export function IssuePreviewSidebar({
 					) : (
 						<button
 							type="button"
-							className="text-sm font-semibold truncate cursor-pointer hover:text-foreground/80 transition-colors text-left min-w-0"
+							className="text-sm font-semibold cursor-pointer hover:text-foreground/80 transition-colors text-left min-w-0 break-words whitespace-normal"
 							onClick={() => {
 								setTitleValue(issue.title);
 								setEditingTitle(true);
@@ -485,6 +486,26 @@ export function IssuePreviewSidebar({
 									align="start"
 									className="w-48 max-h-60 overflow-y-auto"
 								>
+									{(() => {
+										const assignedSet = new Set<string>([
+											...((issue.assigneeIds as string[] | undefined) ?? []),
+											...(issue.assigneeId ? [issue.assigneeId as string] : []),
+										]);
+										const anyAssigned = assignedSet.size > 0;
+										return anyAssigned ? (
+											<DropdownMenuItem
+												onClick={() => {
+													// Empty array is the clear signal — see comment
+													// on the per-member onClick below.
+													handleUpdate("assigneeIds", []);
+												}}
+												className="gap-2 text-xs text-muted-foreground"
+											>
+												<X className="h-4 w-4" />
+												Unassigned
+											</DropdownMenuItem>
+										) : null;
+									})()}
 									{members?.map((m) => {
 										// Canonical assignee set: merge legacy `assigneeId` with the
 										// `assigneeIds[]` array so toggle works no matter which path
@@ -502,10 +523,11 @@ export function IssuePreviewSidebar({
 													if (isAssigned) next.delete(m.userId);
 													else next.add(m.userId);
 													const newIds = [...next];
-													handleUpdate(
-														"assigneeIds",
-														newIds.length > 0 ? newIds : undefined,
-													);
+													// Empty array (not undefined) — Convex drops
+													// undefined on the wire, but the update
+													// mutation interprets [] as "clear both
+													// assigneeId and assigneeIds".
+													handleUpdate("assigneeIds", newIds);
 												}}
 												className={cn(
 													"gap-2 text-xs",
@@ -797,6 +819,15 @@ export function IssuePreviewSidebar({
 								</p>
 							)}
 						</div>
+					</div>
+
+					<Separator className="bg-border/40 mx-5" />
+
+					{/* Activity + comments — reuses the detail page's section so
+					    thread, replies, mentions, attachments, and AI reply all
+					    work identically in the sidebar. */}
+					<div className="px-5 py-4">
+						<IssueActivitySection issueId={issue._id} />
 					</div>
 				</div>
 			</div>

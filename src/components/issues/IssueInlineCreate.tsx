@@ -19,6 +19,15 @@ interface IssueInlineCreateProps {
 	sprintId?: string;
 	/** Legacy pre-fill for milestone */
 	milestoneId?: string;
+	/** Pre-fill priority — used when the enclosing view has a single-value
+	 *  priority filter, so the new issue immediately matches the filter. */
+	priority?: string;
+	/** Pre-fill assignees. On My Issues we pass the current user so new
+	 *  issues match the view's assignee filter and appear immediately. */
+	assigneeIds?: string[];
+	/** Pre-fill labels — mirrors active label filters so the new issue
+	 *  lands in the filtered set without manual tagging. */
+	labelIds?: string[];
 	/** Callback after creation */
 	onCreated?: (result: { issueId: string; identifier: string }) => void;
 }
@@ -28,6 +37,9 @@ export function IssueInlineCreate({
 	projectId,
 	sprintId,
 	milestoneId,
+	priority,
+	assigneeIds,
+	labelIds,
 	onCreated,
 }: IssueInlineCreateProps) {
 	const { workspaceId } = useWorkspace();
@@ -75,6 +87,17 @@ export function IssueInlineCreate({
 				milestoneId: milestoneId
 					? (milestoneId as Id<"milestones">)
 					: undefined,
+				priority: priority
+					? (priority as "urgent" | "high" | "medium" | "low" | "no_priority")
+					: undefined,
+				assigneeIds:
+					assigneeIds && assigneeIds.length > 0
+						? (assigneeIds as Id<"users">[])
+						: undefined,
+				labelIds:
+					labelIds && labelIds.length > 0
+						? (labelIds as Id<"labels">[])
+						: undefined,
 			});
 
 			onCreated?.(result);
@@ -93,6 +116,9 @@ export function IssueInlineCreate({
 		projectId,
 		sprintId,
 		milestoneId,
+		priority,
+		assigneeIds,
+		labelIds,
 		createIssue,
 		onCreated,
 		handleCancel,

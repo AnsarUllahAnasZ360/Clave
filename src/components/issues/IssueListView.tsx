@@ -71,6 +71,11 @@ import {
 	PRIORITY_ITEMS as PRIORITY_CONFIG,
 	PRIORITY_ORDER,
 } from "@/lib/issue-config";
+import {
+	pulseDropTarget,
+	resolveSidebarDropTarget,
+	setSidebarDragActive,
+} from "@/lib/sidebar-drag";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -390,6 +395,19 @@ export type IssueListViewProps = {
 	showEmptyGroups?: boolean;
 	/** Hide the internal filter toolbar (when parent already provides one) */
 	hideFilter?: boolean;
+	/** When the parent owns the filter state (hideFilter=true), pass its
+	 *  current filter snapshot so the per-group "+" button picks up the
+	 *  user's active filters instead of the unused local filter state.
+	 *  `projectId` accepts `null` to match `IssueFilters`, which models
+	 *  "no project filter" as `null` rather than `undefined`. */
+	externalFilters?: {
+		statuses: string[];
+		priorities: string[];
+		assigneeIds: string[];
+		projectId?: string | null;
+		milestoneIds: string[];
+		labelIds: string[];
+	};
 	/** Callback when an issue row is clicked (for peek sidebar). If not provided, navigates to issue page. */
 	onIssueClick?: (issueId: string) => void;
 	/** Multi-select + bulk actions on list rows (ClickUp-style). */
@@ -413,6 +431,7 @@ export function IssueListView({
 	displayProperties,
 	showEmptyGroups: showEmptyGroupsProp = true,
 	hideFilter,
+	externalFilters,
 	onIssueClick,
 	allWorkspaceSprints,
 }: IssueListViewProps) {
@@ -512,6 +531,11 @@ export function IssueListView({
 	const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
 
 	// ── Create-from-group helper ─────────────────────────────────────────
+	// When parent owns filter state (e.g. ProjectDetailsPage passes
+	// `externalFilters`), the local `filters` are empty and useless here —
+	// fall through to the external snapshot so the per-group "+" picks up
+	// the user's actual filters.
+	const activeFilters = externalFilters ?? filters;
 	const buildPresetFromGroup = useCallback(
 		(groupKey: string, parentGroupKey?: string): IssueCreatePreset => {
 			const preset: IssueCreatePreset = {};
@@ -520,15 +544,17 @@ export function IssueListView({
 			if (projectId) preset.projectId = projectId as string;
 
 			// Apply single-value filters as defaults
-			if (filters.statuses.length === 1) preset.status = filters.statuses[0];
-			if (filters.priorities.length === 1)
-				preset.priority = filters.priorities[0];
-			if (filters.assigneeIds.length === 1)
-				preset.assigneeIds = [filters.assigneeIds[0]];
-			if (filters.projectId) preset.projectId = filters.projectId;
-			if (filters.milestoneIds.length === 1)
-				preset.sprintId = filters.milestoneIds[0];
-			if (filters.labelIds.length > 0) preset.labelIds = [...filters.labelIds];
+			if (activeFilters.statuses.length === 1)
+				preset.status = activeFilters.statuses[0];
+			if (activeFilters.priorities.length === 1)
+				preset.priority = activeFilters.priorities[0];
+			if (activeFilters.assigneeIds.length === 1)
+				preset.assigneeIds = [activeFilters.assigneeIds[0]];
+			if (activeFilters.projectId) preset.projectId = activeFilters.projectId;
+			if (activeFilters.milestoneIds.length === 1)
+				preset.sprintId = activeFilters.milestoneIds[0];
+			if (activeFilters.labelIds.length > 0)
+				preset.labelIds = [...activeFilters.labelIds];
 
 			// Apply the group dimension — overrides the filter for that field
 			const applyGroupKey = (dimension: string, key: string) => {
@@ -558,7 +584,7 @@ export function IssueListView({
 
 			return preset;
 		},
-		[projectId, filters, groupBy, subGroupBy],
+		[projectId, activeFilters, groupBy, subGroupBy],
 	);
 
 	// ── Data fetching for resolving names ───────────────────────────────
@@ -1007,42 +1033,52 @@ export function IssueListView({
 		(event: DragEndEvent) => {
 			const activeId = String(event.active.id);
 
-			// Sidebar hit-test: if the drag released outside any in-view
-			// droppable, check whether the release point falls on a sidebar
-			// drop target marked with `data-issue-drop-target`. Same pattern
-			// as IssueBoardView — lets users drag into the sidebar's
-			// sprint/backlog nodes without a unified root DndContext.
-			if (!event.over) {
-				const activator = event.activatorEvent as PointerEvent | null;
-				if (!activator) return;
-				const endX = activator.clientX + event.delta.x;
-				const endY = activator.clientY + event.delta.y;
-				const hit = document.elementFromPoint(endX, endY);
-				const target = hit?.closest<HTMLElement>("[data-issue-drop-target]");
-				if (!target) return;
-				const kind = target.dataset.issueDropTarget;
-				const sprintId = target.dataset.sprintId;
-				const projectId = target.dataset.projectId;
-				if (kind === "sprint" && sprintId && projectId) {
+			// Sidebar hit-test runs BEFORE in-view handling. When the pointer
+			// is over a sidebar drop target, that takes precedence over
+			// dnd-kit's `over` (which is computed against the dragged row's
+			// rect and can still reference a group dropzone at the edge).
+			const sidebarTarget = resolveSidebarDropTarget(event);
+			if (sidebarTarget) {
+				if (sidebarTarget.kind === "sprint") {
 					void updateIssue({
 						issueId: activeId as Id<"issues">,
-						projectId: projectId as Id<"projects">,
-						sprintId: sprintId as Id<"sprints">,
+						projectId: sidebarTarget.projectId as Id<"projects">,
+						sprintId: sidebarTarget.sprintId as Id<"sprints">,
 					})
-						.then(() => toast.success("Moved to sprint"))
+						.then(() => {
+							toast.success("Moved to sprint");
+							pulseDropTarget("sprint", {
+								projectId: sidebarTarget.projectId,
+								sprintId: sidebarTarget.sprintId,
+							});
+						})
 						.catch(() => toast.error("Failed to move issue"));
-				} else if (kind === "backlog" && projectId) {
+				} else if (
+					sidebarTarget.kind === "backlog" ||
+					sidebarTarget.kind === "project"
+				) {
 					void updateIssue({
 						issueId: activeId as Id<"issues">,
-						projectId: projectId as Id<"projects">,
-						// null = clear sprint → return to project backlog
+						projectId: sidebarTarget.projectId as Id<"projects">,
 						sprintId: null,
+						listId: null,
 					})
-						.then(() => toast.success("Moved to backlog"))
+						.then(() => {
+							toast.success(
+								sidebarTarget.kind === "project"
+									? "Moved to project"
+									: "Moved to backlog",
+							);
+							pulseDropTarget(sidebarTarget.kind, {
+								projectId: sidebarTarget.projectId,
+							});
+						})
 						.catch(() => toast.error("Failed to move issue"));
 				}
 				return;
 			}
+
+			if (!event.over) return;
 
 			if (!canDragAcrossGroups) return;
 			const overId = String(event.over.id);
@@ -1136,7 +1172,12 @@ export function IssueListView({
 	const handleAssigneesChange = useCallback(
 		async (issueId: Id<"issues">, assigneeIds: string[] | undefined) => {
 			try {
-				const mappedIds = assigneeIds?.map((id) => id as Id<"users">);
+				// Convex drops `undefined` keys on the wire, so passing an
+				// `undefined` array here would leave the issue's assignees
+				// untouched on the server — which is the "can't unassign"
+				// bug. The `update` mutation explicitly treats an empty
+				// array as "clear both assigneeId and assigneeIds".
+				const mappedIds = (assigneeIds ?? []).map((id) => id as Id<"users">);
 				await updateIssue({
 					issueId,
 					assigneeIds: mappedIds,
@@ -1235,6 +1276,22 @@ export function IssueListView({
 			router.push(`/${workspaceSlug}/issues/${identifier}`);
 		},
 		[router, workspaceSlug, onIssueClick, issues],
+	);
+
+	const handleMoveToBacklog = useCallback(
+		async (issueId: Id<"issues">) => {
+			try {
+				await updateIssue({
+					issueId,
+					sprintId: null,
+					listId: null,
+				});
+				toast.success("Moved to backlog");
+			} catch {
+				toast.error("Failed to move to backlog");
+			}
+		},
+		[updateIssue],
 	);
 
 	const handleDeleteIssue = useCallback(
@@ -1483,6 +1540,7 @@ export function IssueListView({
 						isHighlighted={idx === highlightedIndex}
 						issueUrl={issueUrl}
 						onDelete={handleDeleteIssue}
+						onMoveToBacklog={handleMoveToBacklog}
 						memberOptions={memberOptions}
 						labelOptions={labelOptions}
 						projectOptions={projectOptions}
@@ -1583,6 +1641,7 @@ export function IssueListView({
 					collisionDetection={closestCenter}
 					onDragStart={() => {
 						suppressClickRef.current = true;
+						setSidebarDragActive(true);
 					}}
 					onDragEnd={(e) => {
 						requestAnimationFrame(() => {
@@ -1590,10 +1649,12 @@ export function IssueListView({
 								suppressClickRef.current = false;
 							});
 						});
+						setSidebarDragActive(false);
 						handleDragEnd(e);
 					}}
 					onDragCancel={() => {
 						suppressClickRef.current = false;
+						setSidebarDragActive(false);
 					}}
 				>
 					<SortableContext
