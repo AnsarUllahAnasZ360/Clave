@@ -10,6 +10,60 @@ import {
 import { fractionalIndex } from "./lib/utils";
 
 /**
+ * Pure: build a burndown series for a sprint window. Each sample is one
+ * midnight-aligned day between `startDate` and `endDate`. `remaining` is
+ * the count of issues still open at end-of-day; `ideal` is a linear
+ * descent from `totalIssues` to 0 across the window so charts can overlay
+ * the two.
+ *
+ * v1 simplification: uses the CURRENT set of issues on the sprint and
+ * their `completedAt` timestamp. Issues added or removed mid-sprint are
+ * not reflected — that's a v2 follow-up that would replay activity logs.
+ */
+export interface BurndownPoint {
+	day: number;
+	remaining: number | null;
+	ideal: number;
+}
+
+export function buildBurndownSeries(args: {
+	startDate: number;
+	endDate: number;
+	totalIssues: number;
+	completedTimestamps: number[];
+	now?: number;
+}): BurndownPoint[] {
+	const { startDate, endDate, totalIssues, completedTimestamps } = args;
+	const now = args.now ?? Date.now();
+	if (endDate <= startDate || totalIssues < 0) return [];
+	const DAY_MS = 86_400_000;
+	const sorted = [...completedTimestamps].sort((a, b) => a - b);
+
+	const points: BurndownPoint[] = [];
+	const firstBin = Math.floor(startDate / DAY_MS) * DAY_MS + DAY_MS;
+	const lastBin = Math.ceil(endDate / DAY_MS) * DAY_MS;
+	const totalSpan = lastBin - firstBin + DAY_MS;
+
+	for (let bin = firstBin; bin <= lastBin; bin += DAY_MS) {
+		const elapsed = bin - firstBin + DAY_MS;
+		const ideal =
+			totalSpan > 0
+				? Math.max(0, totalIssues - (totalIssues * elapsed) / totalSpan)
+				: 0;
+		const isFuture = bin > now;
+		const remaining = isFuture
+			? null
+			: totalIssues - sorted.filter((ts) => ts <= bin).length;
+		points.push({
+			day: bin,
+			remaining,
+			ideal: Math.round(ideal * 100) / 100,
+		});
+	}
+	return points;
+}
+
+/**
  * Pure: given a sprint's current state, derive the status the scheduling
  * cron should set. Returns `null` when no transition should happen (either
  * the user overrode the status, the sprint is in a terminal state, dates
@@ -611,5 +665,241 @@ export const autoUpdateStatus = internalMutation({
 				newValue: next,
 			});
 		}
+	},
+});
+
+// ── Reporting queries ──────────────────────────────────────────────────────
+
+/**
+ * Burndown data for a sprint — one point per day in the sprint window
+ * with `remaining` (issue count still open at end-of-day) and `ideal`
+ * (linear descent to zero). See `buildBurndownSeries` for the math.
+ */
+export const burndownData = query({
+	args: { sprintId: v.id("sprints") },
+	returns: v.object({
+		sprintName: v.string(),
+		startDate: v.optional(v.number()),
+		endDate: v.optional(v.number()),
+		totalIssues: v.number(),
+		completedIssues: v.number(),
+		openIssues: v.number(),
+		points: v.array(
+			v.object({
+				day: v.number(),
+				remaining: v.union(v.number(), v.null()),
+				ideal: v.number(),
+			}),
+		),
+		statusBreakdown: v.array(
+			v.object({ status: v.string(), count: v.number() }),
+		),
+		priorityBreakdown: v.array(
+			v.object({ priority: v.string(), count: v.number() }),
+		),
+		typeBreakdown: v.array(v.object({ type: v.string(), count: v.number() })),
+		assigneeWorkload: v.array(
+			v.object({
+				assigneeId: v.optional(v.id("users")),
+				name: v.string(),
+				image: v.optional(v.string()),
+				open: v.number(),
+				completed: v.number(),
+			}),
+		),
+	}),
+	handler: async (ctx, args) => {
+		const sprint = await ctx.db.get(args.sprintId);
+		if (!sprint || sprint.deletedAt) {
+			throw new ConvexError("Sprint not found");
+		}
+		const project = await ctx.db.get(sprint.projectId);
+		if (!project || project.deletedAt) {
+			throw new ConvexError("Project not found");
+		}
+		await requireWorkspaceMember(ctx, project.workspaceId);
+
+		const issues = await ctx.db
+			.query("issues")
+			.withIndex("by_sprint", (q) => q.eq("sprintId", args.sprintId))
+			.collect();
+		const live = issues.filter((i) => !i.deletedAt);
+		const totalIssues = live.length;
+		const completedIssues = live.filter((i) =>
+			isCompletedStatus(i.status),
+		).length;
+		const openIssues = totalIssues - completedIssues;
+
+		const endBoundary = sprint.endDate ?? sprint.targetDate;
+		const points =
+			sprint.startDate !== undefined && endBoundary !== undefined
+				? buildBurndownSeries({
+						startDate: sprint.startDate,
+						endDate: endBoundary,
+						totalIssues,
+						completedTimestamps: live
+							.map((i) => i.completedAt)
+							.filter((t): t is number => typeof t === "number"),
+					})
+				: [];
+
+		// Breakdown aggregations — O(n) over the already-fetched issues,
+		// so these piggyback on the burndown query with zero extra I/O.
+		const statusCounts = new Map<string, number>();
+		const priorityCounts = new Map<string, number>();
+		const typeCounts = new Map<string, number>();
+		type WorkloadRow = {
+			assigneeId?: Id<"users">;
+			open: number;
+			completed: number;
+		};
+		const workload = new Map<string, WorkloadRow>();
+		for (const issue of live) {
+			statusCounts.set(issue.status, (statusCounts.get(issue.status) ?? 0) + 1);
+			priorityCounts.set(
+				issue.priority,
+				(priorityCounts.get(issue.priority) ?? 0) + 1,
+			);
+			if (issue.type)
+				typeCounts.set(issue.type, (typeCounts.get(issue.type) ?? 0) + 1);
+
+			const assigneeIds =
+				issue.assigneeIds && issue.assigneeIds.length > 0
+					? issue.assigneeIds
+					: issue.assigneeId
+						? [issue.assigneeId]
+						: [];
+			const isDone = isCompletedStatus(issue.status);
+			if (assigneeIds.length === 0) {
+				const key = "__unassigned__";
+				const row = workload.get(key) ?? { open: 0, completed: 0 };
+				if (isDone) row.completed += 1;
+				else row.open += 1;
+				workload.set(key, row);
+			} else {
+				for (const id of assigneeIds) {
+					const key = String(id);
+					const row = workload.get(key) ?? {
+						assigneeId: id,
+						open: 0,
+						completed: 0,
+					};
+					if (isDone) row.completed += 1;
+					else row.open += 1;
+					workload.set(key, row);
+				}
+			}
+		}
+
+		// Resolve member names for the workload chart. One db.get per
+		// distinct assignee — bounded by team size, not issue count.
+		const assigneeWorkload = await Promise.all(
+			[...workload.entries()].map(async ([key, row]) => {
+				if (key === "__unassigned__") {
+					return {
+						name: "Unassigned",
+						open: row.open,
+						completed: row.completed,
+					};
+				}
+				if (!row.assigneeId)
+					return { name: "Unknown", open: row.open, completed: row.completed };
+				const user = await ctx.db.get(row.assigneeId);
+				return {
+					assigneeId: row.assigneeId,
+					name: user?.name ?? user?.email ?? "Unknown",
+					image: user?.image ?? undefined,
+					open: row.open,
+					completed: row.completed,
+				};
+			}),
+		);
+		// Most-open-work first; ties broken by more completed.
+		assigneeWorkload.sort(
+			(a, b) => b.open - a.open || b.completed - a.completed,
+		);
+
+		return {
+			sprintName: sprint.name,
+			startDate: sprint.startDate,
+			endDate: endBoundary,
+			totalIssues,
+			completedIssues,
+			openIssues,
+			points,
+			statusBreakdown: [...statusCounts.entries()].map(([status, count]) => ({
+				status,
+				count,
+			})),
+			priorityBreakdown: [...priorityCounts.entries()].map(
+				([priority, count]) => ({ priority, count }),
+			),
+			typeBreakdown: [...typeCounts.entries()].map(([type, count]) => ({
+				type,
+				count,
+			})),
+			assigneeWorkload,
+		};
+	},
+});
+
+/**
+ * Velocity across recent sprints in a project — for each of the last
+ * `limit` sprints (ordered by end/target date desc) returns the completed
+ * issue count so the UI can draw a bar chart.
+ */
+export const velocityByProject = query({
+	args: {
+		projectId: v.id("projects"),
+		limit: v.optional(v.number()),
+	},
+	returns: v.array(
+		v.object({
+			sprintId: v.id("sprints"),
+			name: v.string(),
+			status: v.string(),
+			endDate: v.optional(v.number()),
+			completedCount: v.number(),
+			totalCount: v.number(),
+		}),
+	),
+	handler: async (ctx, args) => {
+		const project = await ctx.db.get(args.projectId);
+		if (!project || project.deletedAt) return [];
+		await requireWorkspaceMember(ctx, project.workspaceId);
+
+		const all = await ctx.db
+			.query("sprints")
+			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+			.collect();
+		const live = all.filter((s) => !s.deletedAt);
+		// Order by sprint close date descending; fall back to creation
+		// time for sprints that never had a schedule.
+		const ordered = [...live].sort((a, b) => {
+			const aKey = a.endDate ?? a.targetDate ?? a._creationTime;
+			const bKey = b.endDate ?? b.targetDate ?? b._creationTime;
+			return bKey - aKey;
+		});
+		const limit = args.limit ?? 6;
+		const picked = ordered.slice(0, limit);
+
+		return Promise.all(
+			picked.map(async (sprint) => {
+				const issues = await ctx.db
+					.query("issues")
+					.withIndex("by_sprint", (q) => q.eq("sprintId", sprint._id))
+					.collect();
+				const live = issues.filter((i) => !i.deletedAt);
+				return {
+					sprintId: sprint._id,
+					name: sprint.name,
+					status: sprint.status,
+					endDate: sprint.endDate ?? sprint.targetDate,
+					completedCount: live.filter((i) => isCompletedStatus(i.status))
+						.length,
+					totalCount: live.length,
+				};
+			}),
+		).then((rows) => rows.reverse()); // chronological for the chart
 	},
 });

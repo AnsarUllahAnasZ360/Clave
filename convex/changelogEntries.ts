@@ -25,6 +25,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
 	{
+		version: "0.5.0",
+		releasedAt: "2026-04-21T00:00:00Z",
+		title: "Sprint reports: burndown, velocity, schedule-aware summary",
+		features: [
+			"New 'Reports' tab on every sprint detail page — click the Reports button in the toolbar to swap the issue view for a Jira-style report pane",
+			"Burndown chart: daily remaining-issues line vs a linear ideal trend across the sprint window; in-flight sprints leave the future open-ended instead of flatlining to zero",
+			"Velocity chart: committed vs completed across the last six sprints in the project, chronological order, so you can read trend at a glance",
+			"Summary tiles on the reports pane: committed, completed, open, schedule range, and an 'On track' / 'Behind' chip derived from the burndown",
+		],
+		bugFixes: [],
+	},
+	{
 		version: "0.4.0",
 		releasedAt: "2026-04-20T00:00:00Z",
 		title: "Sidebar drag-and-drop, filter-aware creation, assignee fixes",

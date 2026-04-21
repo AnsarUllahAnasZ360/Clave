@@ -2,7 +2,7 @@
 
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
-import { Calendar, Check, ChevronDown, Plus } from "lucide-react";
+import { BarChart3, Calendar, Check, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import { IssueListView } from "@/components/issues/IssueListView";
 import { IssuePreviewSidebar } from "@/components/issues/IssuePreviewSidebar";
 import { IssueTimelineView } from "@/components/issues/IssueTimelineView";
 import { useIssueFilters } from "@/components/issues/MyIssuesFilterPopover";
+import { SprintReports } from "@/components/projects/SprintReports";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
@@ -171,6 +172,9 @@ export function SprintDetailPage({
 	const [selectedIssueId, setSelectedIssueId] = useState<Id<"issues"> | null>(
 		null,
 	);
+	// Toggles between the normal issue view (board/list/timeline) and the
+	// Jira-style reports pane (burndown + velocity + summary).
+	const [showReports, setShowReports] = useState(false);
 
 	const members = useWorkspaceMembers();
 	const labels = useWorkspaceLabels();
@@ -454,6 +458,16 @@ export function SprintDetailPage({
 				/>
 
 				<Button
+					variant={showReports ? "default" : "outline"}
+					size="sm"
+					className="h-7 gap-1.5 text-xs rounded-md px-3"
+					onClick={() => setShowReports((v) => !v)}
+				>
+					<BarChart3 className="h-3.5 w-3.5" />
+					Reports
+				</Button>
+
+				<Button
 					variant="outline"
 					size="sm"
 					className="h-7 gap-1.5 text-xs rounded-md border-border/60 px-3 bg-transparent"
@@ -467,8 +481,16 @@ export function SprintDetailPage({
 			{/* Content + peek sidebar row */}
 			<div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
 				<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
+					{/* Reports mode replaces the issue view entirely. Scrolls
+					    independently so long burndowns don't push the toolbar. */}
+					{showReports ? (
+						<div className="flex-1 min-h-0 overflow-y-auto">
+							<SprintReports sprintId={sprint._id} projectId={project._id} />
+						</div>
+					) : null}
+
 					{/* Issue views */}
-					{options.layout === "board" && (
+					{!showReports && options.layout === "board" && (
 						<div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
 							<IssueBoardView
 								projectId={project._id}
@@ -480,7 +502,7 @@ export function SprintDetailPage({
 							/>
 						</div>
 					)}
-					{options.layout === "list" && (
+					{!showReports && options.layout === "list" && (
 						<IssueListView
 							issues={filteredListIssues}
 							projectId={project._id}
@@ -494,7 +516,7 @@ export function SprintDetailPage({
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>
 					)}
-					{options.layout === "timeline" && (
+					{!showReports && options.layout === "timeline" && (
 						<div className="flex-1 min-h-0 flex flex-col">
 							<IssueTimelineView
 								projectId={project._id}
