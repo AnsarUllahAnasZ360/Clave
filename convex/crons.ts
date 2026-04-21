@@ -73,4 +73,13 @@ crons.interval(
 	internal.githubSyncActions.periodicSync,
 );
 
+// Auto-transition sprint status based on schedule (planned → active at
+// start date, active → completed at end date). Manual status picks set
+// `statusOverride` on the sprint and are skipped.
+crons.interval(
+	"sprint schedule auto-update",
+	{ hours: 1 },
+	internal.sprints.autoUpdateStatus,
+);
+
 export default crons;

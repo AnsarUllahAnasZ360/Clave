@@ -2,7 +2,7 @@
 
 import { CaretLeft } from "@phosphor-icons/react/dist/ssr";
 import { useMutation, useQuery } from "convex/react";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import { Calendar, Check, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -41,6 +41,46 @@ type SprintDetailPageProps = {
 	projectSlug: string;
 	sprintId: string;
 };
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Build a short "Starts in Nd" / "Ends in Nd" / "Overdue Nd" label for
+ * the sprint header. Returns `null` when the sprint has no schedule or
+ * is in a terminal state, so the caller can omit the chip entirely.
+ *
+ * `tone` is used by the caller to colour overdue chips red.
+ */
+function formatSprintSchedule(
+	startDate: number | undefined,
+	endDate: number | undefined,
+	status: string,
+	now: number,
+): { label: string; tone: "default" | "overdue" } | null {
+	if (status === "completed" || status === "cancelled") return null;
+	// "Starts in" only applies while the sprint hasn't begun yet. Once
+	// it's running we pivot to "Ends in" / "Overdue".
+	if (startDate !== undefined && now < startDate) {
+		const days = Math.ceil((startDate - now) / DAY_MS);
+		return {
+			label: days <= 0 ? "Starts today" : `Starts in ${days}d`,
+			tone: "default",
+		};
+	}
+	if (endDate !== undefined) {
+		const diff = endDate - now;
+		if (diff < 0) {
+			const days = Math.floor(-diff / DAY_MS);
+			return { label: `Overdue ${days}d`, tone: "overdue" };
+		}
+		const days = Math.ceil(diff / DAY_MS);
+		return {
+			label: days <= 0 ? "Ends today" : `Ends in ${days}d`,
+			tone: "default",
+		};
+	}
+	return null;
+}
 
 const statusConfig: Record<string, { label: string; className: string }> = {
 	active: {
@@ -338,6 +378,27 @@ export function SprintDetailPage({
 				</div>
 
 				<div className="flex items-center gap-2 ml-auto text-xs text-muted-foreground">
+					{(() => {
+						const schedule = formatSprintSchedule(
+							sprint.startDate,
+							sprint.endDate ?? sprint.targetDate,
+							sprint.status,
+							Date.now(),
+						);
+						return schedule ? (
+							<Badge
+								variant="outline"
+								className={cn(
+									"text-[10px] h-5 gap-1 font-normal",
+									schedule.tone === "overdue" &&
+										"border-red-500/40 text-red-600",
+								)}
+							>
+								<Calendar className="h-2.5 w-2.5 opacity-70" />
+								{schedule.label}
+							</Badge>
+						) : null;
+					})()}
 					{sprint.issueCount > 0 && (
 						<span>
 							{sprint.completedCount}/{sprint.issueCount} done

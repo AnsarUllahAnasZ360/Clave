@@ -1,13 +1,48 @@
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import {
 	canAccessProject,
 	getAccessibleProjectIds,
 	requireWorkspaceMember,
 } from "./lib/auth";
 import { fractionalIndex } from "./lib/utils";
+
+/**
+ * Pure: given a sprint's current state, derive the status the scheduling
+ * cron should set. Returns `null` when no transition should happen (either
+ * the user overrode the status, the sprint is in a terminal state, dates
+ * are missing, or the date boundary hasn't been crossed yet). Exported so
+ * unit tests can exercise every branch without spinning up Convex.
+ */
+export function deriveScheduledSprintStatus(
+	sprint: {
+		status: string;
+		statusOverride?: boolean;
+		startDate?: number;
+		endDate?: number;
+		targetDate?: number;
+	},
+	now: number,
+): "active" | "completed" | null {
+	if (sprint.statusOverride) return null;
+	// Terminal states never auto-transition — users must reset manually
+	// (e.g. un-cancel by re-setting status in the UI).
+	if (sprint.status === "completed" || sprint.status === "cancelled") {
+		return null;
+	}
+	const endBoundary = sprint.endDate ?? sprint.targetDate;
+	if (endBoundary !== undefined && now >= endBoundary) return "completed";
+	if (
+		sprint.status === "planned" &&
+		sprint.startDate !== undefined &&
+		now >= sprint.startDate
+	) {
+		return "active";
+	}
+	return null;
+}
 
 function isCompletedStatus(status: string): boolean {
 	return status === "done" || status === "cancelled";
@@ -363,6 +398,13 @@ export const update = mutation({
 		if (args.targetDate !== undefined && args.endDate === undefined) {
 			patch.endDate = args.targetDate;
 		}
+		// User manually picked a status → lock it. The scheduling cron
+		// checks `statusOverride` before flipping planned → active →
+		// completed based on dates, so manual intent (e.g. ending a sprint
+		// early or cancelling) won't be clobbered.
+		if (args.status !== undefined && args.status !== oldStatus) {
+			patch.statusOverride = true;
+		}
 
 		await ctx.db.patch(sprintId, patch);
 
@@ -526,5 +568,48 @@ export const reorder = mutation({
 		await ctx.db.patch(args.sprintId, {
 			sortOrder: args.newSortOrder,
 		});
+	},
+});
+
+/**
+ * Scheduled: flip planned → active → completed based on startDate / endDate.
+ * Skips sprints where a user has manually picked a status (`statusOverride`)
+ * so manual intent wins. Called by the hourly cron in `convex/crons.ts`.
+ *
+ * Status writes done via internal patch (not `update` mutation) so we don't
+ * set `statusOverride` or require a user context — this is system-driven.
+ */
+export const autoUpdateStatus = internalMutation({
+	args: {},
+	returns: v.null(),
+	handler: async (ctx) => {
+		const now = Date.now();
+		// Scan only non-terminal sprints to avoid work on completed/cancelled.
+		const sprints = await ctx.db.query("sprints").collect();
+		for (const sprint of sprints) {
+			if (sprint.deletedAt) continue;
+			const next = deriveScheduledSprintStatus(sprint, now);
+			if (next === null || next === sprint.status) continue;
+			await ctx.db.patch(sprint._id, {
+				status: next,
+				updatedAt: now,
+			});
+			await ctx.db.insert("activityLogs", {
+				workspaceId:
+					(await ctx.db.get(sprint.projectId))?.workspaceId ??
+					(() => {
+						throw new ConvexError("Sprint project missing for activity log");
+					})(),
+				projectId: sprint.projectId,
+				actorId: sprint.createdBy,
+				action: "status_changed",
+				entityType: "sprint",
+				entityId: sprint._id,
+				description: `sprint "${sprint.name}" auto-transitioned from ${sprint.status} to ${next}`,
+				field: "status",
+				oldValue: sprint.status,
+				newValue: next,
+			});
+		}
 	},
 });

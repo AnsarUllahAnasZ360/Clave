@@ -33,6 +33,7 @@ import {
 import { toast } from "sonner";
 import { useIssueCreate } from "@/components/issues/IssueCreateContext";
 import { ProgressCircle } from "@/components/progress-circle";
+import { MilestoneEditDialog } from "@/components/projects/MilestoneEditDialog";
 import { ProjectQuickCreateModal } from "@/components/projects/ProjectQuickCreateModal";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import { useCurrentUser } from "@/components/providers/workspace-data-context";
@@ -266,7 +267,7 @@ export function AppSidebar() {
 		}
 		try {
 			if (inlineCreate.type === "sprint") {
-				await createSprint({
+				const sprintId = await createSprint({
 					projectId: inlineCreate.projectId as Id<"projects">,
 					name,
 					folderId: inlineCreate.folderId as Id<"sprintFolders"> | undefined,
@@ -276,6 +277,8 @@ export function AppSidebar() {
 					setExpandedFolders((prev) => new Set(prev).add(fid));
 				}
 				toast.success("Sprint created");
+				// Surface the schedule dialog so users can set start + end.
+				setEditSprint({ sprintId, name });
 			} else {
 				const folderId = await createSprintFolder({
 					projectId: inlineCreate.projectId as Id<"projects">,
@@ -306,6 +309,13 @@ export function AppSidebar() {
 	);
 
 	const [showCreateProject, setShowCreateProject] = useState(false);
+	// When a user inline-creates a sprint, we immediately open the edit
+	// dialog so they can schedule it (start + end dates). Keeps the inline
+	// create fast (just type the name) while still surfacing the dates.
+	const [editSprint, setEditSprint] = useState<{
+		sprintId: Id<"sprints">;
+		name: string;
+	} | null>(null);
 
 	const hasFavorites = useQuery(api.favorites.hasAny, { workspaceId });
 	const favorites = useQuery(
@@ -621,6 +631,9 @@ export function AppSidebar() {
 													onCreateDoc={handleCreateDoc}
 													onCreateBoard={handleCreateBoard}
 													onStartInlineCreate={startInlineCreate}
+													onEditSprint={(sprintId, name) =>
+														setEditSprint({ sprintId, name })
+													}
 													inlineCreate={inlineCreate}
 													inlineName={inlineName}
 													onInlineNameChange={setInlineName}
@@ -644,6 +657,17 @@ export function AppSidebar() {
 				open={showCreateProject}
 				onClose={() => setShowCreateProject(false)}
 			/>
+
+			{editSprint ? (
+				<MilestoneEditDialog
+					sprintId={editSprint.sprintId}
+					name={editSprint.name}
+					open={true}
+					onOpenChange={(open) => {
+						if (!open) setEditSprint(null);
+					}}
+				/>
+			) : null}
 		</Sidebar>
 	);
 }
@@ -719,6 +743,7 @@ function ProjectTreeItem({
 	onCreateDoc,
 	onCreateBoard,
 	onStartInlineCreate,
+	onEditSprint,
 	inlineCreate,
 	inlineName,
 	onInlineNameChange,
@@ -741,6 +766,7 @@ function ProjectTreeItem({
 		projectId: string,
 		folderId?: string,
 	) => void;
+	onEditSprint?: (sprintId: Id<"sprints">, name: string) => void;
 	inlineCreate: {
 		type: "sprint" | "folder";
 		projectId: string;
@@ -990,6 +1016,7 @@ function ProjectTreeItem({
 							isExpanded={expandedFolders.has(folder._id)}
 							onToggle={() => onToggleFolder(folder._id)}
 							onStartInlineCreate={onStartInlineCreate}
+							onEditSprint={onEditSprint}
 							inlineCreate={inlineCreate}
 							inlineName={inlineName}
 							onInlineNameChange={onInlineNameChange}
@@ -1008,6 +1035,7 @@ function ProjectTreeItem({
 							projectSlug={project.slug}
 							workspaceSlug={workspaceSlug}
 							pathname={pathname}
+							onEdit={onEditSprint}
 						/>
 					))}
 
@@ -1103,6 +1131,7 @@ function SprintFolderItem({
 	isExpanded,
 	onToggle,
 	onStartInlineCreate,
+	onEditSprint,
 	inlineCreate,
 	inlineName,
 	onInlineNameChange,
@@ -1122,6 +1151,7 @@ function SprintFolderItem({
 		projectId: string,
 		folderId?: string,
 	) => void;
+	onEditSprint?: (sprintId: Id<"sprints">, name: string) => void;
 	inlineCreate: {
 		type: "sprint" | "folder";
 		projectId: string;
@@ -1293,6 +1323,7 @@ function SprintFolderItem({
 								projectSlug={projectSlug}
 								workspaceSlug={workspaceSlug}
 								pathname={pathname}
+								onEdit={onEditSprint}
 							/>
 						))}
 
@@ -1376,6 +1407,7 @@ function SprintNavItem({
 	projectSlug,
 	workspaceSlug,
 	pathname,
+	onEdit,
 }: {
 	sprint: SidebarSprintItem;
 	/** Sprint's parent project — read at drop time so an issue dragged
@@ -1384,6 +1416,9 @@ function SprintNavItem({
 	projectSlug: string;
 	workspaceSlug: string;
 	pathname: string;
+	/** Opens the MilestoneEditDialog for this sprint so the user can
+	 *  set a schedule (start + end dates). Wired from `AppSidebar`. */
+	onEdit?: (sprintId: Id<"sprints">, name: string) => void;
 }) {
 	const sprintHref =
 		`/${workspaceSlug}/projects/${projectSlug}/sprints/${sprint._id}` as LinkProps<string>["href"];
@@ -1515,6 +1550,16 @@ function SprintNavItem({
 								sideOffset={4}
 								className="w-40"
 							>
+								{onEdit ? (
+									<DropdownMenuItem
+										onClick={() =>
+											onEdit(sprint._id as Id<"sprints">, sprint.name)
+										}
+									>
+										<Pencil className="h-4 w-4" />
+										Edit
+									</DropdownMenuItem>
+								) : null}
 								<DropdownMenuItem
 									onClick={() => {
 										setRenameValue(sprint.name);

@@ -424,6 +424,11 @@ export default defineSchema({
 		name: v.string(),
 		description: v.optional(v.string()),
 		status: v.string(),
+		// Set to true when a user manually picks a status in the UI. The
+		// scheduling cron that flips planned → active → completed based on
+		// startDate/endDate skips sprints with this flag so manual intent
+		// wins (e.g. marking "cancelled" or closing a sprint early).
+		statusOverride: v.optional(v.boolean()),
 		icon: v.optional(v.string()),
 		startDate: v.optional(v.number()),
 		targetDate: v.optional(v.number()),

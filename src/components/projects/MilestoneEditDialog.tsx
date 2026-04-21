@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { format } from "date-fns";
 import { Calendar } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -21,28 +21,42 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
+/**
+ * Edit dialog for sprint name + description + start/end dates.
+ *
+ * Self-fetches by `sprintId` so callers only need the id (the sidebar,
+ * for example, doesn't have the sprint's dates in scope). Optional
+ * `initial*` props still hydrate the form instantly on open — the fetch
+ * then reconciles once the query resolves.
+ */
 type MilestoneEditDialogProps = {
 	sprintId: Id<"sprints">;
-	name: string;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	/** Optional seed values — dialog paints immediately with these while
+	 *  the fetched sprint is loading. */
+	name?: string;
 	description?: string;
 	startDate?: number;
 	targetDate?: number;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
 };
 
 export function MilestoneEditDialog({
 	sprintId,
+	open,
+	onOpenChange,
 	name: initialName,
 	description: initialDescription,
 	startDate: initialStartDate,
 	targetDate: initialTargetDate,
-	open,
-	onOpenChange,
 }: MilestoneEditDialogProps) {
 	const updateMilestone = useMutation(api.sprints.update);
 
-	const [name, setName] = useState(initialName);
+	// Fetch canonical sprint doc — lets callers open the dialog with just
+	// an id. Skipped while closed so we don't keep subscriptions alive.
+	const fetched = useQuery(api.sprints.getById, open ? { sprintId } : "skip");
+
+	const [name, setName] = useState(initialName ?? "");
 	const [description, setDescription] = useState(initialDescription ?? "");
 	const [startDate, setStartDate] = useState<Date | undefined>(
 		initialStartDate ? new Date(initialStartDate) : undefined,
@@ -51,24 +65,47 @@ export function MilestoneEditDialog({
 		initialTargetDate ? new Date(initialTargetDate) : undefined,
 	);
 	const [saving, setSaving] = useState(false);
+	// Once the caller starts editing we stop overwriting the form from the
+	// reactive query — otherwise typing in the name field would get clobbered
+	// on every server push.
+	const [hydrated, setHydrated] = useState(false);
 
-	// Reset form when dialog opens or props change
+	// Reset hydration flag whenever the dialog closes / opens on a new sprint.
 	useEffect(() => {
-		if (open) {
-			setName(initialName);
-			setDescription(initialDescription ?? "");
-			setStartDate(initialStartDate ? new Date(initialStartDate) : undefined);
-			setTargetDate(
-				initialTargetDate ? new Date(initialTargetDate) : undefined,
-			);
+		if (!open) {
+			setHydrated(false);
+			return;
 		}
+		setName(initialName ?? "");
+		setDescription(initialDescription ?? "");
+		setStartDate(initialStartDate ? new Date(initialStartDate) : undefined);
+		setTargetDate(initialTargetDate ? new Date(initialTargetDate) : undefined);
 	}, [
 		open,
+		sprintId,
 		initialName,
 		initialDescription,
 		initialStartDate,
 		initialTargetDate,
 	]);
+
+	// Hydrate from the fetched sprint once it loads — only the first time
+	// the dialog is open. Subsequent server pushes are ignored so we don't
+	// wipe the user's in-progress edits.
+	useEffect(() => {
+		if (!open || hydrated || !fetched) return;
+		setName(fetched.name);
+		setDescription(fetched.description ?? "");
+		setStartDate(fetched.startDate ? new Date(fetched.startDate) : undefined);
+		setTargetDate(
+			fetched.endDate
+				? new Date(fetched.endDate)
+				: fetched.targetDate
+					? new Date(fetched.targetDate)
+					: undefined,
+		);
+		setHydrated(true);
+	}, [open, fetched, hydrated]);
 
 	const handleSave = useCallback(async () => {
 		if (!name.trim()) {
@@ -159,7 +196,7 @@ export function MilestoneEditDialog({
 						</div>
 
 						<div className="grid gap-2">
-							<Label>Target date</Label>
+							<Label>End date</Label>
 							<DatePicker
 								date={targetDate}
 								onSelect={setTargetDate}
