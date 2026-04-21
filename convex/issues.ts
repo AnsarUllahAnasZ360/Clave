@@ -2746,6 +2746,98 @@ export const remove = mutation({
 });
 
 /**
+ * Bulk add labels to every selected issue. Union semantics: existing
+ * labels on each issue are preserved; labels in `labelIds` are added if
+ * missing. This is the "tag" workflow — users pick one or more labels
+ * from the bulk bar's Labels picker and expect them to land on every
+ * selected issue without wiping the issue's other labels.
+ */
+export const bulkAddLabels = mutation({
+	args: {
+		issueIds: v.array(v.id("issues")),
+		labelIds: v.array(v.id("labels")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		if (args.issueIds.length === 0 || args.labelIds.length === 0) return;
+
+		const firstIssue = await ctx.db.get(args.issueIds[0]);
+		if (!firstIssue || firstIssue.deletedAt) {
+			throw new ConvexError("Issue not found");
+		}
+		const { userId, member } = await requireWorkspaceMember(
+			ctx,
+			firstIssue.workspaceId,
+		);
+		const accessibleProjectIds = await getAccessibleProjectIds(
+			ctx,
+			firstIssue.workspaceId,
+			userId,
+			member.role as "admin" | "member",
+		);
+
+		// Validate every label belongs to the same workspace.
+		for (const labelId of args.labelIds) {
+			const label = await ctx.db.get(labelId);
+			if (!label || label.workspaceId !== firstIssue.workspaceId) {
+				throw new ConvexError("Label not found");
+			}
+		}
+
+		for (const issueId of args.issueIds) {
+			const issue = await ctx.db.get(issueId);
+			if (!issue || issue.deletedAt) continue;
+			if (issue.workspaceId !== firstIssue.workspaceId) {
+				throw new ConvexError(
+					"All selected issues must belong to the same workspace",
+				);
+			}
+			if (accessibleProjectIds !== null && issue.projectId) {
+				const canAccess =
+					accessibleProjectIds.has(issue.projectId) ||
+					isUserAssignee(issue, userId) ||
+					issue.createdBy === userId;
+				if (!canAccess) {
+					throw new ConvexError(
+						`You don't have access to issue ${issue.identifier}`,
+					);
+				}
+			}
+
+			const existing = issue.labelIds ?? [];
+			const existingSet = new Set(existing);
+			const added: Id<"labels">[] = [];
+			for (const id of args.labelIds) {
+				if (!existingSet.has(id)) {
+					existingSet.add(id);
+					added.push(id);
+				}
+			}
+			if (added.length === 0) continue; // nothing new for this issue
+
+			await ctx.db.patch(issueId, {
+				labelIds: [...existingSet],
+				updatedAt: Date.now(),
+			});
+
+			await logActivity(ctx, {
+				workspaceId: issue.workspaceId,
+				entityType: "issue",
+				entityId: issueId,
+				action: "updated",
+				actorId: userId,
+				description: `added ${added.length} label${added.length === 1 ? "" : "s"} to ${issue.identifier}`,
+				issueId,
+				projectId: issue.projectId,
+				field: "labelIds",
+				oldValue: existing.join(",") || undefined,
+				newValue: [...existingSet].join(",") || undefined,
+			});
+		}
+	},
+});
+
+/**
  * Bulk soft-delete a set of issues. Mirrors the behaviour of `remove` for
  * each issue: RBAC check per issue, cascade to sub-issues, activity log,
  * RAG de-index. Partial failure (e.g. you don't have access to one of the

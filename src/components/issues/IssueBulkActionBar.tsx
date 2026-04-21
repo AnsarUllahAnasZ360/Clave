@@ -1,12 +1,15 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { Archive, Flag, Signal, Trash2, X } from "lucide-react";
+import { Archive, Flag, Signal, Tag, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { MultiAssigneePicker } from "@/components/issues/MultiAssigneePicker";
 import { useWorkspace } from "@/components/providers/workspace-context";
-import { useWorkspaceMembers } from "@/components/providers/workspace-data-context";
+import {
+	useWorkspaceLabels,
+	useWorkspaceMembers,
+} from "@/components/providers/workspace-data-context";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -53,10 +56,12 @@ export function IssueBulkActionBar({
 	);
 	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
 	const members = useWorkspaceMembers();
+	const labels = useWorkspaceLabels();
 	const bulkUpdateStatus = useMutation(api.issues.bulkUpdateStatus);
 	const bulkAssign = useMutation(api.issues.bulkAssign);
 	const bulkUpdatePriority = useMutation(api.issues.bulkUpdatePriority);
 	const bulkSetSprint = useMutation(api.issues.bulkSetSprint);
+	const bulkAddLabels = useMutation(api.issues.bulkAddLabels);
 	const bulkRemove = useMutation(api.issues.bulkRemove);
 
 	const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -124,6 +129,16 @@ export function IssueBulkActionBar({
 			onClearSelection();
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : "Failed to update sprint";
+			toast.error(msg);
+		}
+	};
+
+	const handleBulkAddLabel = async (labelId: Id<"labels">) => {
+		try {
+			await bulkAddLabels({ issueIds: ids, labelIds: [labelId] });
+			toast.success(`Tagged ${count} issue${count === 1 ? "" : "s"}`);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : "Failed to tag";
 			toast.error(msg);
 		}
 	};
@@ -214,6 +229,40 @@ export function IssueBulkActionBar({
 					})}
 				</DropdownMenuContent>
 			</DropdownMenu>
+
+			{/* Bulk tag: click a label to add it to every selected issue
+			    (union — existing labels are preserved). */}
+			{labels && labels.length > 0 ? (
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<Button variant="outline" size="sm" className="h-8 gap-1.5">
+							<Tag className="h-3.5 w-3.5" />
+							<span className="hidden sm:inline">Label</span>
+						</Button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent
+						align="center"
+						className="max-h-[min(320px,70vh)] overflow-y-auto w-[240px]"
+					>
+						{labels.map((label) => (
+							<DropdownMenuItem
+								key={label._id}
+								onClick={() =>
+									void handleBulkAddLabel(label._id as Id<"labels">)
+								}
+							>
+								<span className="flex items-center gap-2 w-full">
+									<span
+										className="h-2.5 w-2.5 rounded-full shrink-0"
+										style={{ backgroundColor: label.color }}
+									/>
+									<span className="flex-1 truncate">{label.name}</span>
+								</span>
+							</DropdownMenuItem>
+						))}
+					</DropdownMenuContent>
+				</DropdownMenu>
+			) : null}
 
 			{/*
 			 * Bulk assign: multi-select picker. Users tick the members they

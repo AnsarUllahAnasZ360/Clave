@@ -78,6 +78,12 @@ export type IssueBoardCardProps = {
 	/** Quick "Move to backlog" shortcut on the card menu. Parent wires the
 	 *  updateIssue mutation so the card stays presentational. */
 	onMoveToBacklog?: () => void;
+	/** Bulk select: card shows a sienna ring when true. */
+	selected?: boolean;
+	/** Bulk select toggle — called when the card is clicked with a
+	 *  meta/ctrl/shift modifier. Shift is forwarded so the parent can do
+	 *  range selection against its ordered item list. */
+	onBulkToggle?: (shiftKey: boolean) => void;
 	/** Resolved assignee data */
 	assignee?: { name: string; avatarUrl?: string } | null;
 	/** Resolved multiple assignees */
@@ -97,6 +103,8 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 	issueUrl,
 	onDelete,
 	onMoveToBacklog,
+	selected,
+	onBulkToggle,
 	assignee,
 	assignees,
 	labels,
@@ -132,16 +140,31 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 	// an interactive DropdownMenuTrigger, and HTML forbids a button inside a
 	// button. A role-augmented div preserves keyboard/click semantics without
 	// the hydration error.
+	const handleRootClick = (e: React.MouseEvent) => {
+		// Modifier-click toggles bulk selection instead of opening the issue.
+		// Shift is passed through so the parent can extend a range against
+		// its ordered item list.
+		if (onBulkToggle && (e.metaKey || e.ctrlKey || e.shiftKey)) {
+			e.preventDefault();
+			e.stopPropagation();
+			onBulkToggle(e.shiftKey);
+			return;
+		}
+		onClick?.();
+	};
+
 	return (
 		<div
 			role="button"
 			tabIndex={0}
 			className={cn(
-				"group border border-border bg-card rounded-lg p-3 cursor-pointer transition-shadow hover:shadow-md w-full text-left",
+				"group border border-border bg-card rounded-lg p-3 cursor-pointer transition-all hover:shadow-md w-full text-left",
 				issue.status === "done" && "opacity-70",
 				issue.status === "cancelled" && "opacity-50",
+				selected &&
+					"ring-2 ring-sienna-500 ring-offset-1 ring-offset-background border-sienna-500/60",
 			)}
-			onClick={onClick}
+			onClick={handleRootClick}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" || e.key === " ") {
 					e.preventDefault();

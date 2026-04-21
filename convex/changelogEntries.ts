@@ -39,6 +39,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
 			"Quick create (C) and full create (V) shortcuts auto-inherit the current sprint when you're on a sprint detail URL",
 			"Dedicated 'Backlog' button on the issue and task bulk action bars — one click instead of three",
 			"'Move to backlog' on every issue's row and card `…` menu",
+			"Bulk select now works on the board view — shift or cmd/ctrl-click a card to pick it, and the bulk action bar appears with Status, Priority, Label, Assignee, Sprint, Backlog, and Delete",
+			"New bulk 'Label' picker (both list and board) — tag every selected issue with a label in one click; existing labels are preserved (union)",
 			"Project row in the sidebar is a drop target — drop an issue on a project to move it to that project's backlog",
 			"Issue preview sidebar now scrolls and includes the full activity + comments section (threaded replies, @mentions, attachments, AI reply)",
 			"'Unassigned' option inside the assignee dropdown on issues (preview sidebar) and tasks (detail sheet, quick create) — clears everyone in one click",

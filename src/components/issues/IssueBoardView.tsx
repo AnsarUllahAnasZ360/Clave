@@ -29,6 +29,7 @@ import {
 	IssueBoardCard,
 	type IssueCardData,
 } from "@/components/issues/IssueBoardCard";
+import { IssueBulkActionBar } from "@/components/issues/IssueBulkActionBar";
 import { IssueInlineCreate } from "@/components/issues/IssueInlineCreate";
 import { useWorkspace } from "@/components/providers/workspace-context";
 import {
@@ -263,6 +264,53 @@ export function IssueBoardView({
 	// Local state for optimistic updates
 	const [localIssues, setLocalIssues] = useState<IssueCardData[]>([]);
 	const [activeItem, setActiveItem] = useState<IssueCardData | null>(null);
+
+	// Bulk select — same shape as the list view. Modifier-click on a card
+	// toggles selection; shift-click extends a range against `localIssues`
+	// (the board's flat ordered view). `IssueBulkActionBar` renders below
+	// the board when count > 0.
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [lastClickedId, setLastClickedId] = useState<string | null>(null);
+	const handleSelectIssue = useCallback(
+		(issueId: string, shiftKey: boolean) => {
+			setSelectedIds((prev) => {
+				const next = new Set(prev);
+				if (shiftKey && lastClickedId) {
+					const ids = localIssues.map((i) => i._id as string);
+					const start = ids.indexOf(lastClickedId);
+					const end = ids.indexOf(issueId);
+					if (start !== -1 && end !== -1) {
+						const [from, to] = start < end ? [start, end] : [end, start];
+						for (let i = from; i <= to; i++) next.add(ids[i]);
+					}
+				} else if (next.has(issueId)) {
+					next.delete(issueId);
+				} else {
+					next.add(issueId);
+				}
+				return next;
+			});
+			setLastClickedId(issueId);
+		},
+		[lastClickedId, localIssues],
+	);
+	const clearSelection = useCallback(() => {
+		setSelectedIds(new Set());
+		setLastClickedId(null);
+	}, []);
+	const bulkSelectProp = useMemo(
+		() => ({ selectedIds, onSelect: handleSelectIssue }),
+		[selectedIds, handleSelectIssue],
+	);
+	const bulkSprintOptions = useMemo(() => {
+		const source = projectId
+			? sprints
+			: Array.isArray(workspaceSprints)
+				? workspaceSprints
+				: undefined;
+		if (!source) return [];
+		return source.map((s) => ({ id: s._id as string, name: s.name }));
+	}, [projectId, sprints, workspaceSprints]);
 
 	// When the pointer enters a sidebar drop target mid-drag, shrink the
 	// DragOverlay so the user can aim at narrow sprint / backlog rows without
@@ -1026,191 +1074,201 @@ export function IssueBoardView({
 	}
 
 	return (
-		<DndContext
-			sensors={sensors}
-			collisionDetection={rectIntersection}
-			onDragStart={handleDragStart}
-			onDragEnd={handleDragEnd}
-			onDragCancel={handleDragCancel}
-		>
-			<div
-				ref={boardRootRef}
-				className="relative flex-1 min-h-0 min-w-0 flex flex-col overscroll-contain"
+		<>
+			<DndContext
+				sensors={sensors}
+				collisionDetection={rectIntersection}
+				onDragStart={handleDragStart}
+				onDragEnd={handleDragEnd}
+				onDragCancel={handleDragCancel}
 			>
-				{/* Scrollable board area */}
-				<div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
-					{/* Left edge fade */}
-					<div
-						className={cn(
-							"pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-linear-to-r from-background to-transparent transition-opacity duration-200",
-							canScrollLeft ? "opacity-100" : "opacity-0",
-						)}
-					/>
-					{/* Right edge fade */}
-					<div
-						className={cn(
-							"pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-linear-to-l from-background to-transparent transition-opacity duration-200",
-							canScrollRight ? "opacity-100" : "opacity-0",
-						)}
-					/>
+				<div
+					ref={boardRootRef}
+					className="relative flex-1 min-h-0 min-w-0 flex flex-col overscroll-contain"
+				>
+					{/* Scrollable board area */}
+					<div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
+						{/* Left edge fade */}
+						<div
+							className={cn(
+								"pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-linear-to-r from-background to-transparent transition-opacity duration-200",
+								canScrollLeft ? "opacity-100" : "opacity-0",
+							)}
+						/>
+						{/* Right edge fade */}
+						<div
+							className={cn(
+								"pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-linear-to-l from-background to-transparent transition-opacity duration-200",
+								canScrollRight ? "opacity-100" : "opacity-0",
+							)}
+						/>
 
-					<div
-						ref={scrollRef}
-						className="kanban-scrollbar overflow-x-auto overflow-y-hidden h-full min-w-0"
-					>
-						{swimlaneGroups ? (
-							// Swimlane mode: rows of columns
-							<div
-								ref={setScrollContentEl}
-								className="px-4 pb-2 pt-2 space-y-4 min-w-max"
-							>
-								{/* Column headers (sticky) */}
-								<div className="flex gap-3 min-w-max">
-									<div className="w-[272px] shrink-0" />{" "}
-									{/* Swimlane label spacer */}
-									{STATUS_COLUMNS.map((col) => (
-										<div key={col.id} className="w-[272px] shrink-0">
-											<ColumnHeader
-												column={col}
-												count={columnGroups.get(col.id)?.length ?? 0}
-											/>
-										</div>
-									))}
-								</div>
+						<div
+							ref={scrollRef}
+							className="kanban-scrollbar overflow-x-auto overflow-y-hidden h-full min-w-0"
+						>
+							{swimlaneGroups ? (
+								// Swimlane mode: rows of columns
+								<div
+									ref={setScrollContentEl}
+									className="px-4 pb-2 pt-2 space-y-4 min-w-max"
+								>
+									{/* Column headers (sticky) */}
+									<div className="flex gap-3 min-w-max">
+										<div className="w-[272px] shrink-0" />{" "}
+										{/* Swimlane label spacer */}
+										{STATUS_COLUMNS.map((col) => (
+											<div key={col.id} className="w-[272px] shrink-0">
+												<ColumnHeader
+													column={col}
+													count={columnGroups.get(col.id)?.length ?? 0}
+												/>
+											</div>
+										))}
+									</div>
 
-								{/* Swimlane rows */}
-								{swimlaneGroups.map((swimlane) => (
-									<SwimlaneRow
-										key={swimlane.key}
-										swimlane={swimlane}
-										columns={STATUS_COLUMNS}
-										getIssues={(status) =>
-											getIssuesForCell(status, swimlane.key)
-										}
-										memberLookup={memberLookup}
-										labelLookup={labelLookup}
-										displayProperties={displayProperties}
-										projectId={projectId}
-										swimlaneBy={swimlaneBy}
-										boardSprintId={boardSprintId}
-										createDefaults={createDefaults}
-										onCardClick={onCardClick}
-										workspaceSlug={workspaceSlug}
-										onDeleteIssue={onDeleteIssue}
-										onMoveIssueToBacklog={onMoveIssueToBacklog}
-									/>
-								))}
-							</div>
-						) : (
-							// Flat mode: simple columns
-							<div
-								ref={setScrollContentEl}
-								className="flex gap-3 px-4 pb-2 pt-2 min-w-max h-full"
-							>
-								{STATUS_COLUMNS.map((column) => {
-									const columnItems = columnGroups.get(column.id) ?? [];
-									return (
-										<BoardColumn
-											key={column.id}
-											column={column}
-											items={columnItems}
+									{/* Swimlane rows */}
+									{swimlaneGroups.map((swimlane) => (
+										<SwimlaneRow
+											key={swimlane.key}
+											swimlane={swimlane}
+											columns={STATUS_COLUMNS}
+											getIssues={(status) =>
+												getIssuesForCell(status, swimlane.key)
+											}
 											memberLookup={memberLookup}
 											labelLookup={labelLookup}
 											displayProperties={displayProperties}
 											projectId={projectId}
-											sprintId={boardSprintId}
+											swimlaneBy={swimlaneBy}
+											boardSprintId={boardSprintId}
 											createDefaults={createDefaults}
 											onCardClick={onCardClick}
 											workspaceSlug={workspaceSlug}
 											onDeleteIssue={onDeleteIssue}
 											onMoveIssueToBacklog={onMoveIssueToBacklog}
+											bulkSelect={bulkSelectProp}
 										/>
-									);
-								})}
-							</div>
+									))}
+								</div>
+							) : (
+								// Flat mode: simple columns
+								<div
+									ref={setScrollContentEl}
+									className="flex gap-3 px-4 pb-2 pt-2 min-w-max h-full"
+								>
+									{STATUS_COLUMNS.map((column) => {
+										const columnItems = columnGroups.get(column.id) ?? [];
+										return (
+											<BoardColumn
+												key={column.id}
+												column={column}
+												items={columnItems}
+												memberLookup={memberLookup}
+												labelLookup={labelLookup}
+												displayProperties={displayProperties}
+												projectId={projectId}
+												sprintId={boardSprintId}
+												createDefaults={createDefaults}
+												onCardClick={onCardClick}
+												workspaceSlug={workspaceSlug}
+												onDeleteIssue={onDeleteIssue}
+												onMoveIssueToBacklog={onMoveIssueToBacklog}
+												bulkSelect={bulkSelectProp}
+											/>
+										);
+									})}
+								</div>
+							)}
+						</div>
+					</div>
+
+					{/* Custom horizontal scrollbar — always visible */}
+					<div
+						ref={trackRef}
+						className={cn(
+							"shrink-0 h-4 mx-4 mb-2 mt-1 rounded-full cursor-pointer relative",
+							canHScroll ? "bg-muted" : "bg-muted/30",
+						)}
+						onClick={handleTrackClick}
+						role="slider"
+						aria-label="Horizontal scrollbar"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(
+							(scrollThumbLeft / (trackRef.current?.offsetWidth || 1)) * 100,
+						)}
+						tabIndex={canHScroll ? 0 : -1}
+						onKeyDown={(e) => {
+							if (!canHScroll) return;
+							if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+								e.preventDefault();
+								const delta = e.key === "ArrowLeft" ? -50 : 50;
+								const target = scrollRef.current;
+								if (target) {
+									target.scrollLeft += delta;
+								}
+							}
+						}}
+					>
+						{canHScroll && (
+							<button
+								type="button"
+								className="absolute top-1 bottom-1 rounded-full bg-foreground/40 hover:bg-foreground/60 active:bg-foreground/70 cursor-grab active:cursor-grabbing transition-colors"
+								style={{
+									left: scrollThumbLeft,
+									width: scrollThumbWidth,
+								}}
+								onMouseDown={handleThumbMouseDown}
+								aria-label="Scrollbar thumb"
+								tabIndex={-1}
+							/>
 						)}
 					</div>
 				</div>
 
-				{/* Custom horizontal scrollbar — always visible */}
-				<div
-					ref={trackRef}
-					className={cn(
-						"shrink-0 h-4 mx-4 mb-2 mt-1 rounded-full cursor-pointer relative",
-						canHScroll ? "bg-muted" : "bg-muted/30",
-					)}
-					onClick={handleTrackClick}
-					role="slider"
-					aria-label="Horizontal scrollbar"
-					aria-valuemin={0}
-					aria-valuemax={100}
-					aria-valuenow={Math.round(
-						(scrollThumbLeft / (trackRef.current?.offsetWidth || 1)) * 100,
-					)}
-					tabIndex={canHScroll ? 0 : -1}
-					onKeyDown={(e) => {
-						if (!canHScroll) return;
-						if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-							e.preventDefault();
-							const delta = e.key === "ArrowLeft" ? -50 : 50;
-							const target = scrollRef.current;
-							if (target) {
-								target.scrollLeft += delta;
-							}
-						}
-					}}
-				>
-					{canHScroll && (
-						<button
-							type="button"
-							className="absolute top-1 bottom-1 rounded-full bg-foreground/40 hover:bg-foreground/60 active:bg-foreground/70 cursor-grab active:cursor-grabbing transition-colors"
-							style={{
-								left: scrollThumbLeft,
-								width: scrollThumbWidth,
-							}}
-							onMouseDown={handleThumbMouseDown}
-							aria-label="Scrollbar thumb"
-							tabIndex={-1}
-						/>
-					)}
-				</div>
-			</div>
-
-			{/* Drag overlay — `pointer-events-none` is critical for sidebar
+				{/* Drag overlay — `pointer-events-none` is critical for sidebar
 			    drops: `document.elementFromPoint` (used by the sidebar hover
 			    tracker and drop resolver) returns the topmost element at a
 			    point, which would otherwise always be this overlay, never
 			    the sidebar node underneath. */}
-			<DragOverlay style={{ pointerEvents: "none" }}>
-				{activeItem ? (
-					<div
-						className={cn(
-							"shadow-lg rounded-lg pointer-events-none transition-all duration-150 origin-center",
-							overlayOverSidebar
-								? "scale-[0.45] opacity-80 w-[272px]"
-								: "scale-[1.02] opacity-90 w-[272px]",
-						)}
-					>
-						<IssueBoardCard
-							issue={activeItem}
-							displayProperties={displayProperties}
-							issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
-							onDelete={() =>
-								onDeleteIssue(activeItem._id, activeItem.identifier)
-							}
-							assignee={(() => {
-								const id =
-									activeItem.assigneeId ??
-									activeItem.assigneeIds?.[0] ??
-									undefined;
-								return id ? (memberLookup.get(id) ?? null) : null;
-							})()}
-							labels={resolveLabels(activeItem, labelLookup)}
-						/>
-					</div>
-				) : null}
-			</DragOverlay>
-		</DndContext>
+				<DragOverlay style={{ pointerEvents: "none" }}>
+					{activeItem ? (
+						<div
+							className={cn(
+								"shadow-lg rounded-lg pointer-events-none transition-all duration-150 origin-center",
+								overlayOverSidebar
+									? "scale-[0.45] opacity-80 w-[272px]"
+									: "scale-[1.02] opacity-90 w-[272px]",
+							)}
+						>
+							<IssueBoardCard
+								issue={activeItem}
+								displayProperties={displayProperties}
+								issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
+								onDelete={() =>
+									onDeleteIssue(activeItem._id, activeItem.identifier)
+								}
+								assignee={(() => {
+									const id =
+										activeItem.assigneeId ??
+										activeItem.assigneeIds?.[0] ??
+										undefined;
+									return id ? (memberLookup.get(id) ?? null) : null;
+								})()}
+								labels={resolveLabels(activeItem, labelLookup)}
+							/>
+						</div>
+					) : null}
+				</DragOverlay>
+			</DndContext>
+			<IssueBulkActionBar
+				selectedIds={selectedIds}
+				onClearSelection={clearSelection}
+				sprintOptions={bulkSprintOptions}
+				projectId={projectId}
+			/>
+		</>
 	);
 }
 
@@ -1248,6 +1306,7 @@ function BoardColumn({
 	workspaceSlug,
 	onDeleteIssue,
 	onMoveIssueToBacklog,
+	bulkSelect,
 }: {
 	column: StatusColumnConfig;
 	items: IssueCardData[];
@@ -1261,6 +1320,10 @@ function BoardColumn({
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
 	onMoveIssueToBacklog?: (issueId: string) => void;
+	bulkSelect?: {
+		selectedIds: Set<string>;
+		onSelect: (id: string, shiftKey: boolean) => void;
+	};
 }) {
 	const { isOver, setNodeRef } = useDroppable({ id: column.id });
 	const itemIds = useMemo(() => items.map((i) => i._id), [items]);
@@ -1295,6 +1358,7 @@ function BoardColumn({
 								workspaceSlug={workspaceSlug}
 								onDeleteIssue={onDeleteIssue}
 								onMoveIssueToBacklog={onMoveIssueToBacklog}
+								bulkSelect={bulkSelect}
 							/>
 						))
 					)}
@@ -1339,6 +1403,7 @@ function SwimlaneRow({
 	workspaceSlug,
 	onDeleteIssue,
 	onMoveIssueToBacklog,
+	bulkSelect,
 }: {
 	swimlane: SwimlaneGroup;
 	columns: StatusColumnConfig[];
@@ -1354,6 +1419,10 @@ function SwimlaneRow({
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
 	onMoveIssueToBacklog?: (issueId: string) => void;
+	bulkSelect?: {
+		selectedIds: Set<string>;
+		onSelect: (id: string, shiftKey: boolean) => void;
+	};
 }) {
 	const sprintIdForCreate = resolveSprintIdForBoardCreate(
 		swimlaneBy,
@@ -1407,6 +1476,7 @@ function SwimlaneRow({
 								workspaceSlug={workspaceSlug}
 								onDeleteIssue={onDeleteIssue}
 								onMoveIssueToBacklog={onMoveIssueToBacklog}
+								bulkSelect={bulkSelect}
 							/>
 						);
 					})}
@@ -1432,6 +1502,7 @@ function SwimlaneCell({
 	workspaceSlug,
 	onDeleteIssue,
 	onMoveIssueToBacklog,
+	bulkSelect,
 }: {
 	columnId: IssueStatus;
 	swimlaneKey: string;
@@ -1446,6 +1517,10 @@ function SwimlaneCell({
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
 	onMoveIssueToBacklog?: (issueId: string) => void;
+	bulkSelect?: {
+		selectedIds: Set<string>;
+		onSelect: (id: string, shiftKey: boolean) => void;
+	};
 }) {
 	const droppableId = makeSwimlaneDroppableId(columnId, swimlaneKey);
 	const { isOver, setNodeRef } = useDroppable({ id: droppableId });
@@ -1475,6 +1550,7 @@ function SwimlaneCell({
 								workspaceSlug={workspaceSlug}
 								onDeleteIssue={onDeleteIssue}
 								onMoveIssueToBacklog={onMoveIssueToBacklog}
+								bulkSelect={bulkSelect}
 							/>
 						))
 					)}
@@ -1505,6 +1581,7 @@ function SortableCard({
 	workspaceSlug,
 	onDeleteIssue,
 	onMoveIssueToBacklog,
+	bulkSelect,
 }: {
 	issue: IssueCardData;
 	memberLookup: Map<string, { name: string; avatarUrl?: string }>;
@@ -1514,6 +1591,10 @@ function SortableCard({
 	workspaceSlug: string;
 	onDeleteIssue: (issueId: string, identifier: string) => void;
 	onMoveIssueToBacklog?: (issueId: string) => void;
+	bulkSelect?: {
+		selectedIds: Set<string>;
+		onSelect: (id: string, shiftKey: boolean) => void;
+	};
 }) {
 	const {
 		attributes,
@@ -1557,6 +1638,12 @@ function SortableCard({
 				onMoveToBacklog={
 					onMoveIssueToBacklog
 						? () => onMoveIssueToBacklog(issue._id)
+						: undefined
+				}
+				selected={bulkSelect?.selectedIds.has(issue._id)}
+				onBulkToggle={
+					bulkSelect
+						? (shiftKey) => bulkSelect.onSelect(issue._id, shiftKey)
 						: undefined
 				}
 				assignee={assignee}
