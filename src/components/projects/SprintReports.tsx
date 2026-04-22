@@ -138,7 +138,7 @@ export function SprintReports({ sprintId, projectId }: SprintReportsProps) {
 		latest !== undefined && (latest.remaining as number) <= latest.ideal;
 
 	return (
-		<div className="p-6 space-y-6 max-w-5xl">
+		<div className="p-6 space-y-6">
 			{/* Summary */}
 			<div className="grid grid-cols-2 md:grid-cols-4 gap-3">
 				<SummaryTile
@@ -306,109 +306,112 @@ export function SprintReports({ sprintId, projectId }: SprintReportsProps) {
 				</Card>
 			</div>
 
-			{/* Assignee workload */}
-			<Card>
-				<CardHeader>
-					<CardTitle className="text-base">Assignee workload</CardTitle>
-					<CardDescription>
-						Open vs completed issues in this sprint, per assignee.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					{burndown.assigneeWorkload.length === 0 ? (
-						<EmptyState message="No assignees to show." />
-					) : (
-						<ChartContainer
-							config={workloadConfig}
-							className="h-[260px] w-full"
-						>
-							<BarChart
-								data={burndown.assigneeWorkload}
-								layout="vertical"
-								margin={{ left: 16, right: 16 }}
+			{/* Assignee workload + Velocity side by side on wide screens */}
+			<div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+				<Card>
+					<CardHeader>
+						<CardTitle className="text-base">Assignee workload</CardTitle>
+						<CardDescription>
+							Open vs completed issues in this sprint, per assignee.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						{burndown.assigneeWorkload.length === 0 ? (
+							<EmptyState message="No assignees to show." />
+						) : (
+							<ChartContainer
+								config={workloadConfig}
+								className="h-[260px] w-full"
 							>
-								<CartesianGrid horizontal={false} strokeOpacity={0.2} />
-								<XAxis
-									type="number"
-									tickLine={false}
-									axisLine={false}
-									allowDecimals={false}
-								/>
-								<YAxis
-									type="category"
-									dataKey="name"
-									tickLine={false}
-									axisLine={false}
-									tickMargin={8}
-									width={100}
-								/>
-								<ChartTooltip content={<ChartTooltipContent />} />
-								<Bar
-									dataKey="completed"
-									stackId="a"
-									fill="var(--color-completed)"
-									radius={[0, 0, 0, 0]}
-								/>
-								<Bar
-									dataKey="open"
-									stackId="a"
-									fill="var(--color-open)"
-									radius={[0, 4, 4, 0]}
-								/>
-							</BarChart>
-						</ChartContainer>
-					)}
-				</CardContent>
-			</Card>
+								<BarChart
+									data={burndown.assigneeWorkload}
+									layout="vertical"
+									margin={{ left: 16, right: 16 }}
+								>
+									<CartesianGrid horizontal={false} strokeOpacity={0.2} />
+									<XAxis
+										type="number"
+										tickLine={false}
+										axisLine={false}
+										allowDecimals={false}
+									/>
+									<YAxis
+										type="category"
+										dataKey="name"
+										tickLine={false}
+										axisLine={false}
+										tickMargin={8}
+										width={100}
+									/>
+									<ChartTooltip content={<ChartTooltipContent />} />
+									<Bar
+										dataKey="completed"
+										stackId="a"
+										fill="var(--color-completed)"
+										radius={[0, 0, 0, 0]}
+									/>
+									<Bar
+										dataKey="open"
+										stackId="a"
+										fill="var(--color-open)"
+										radius={[0, 4, 4, 0]}
+									/>
+								</BarChart>
+							</ChartContainer>
+						)}
+					</CardContent>
+				</Card>
 
-			{/* Velocity */}
-			<Card>
-				<CardHeader>
-					<CardTitle className="text-base">Velocity</CardTitle>
-					<CardDescription>
-						Completed vs committed work across the last sprints in this project.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					{velocity === undefined ? (
-						<Skeleton className="h-[240px] w-full" />
-					) : velocity.length === 0 ? (
-						<EmptyState message="No sprint history yet." />
-					) : (
-						<ChartContainer
-							config={velocityConfig}
-							className="h-[240px] w-full"
-						>
-							<BarChart data={velocity}>
-								<CartesianGrid vertical={false} strokeOpacity={0.2} />
-								<XAxis
-									dataKey="name"
-									tickLine={false}
-									axisLine={false}
-									tickMargin={8}
-								/>
-								<YAxis
-									tickLine={false}
-									axisLine={false}
-									tickMargin={8}
-									allowDecimals={false}
-								/>
-								<ChartTooltip content={<ChartTooltipContent />} />
-								<Bar
-									dataKey="totalCount"
-									fill="var(--color-totalCount)"
-									radius={[4, 4, 0, 0]}
-								/>
-								<Bar
-									dataKey="completedCount"
-									fill="var(--color-completedCount)"
-									radius={[4, 4, 0, 0]}
-								/>
-							</BarChart>
-						</ChartContainer>
-					)}
-				</CardContent>
-			</Card>
+				{/* Velocity */}
+				<Card>
+					<CardHeader>
+						<CardTitle className="text-base">Velocity</CardTitle>
+						<CardDescription>
+							Completed vs committed work across the last sprints in this
+							project.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						{velocity === undefined ? (
+							<Skeleton className="h-[240px] w-full" />
+						) : velocity.length === 0 ? (
+							<EmptyState message="No sprint history yet." />
+						) : (
+							<ChartContainer
+								config={velocityConfig}
+								className="h-[240px] w-full"
+							>
+								<BarChart data={velocity}>
+									<CartesianGrid vertical={false} strokeOpacity={0.2} />
+									<XAxis
+										dataKey="name"
+										tickLine={false}
+										axisLine={false}
+										tickMargin={8}
+									/>
+									<YAxis
+										tickLine={false}
+										axisLine={false}
+										tickMargin={8}
+										allowDecimals={false}
+									/>
+									<ChartTooltip content={<ChartTooltipContent />} />
+									<Bar
+										dataKey="totalCount"
+										fill="var(--color-totalCount)"
+										radius={[4, 4, 0, 0]}
+									/>
+									<Bar
+										dataKey="completedCount"
+										fill="var(--color-completedCount)"
+										radius={[4, 4, 0, 0]}
+									/>
+								</BarChart>
+							</ChartContainer>
+						)}
+					</CardContent>
+				</Card>
+			</div>
 		</div>
 	);
 }
