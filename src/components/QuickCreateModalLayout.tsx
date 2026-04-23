@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import type React from "react";
+import { useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,13 @@ export function QuickCreateModalLayout({
 	contentClassName,
 	children,
 }: QuickCreateModalLayoutProps) {
+	// Track whether the current click's mousedown landed on the backdrop
+	// itself. Without this check, starting a text selection inside the
+	// modal and releasing the mouse on the backdrop fires a synthetic
+	// `click` on their common ancestor (the backdrop) and would close the
+	// modal mid-selection.
+	const backdropPressRef = useRef(false);
+
 	if (!open) return null;
 
 	const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -41,7 +49,15 @@ export function QuickCreateModalLayout({
 			role="button"
 			tabIndex={-1}
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-			onClick={onClose}
+			onMouseDown={(e) => {
+				backdropPressRef.current = e.target === e.currentTarget;
+			}}
+			onClick={(e) => {
+				if (backdropPressRef.current && e.target === e.currentTarget) {
+					onClose();
+				}
+				backdropPressRef.current = false;
+			}}
 			onKeyDown={(e) => e.key === "Escape" && onClose()}
 		>
 			<motion.div

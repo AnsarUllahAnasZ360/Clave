@@ -1454,15 +1454,18 @@ export function IssueListView({
 			const isCollapsed = collapsedGroups.has(key);
 			const checkboxState = getGroupCheckboxState(group);
 
+			// Row uses the same leading structure as the column header + issue
+			// rows (flush left, `gap-x-6`, 36px checkbox column) so every
+			// checkbox down the page sits on the same x-offset regardless of
+			// nesting depth. Sub-group indentation lives on the *content*
+			// block instead, not on the whole row — previously we padded the
+			// outer wrapper which also shifted the checkbox to the right.
 			return (
 				<div
 					key={`header-${key}`}
-					className={cn(
-						"group/header flex items-center gap-2 w-full h-8 px-2 text-xs font-medium text-muted-foreground border-b border-border/30 shrink-0",
-						parentKey && "pl-6",
-					)}
+					className="group/header flex items-center gap-x-6 w-full h-8 pr-2 text-xs font-medium text-muted-foreground border-b border-border/30 shrink-0"
 				>
-					{/* Checkbox for group selection */}
+					{/* Checkbox column — identical to column header + issue row */}
 					<div className="w-[36px] shrink-0 flex items-center justify-center pl-1">
 						<Checkbox
 							checked={checkboxState}
@@ -1474,34 +1477,45 @@ export function IssueListView({
 						/>
 					</div>
 
-					{/* Collapse/expand chevron and label */}
-					<button
-						type="button"
-						className="flex items-center gap-2 flex-1 hover:bg-muted/40 transition-colors rounded px-1 -mx-1"
-						onClick={() => toggleGroup(key)}
-					>
-						{isCollapsed ? (
-							<ChevronRight className="h-3.5 w-3.5 shrink-0" />
-						) : (
-							<ChevronDown className="h-3.5 w-3.5 shrink-0" />
+					{/* Content — chevron + label + count + quick-create.
+					    Indented only when this is a sub-group, so the
+					    hierarchy is visible without moving the checkbox. */}
+					<div
+						className={cn(
+							"flex items-center gap-2 flex-1 min-w-0",
+							parentKey && "pl-6",
 						)}
-						{group.icon}
-						<span className="font-medium text-foreground">{group.label}</span>
-						<span className="text-muted-foreground ml-auto">{group.count}</span>
-					</button>
-
-					{/* Quick-create with group context */}
-					<button
-						type="button"
-						className="opacity-0 group-hover/header:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-muted transition-all shrink-0"
-						onClick={(e) => {
-							e.stopPropagation();
-							openQuickCreate(buildPresetFromGroup(group.key, parentKey));
-						}}
-						title={`Create issue in ${group.label}`}
 					>
-						<Plus className="h-3.5 w-3.5" />
-					</button>
+						<button
+							type="button"
+							className="flex items-center gap-2 flex-1 hover:bg-muted/40 transition-colors rounded px-1 -mx-1 min-w-0"
+							onClick={() => toggleGroup(key)}
+						>
+							{isCollapsed ? (
+								<ChevronRight className="h-3.5 w-3.5 shrink-0" />
+							) : (
+								<ChevronDown className="h-3.5 w-3.5 shrink-0" />
+							)}
+							{group.icon}
+							<span className="font-medium text-foreground">{group.label}</span>
+							<span className="text-muted-foreground ml-auto">
+								{group.count}
+							</span>
+						</button>
+
+						{/* Quick-create with group context */}
+						<button
+							type="button"
+							className="opacity-0 group-hover/header:opacity-100 h-5 w-5 flex items-center justify-center rounded hover:bg-muted transition-all shrink-0"
+							onClick={(e) => {
+								e.stopPropagation();
+								openQuickCreate(buildPresetFromGroup(group.key, parentKey));
+							}}
+							title={`Create issue in ${group.label}`}
+						>
+							<Plus className="h-3.5 w-3.5" />
+						</button>
+					</div>
 				</div>
 			);
 		},

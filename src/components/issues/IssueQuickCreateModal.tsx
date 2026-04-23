@@ -48,7 +48,11 @@ import { Switch } from "@/components/ui/switch";
 import { useAutoTriage } from "@/hooks/use-auto-triage";
 import { useDuplicateDetection } from "@/hooks/use-duplicate-detection";
 import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
-import { extractTextFromContent } from "@/lib/content-converters";
+import { useUploadFile } from "@/hooks/use-upload-file";
+import {
+	extractTextFromContent,
+	hasContentBody,
+} from "@/lib/content-converters";
 import {
 	type IssueTypeKey,
 	PRIORITY_ITEMS,
@@ -107,6 +111,7 @@ export function IssueQuickCreateModal({
 		if (open) {
 			setLocalTitle(formState.title);
 			setLocalDescription(formState.description);
+			setAttachedImages([]);
 		}
 		// Intentionally not depending on formState — we only seed on open.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +188,59 @@ export function IssueQuickCreateModal({
 	const descriptionRef = useRef<HTMLTextAreaElement>(null);
 	const submittingRef = useRef(false);
 
+	// Image attachments pasted/dropped into the description. We keep them
+	// separate from the textarea's plain text so the surface stays
+	// readable (no raw Markdown URLs bloating the visible text). On
+	// submit we append a Markdown image block for each attachment so the
+	// stored description round-trips through `parseAnyContentToSlate`
+	// and the detail-page Plate editor renders them as actual images.
+	const [attachedImages, setAttachedImages] = useState<
+		{ name: string; url: string }[]
+	>([]);
+
+	const { uploadFile } = useUploadFile();
+
+	const handleDescriptionImages = useCallback(
+		async (files: File[]) => {
+			const images = files.filter((f) => f.type.startsWith("image/"));
+			if (images.length === 0) return false;
+			const toastId = toast.loading(
+				images.length === 1
+					? "Uploading image…"
+					: `Uploading ${images.length} images…`,
+			);
+			try {
+				const uploaded: { name: string; url: string }[] = [];
+				for (const file of images) {
+					const result = await uploadFile(file);
+					if (!result) continue;
+					const label = file.name.replace(/[\][]/g, "") || "image";
+					uploaded.push({ name: label, url: result.url });
+				}
+				if (uploaded.length > 0) {
+					setAttachedImages((prev) => [...prev, ...uploaded]);
+					toast.success(
+						uploaded.length === 1
+							? "Image added"
+							: `${uploaded.length} images added`,
+						{ id: toastId },
+					);
+				} else {
+					toast.error("Upload returned no URL", { id: toastId });
+				}
+			} catch {
+				toast.error("Failed to upload image", { id: toastId });
+			}
+			return true;
+		},
+		[uploadFile],
+	);
+	// Tracks whether the current click was pressed on the backdrop. Prevents
+	// the modal from closing when a text selection starts inside and the
+	// mouseup lands on the backdrop (browser fires click on the common
+	// ancestor, which is the backdrop).
+	const backdropPressRef = useRef(false);
+
 	// Compute next identifier preview
 	const identifierPreview = useMemo(() => {
 		if (!settings) return null;
@@ -245,11 +303,24 @@ export function IssueQuickCreateModal({
 		submittingRef.current = true;
 		try {
 			const estimateVal = Number.parseFloat(formState.estimate);
-			const descriptionText = extractTextFromContent(localDescription).trim();
+			// Compose the final description: plain text from the textarea
+			// plus a Markdown image block per attachment. Keeping images out
+			// of the visible textarea during editing is a UX decision — the
+			// surface stays readable — but on save we serialize both into a
+			// single Markdown string so `parseAnyContentToSlate` renders
+			// everything correctly on the detail page.
+			const imageMarkdown = attachedImages
+				.map((img) => `![${img.name}](${img.url})`)
+				.join("\n");
+			const combinedDescription = [localDescription.trim(), imageMarkdown]
+				.filter((part) => part.length > 0)
+				.join("\n\n");
 			const result = await createIssue({
 				workspaceId,
 				title: trimmed,
-				description: descriptionText ? localDescription : undefined,
+				description: hasContentBody(combinedDescription)
+					? combinedDescription
+					: undefined,
 				status: formState.status as
 					| "triage"
 					| "backlog"
@@ -308,6 +379,9 @@ export function IssueQuickCreateModal({
 		formState,
 		localTitle,
 		localDescription,
+		// Critical: without this the callback captures the initial empty
+		// array, so images pasted after first render get dropped on save.
+		attachedImages,
 		workspaceId,
 		createIssue,
 		onIssueCreated,
@@ -343,7 +417,15 @@ export function IssueQuickCreateModal({
 		// biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop
 		<div
 			className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[20vh] backdrop-blur-sm"
-			onClick={onClose}
+			onMouseDown={(e) => {
+				backdropPressRef.current = e.target === e.currentTarget;
+			}}
+			onClick={(e) => {
+				if (backdropPressRef.current && e.target === e.currentTarget) {
+					onClose();
+				}
+				backdropPressRef.current = false;
+			}}
 			onKeyDown={(e) => {
 				if (e.key === "Escape") onClose();
 			}}
@@ -489,10 +571,57 @@ export function IssueQuickCreateModal({
 								el.style.height = "auto";
 								el.style.height = `${el.scrollHeight}px`;
 							}}
-							placeholder="Add description..."
+							onPaste={(e) => {
+								const files = Array.from(e.clipboardData?.files ?? []);
+								if (files.some((f) => f.type.startsWith("image/"))) {
+									e.preventDefault();
+									void handleDescriptionImages(files);
+								}
+							}}
+							onDragOver={(e) => {
+								if (e.dataTransfer?.types.includes("Files")) {
+									e.preventDefault();
+								}
+							}}
+							onDrop={(e) => {
+								const files = Array.from(e.dataTransfer?.files ?? []);
+								if (files.some((f) => f.type.startsWith("image/"))) {
+									e.preventDefault();
+									void handleDescriptionImages(files);
+								}
+							}}
+							placeholder="Add description or paste an image..."
 							rows={1}
 							className="w-full text-sm text-foreground placeholder:text-muted-foreground outline-none bg-transparent border-none resize-none overflow-hidden pl-7"
 						/>
+						{attachedImages.length > 0 ? (
+							<div className="flex flex-wrap gap-2 pl-7">
+								{attachedImages.map((img, idx) => (
+									<div
+										key={img.url}
+										className="relative group/img h-14 w-14 rounded-md overflow-hidden border border-border bg-muted"
+									>
+										<img
+											src={img.url}
+											alt={img.name}
+											className="h-full w-full object-cover"
+										/>
+										<button
+											type="button"
+											onClick={() =>
+												setAttachedImages((prev) =>
+													prev.filter((_, i) => i !== idx),
+												)
+											}
+											aria-label={`Remove ${img.name}`}
+											className="absolute top-0.5 right-0.5 h-4 w-4 inline-flex items-center justify-center rounded-full bg-black/60 text-white opacity-0 group-hover/img:opacity-100 transition-opacity"
+										>
+											<X className="h-2.5 w-2.5" />
+										</button>
+									</div>
+								))}
+							</div>
+						) : null}
 					</div>
 
 					{/* AI Auto-Triage (compact) */}

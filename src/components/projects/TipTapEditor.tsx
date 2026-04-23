@@ -34,6 +34,9 @@ const extensions = [
 	StarterKit.configure({
 		bulletList: { keepMarks: true },
 		orderedList: { keepMarks: true },
+		// TipTap v3 bundles Link inside StarterKit; disable it here
+		// because we register Link with custom options below.
+		link: false,
 	}),
 	Placeholder.configure({
 		placeholder: "Start writing...",

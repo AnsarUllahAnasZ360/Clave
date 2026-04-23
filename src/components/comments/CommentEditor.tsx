@@ -52,6 +52,10 @@ function buildExtensions(
 			blockquote: false,
 			bulletList: { keepMarks: true },
 			orderedList: { keepMarks: true },
+			// TipTap v3 bundles Link inside StarterKit. We register Link
+			// explicitly below with custom options, so disable the
+			// bundled one here to avoid "Duplicate extension names: link".
+			link: false,
 		}),
 		Placeholder.configure({
 			placeholder: placeholderText,

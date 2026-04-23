@@ -29,6 +29,9 @@ function buildReadOnlyExtensions(workspaceSlug?: string) {
 			heading: false,
 			horizontalRule: false,
 			blockquote: false,
+			// TipTap v3 bundles Link inside StarterKit; disable it here
+			// because we register Link with custom options below.
+			link: false,
 		}),
 		Link.configure({
 			openOnClick: true,
