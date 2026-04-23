@@ -573,6 +573,13 @@ export function detectContentFormat(
 	} catch {
 		// Not JSON — check if it looks like HTML, markdown, or plain text
 		if (looksLikeHtml(content)) return "html";
+		// Image-style markdown (`![alt](url)`) is unambiguous and has no
+		// non-markdown false-positive counterpart in plain text, so a
+		// single hit is enough to classify as markdown. Without this,
+		// image-only descriptions (common when pasting a screenshot)
+		// score only 1 signal from `looksLikeMarkdown` and get rendered
+		// as raw text on the detail page.
+		if (/!\[[^\]]*\]\([^)\s]+\)/.test(content)) return "markdown";
 		return looksLikeMarkdown(content) ? "markdown" : "plain";
 	}
 }
@@ -1006,9 +1013,12 @@ function parseInlineMarkdown(text: string): SlateNode[] {
 	if (!text) return [{ text: "" }];
 
 	const result: SlateNode[] = [];
-	// Order matters: bold (**) before italic (*), backtick before others
+	// Order matters:
+	//  - image `![]()` BEFORE link `[]()` so the `!` prefix isn't stripped
+	//  - bold `**` before italic `*`
+	//  - backtick before others
 	const pattern =
-		/(\*\*(.+?)\*\*)|(`([^`]+)`)|(~~(.+?)~~)|(\[([^\]]+)\]\(([^)]+)\))|(\*(.+?)\*)/g;
+		/(\*\*(.+?)\*\*)|(`([^`]+)`)|(~~(.+?)~~)|(!\[([^\]]*)\]\(([^)\s]+)\))|(\[([^\]]+)\]\(([^)]+)\))|(\*(.+?)\*)/g;
 
 	let lastIndex = 0;
 	let match: RegExpExecArray | null = pattern.exec(text);
@@ -1029,15 +1039,23 @@ function parseInlineMarkdown(text: string): SlateNode[] {
 			// Strikethrough: ~~text~~
 			result.push({ text: match[6], strikethrough: true });
 		} else if (match[7]) {
+			// Image: ![alt](url) — emit a Plate img node (void block, but
+			// Plate tolerates it as an inline child of a paragraph too).
+			result.push({
+				type: "img",
+				url: match[9],
+				children: [{ text: "" }],
+			});
+		} else if (match[10]) {
 			// Link: [text](url)
 			result.push({
 				type: "a",
-				url: match[9],
-				children: [{ text: match[8] }],
+				url: match[12],
+				children: [{ text: match[11] }],
 			});
-		} else if (match[10]) {
+		} else if (match[13]) {
 			// Italic: *text*
-			result.push({ text: match[11], italic: true });
+			result.push({ text: match[14], italic: true });
 		}
 
 		lastIndex = match.index + match[0].length;
@@ -1219,6 +1237,22 @@ export function markdownToSlate(markdown: string): SlateNode[] {
 			continue;
 		}
 
+		// ── Standalone image line: `![alt](url)` ───────────────────
+		// Plate's `img` node is a void block element, so a line that's
+		// only image markdown becomes its own block instead of being
+		// wrapped in a paragraph (where Plate would render it inline
+		// and the inline link regex would eat the URL).
+		const imageBlockMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/);
+		if (imageBlockMatch) {
+			nodes.push({
+				type: "img",
+				url: imageBlockMatch[2],
+				children: [{ text: "" }],
+			});
+			i++;
+			continue;
+		}
+
 		// ── Paragraph (default) ─────────────────────────────────────
 		nodes.push({
 			type: "p",
@@ -1322,6 +1356,56 @@ export function extractTextFromContent(content: string): string {
 	const nodes = parseAnyContentToSlate(content);
 	if (!nodes) return content;
 	return extractTextFromSlate(nodes);
+}
+
+/**
+ * True when `content` carries any meaningful body — either non-whitespace
+ * text or a non-text node (image, video, file, callout, code block, table,
+ * etc.). Used by the issue create modals to decide whether to persist the
+ * description: a check on trimmed plain text alone drops image-only /
+ * media-only bodies because `extractTextFromSlate` intentionally ignores
+ * non-text leaves.
+ */
+export function hasContentBody(content: string | undefined | null): boolean {
+	if (!content) return false;
+	const nodes = parseAnyContentToSlate(content);
+	if (!nodes) return content.trim().length > 0;
+	return hasMediaOrText(nodes);
+}
+
+function hasMediaOrText(nodes: unknown[]): boolean {
+	// Node types that carry meaning even when they hold no text. Keep in
+	// sync with the Plate plugin set — extend when a new block type lands.
+	const MEDIA_TYPES = new Set([
+		"img",
+		"image",
+		"video",
+		"audio",
+		"file",
+		"media_embed",
+		"excalidraw",
+		"table",
+		"code_block",
+		"code-block",
+		"toggle",
+		"callout",
+		"equation",
+		"hr",
+	]);
+	for (const raw of nodes) {
+		if (!raw || typeof raw !== "object") continue;
+		const node = raw as Record<string, unknown>;
+		if (typeof node.text === "string" && node.text.trim().length > 0) {
+			return true;
+		}
+		if (typeof node.type === "string" && MEDIA_TYPES.has(node.type)) {
+			return true;
+		}
+		if (Array.isArray(node.children) && hasMediaOrText(node.children)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 // ---------------------------------------------------------------------------

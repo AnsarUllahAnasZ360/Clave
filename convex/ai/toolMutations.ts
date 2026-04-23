@@ -116,6 +116,10 @@ export const updateIssue = internalMutation({
 		),
 		type: v.optional(v.union(...issueTypeValues.map((s) => v.literal(s)))),
 		assigneeId: v.optional(v.id("users")),
+		// Full replacement of the issue's labels. The AI tool layer
+		// computes this from add/remove directives + the existing label
+		// set so the caller here just writes the final list.
+		labelIds: v.optional(v.array(v.id("labels"))),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -145,6 +149,17 @@ export const updateIssue = internalMutation({
 
 		if (args.assigneeId) {
 			await ensureAssigneeInWorkspace(ctx, issue.workspaceId, args.assigneeId);
+		}
+
+		// Validate labels belong to the same workspace so the AI can't
+		// accidentally attach cross-tenant labels by id.
+		if (args.labelIds) {
+			for (const labelId of args.labelIds) {
+				const label = await ctx.db.get(labelId);
+				if (!label || label.workspaceId !== issue.workspaceId) {
+					throw new ConvexError("Label not found in this workspace");
+				}
+			}
 		}
 
 		const { userId: _userId, issueId: _issueId, ...updates } = args;

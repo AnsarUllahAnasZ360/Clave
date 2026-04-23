@@ -56,6 +56,7 @@ import { useDuplicateDetection } from "@/hooks/use-duplicate-detection";
 import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
 import {
 	extractTextFromContent,
+	hasContentBody,
 	parseAnyContentToSlate,
 	plainTextToSlate,
 } from "@/lib/content-converters";
@@ -201,6 +202,10 @@ function IssueFullCreateModalContent({
 
 	const titleRef = useRef<HTMLInputElement>(null);
 	const submittingRef = useRef(false);
+	// Tracks whether the current click was pressed on the backdrop. Prevents
+	// the modal from closing when a text selection starts inside and the
+	// mouseup lands on the backdrop.
+	const backdropPressRef = useRef(false);
 	const [descriptionEditorKey, setDescriptionEditorKey] = useState(0);
 
 	// Compute next identifier preview
@@ -256,8 +261,9 @@ function IssueFullCreateModalContent({
 	);
 	const aiPlugins = useMemo(() => [AIEditorPlugin], []);
 
-	const hasExistingDescription =
-		extractTextFromContent(latestDescriptionRef.current).trim().length > 0;
+	// Media nodes (image, video, etc.) count as body content even when
+	// they carry no text, so use the shape-aware check.
+	const hasExistingDescription = hasContentBody(latestDescriptionRef.current);
 
 	const handleDescriptionChange = useCallback((value: Value) => {
 		// Stash the latest serialized value in a ref — no setState, no
@@ -287,11 +293,15 @@ function IssueFullCreateModalContent({
 		try {
 			const estimateVal = Number.parseFloat(formState.estimate);
 			const currentDescription = latestDescriptionRef.current;
-			const descriptionText = extractTextFromContent(currentDescription).trim();
+			// Persist whenever there's any body content — text OR media
+			// (image/video/file/etc). Trimmed-text guards drop image-only
+			// bodies because `extractTextFromSlate` ignores non-text leaves.
 			const result = await createIssue({
 				workspaceId,
 				title: trimmed,
-				description: descriptionText ? currentDescription : undefined,
+				description: hasContentBody(currentDescription)
+					? currentDescription
+					: undefined,
 				status: formState.status as
 					| "triage"
 					| "backlog"
@@ -394,7 +404,15 @@ function IssueFullCreateModalContent({
 		// biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-			onClick={onClose}
+			onMouseDown={(e) => {
+				backdropPressRef.current = e.target === e.currentTarget;
+			}}
+			onClick={(e) => {
+				if (backdropPressRef.current && e.target === e.currentTarget) {
+					onClose();
+				}
+				backdropPressRef.current = false;
+			}}
 			onKeyDown={(e) => {
 				if (e.key === "Escape") onClose();
 			}}

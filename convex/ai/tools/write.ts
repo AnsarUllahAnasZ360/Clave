@@ -502,7 +502,7 @@ export const createIssue = createTool({
 
 export const updateIssue = createTool({
 	description:
-		"Update an existing issue's fields. Use this when the user asks to change an issue's status, priority, assignee, title, or description. Provide either the issue identifier (e.g., \"CLV-042\") or the issue ID.",
+		'Update an existing issue\'s fields. Use this when the user asks to change an issue\'s status, priority, assignee, title, description, or labels (a.k.a. tags). Provide either the issue identifier (e.g., "CLV-042") or the issue ID. Labels can be added/removed by name or id — pass `addLabels: ["bug"]` to tag, `removeLabels: ["bug"]` to untag. Label names are matched case-insensitively against the workspace\'s labels; names the workspace doesn\'t have yet are silently skipped (call `listLabels` first to see what exists).',
 	inputSchema: z.object({
 		identifier: z
 			.string()
@@ -532,6 +532,18 @@ export const updateIssue = createTool({
 			.optional()
 			.describe("New type"),
 		assigneeId: z.string().optional().describe("New assignee user ID"),
+		addLabels: z
+			.array(z.string())
+			.optional()
+			.describe(
+				"Labels to add to the issue — each entry may be a label name (e.g. 'bug') or a label id. Existing labels on the issue are preserved; this is an additive union. Unknown names are ignored.",
+			),
+		removeLabels: z
+			.array(z.string())
+			.optional()
+			.describe(
+				"Labels to remove from the issue — each entry may be a label name or label id. Labels the issue doesn't currently have are ignored.",
+			),
 	}),
 	execute: async (
 		ctx: ToolContext,
@@ -569,6 +581,39 @@ export const updateIssue = createTool({
 			return { error: "Provide either an identifier or issueId." };
 		}
 
+		// Resolve label add/remove directives against workspace labels so
+		// the AI can pass friendly names like "bug" without first calling
+		// `listLabels`. Case-insensitive name match; ids also accepted.
+		let resolvedLabelIds: Id<"labels">[] | undefined;
+		if (args.addLabels || args.removeLabels) {
+			const [issueDoc, workspaceLabels] = await Promise.all([
+				ctx.runQuery(internal.ai.toolQueries.getIssueById, {
+					issueId: resolvedIssueId,
+					userId,
+				}),
+				ctx.runQuery(internal.ai.toolQueries.listLabels, { workspaceId }),
+			]);
+			const byIdOrName = new Map<string, Id<"labels">>();
+			for (const l of workspaceLabels ?? []) {
+				byIdOrName.set(String(l._id), l._id as Id<"labels">);
+				byIdOrName.set(l.name.toLowerCase(), l._id as Id<"labels">);
+			}
+			const resolve = (entry: string) =>
+				byIdOrName.get(entry) ?? byIdOrName.get(entry.toLowerCase());
+			const current = new Set<string>(
+				(issueDoc?.labelIds ?? []).map((id: Id<"labels">) => String(id)),
+			);
+			for (const entry of args.addLabels ?? []) {
+				const id = resolve(entry);
+				if (id) current.add(String(id));
+			}
+			for (const entry of args.removeLabels ?? []) {
+				const id = resolve(entry);
+				if (id) current.delete(String(id));
+			}
+			resolvedLabelIds = [...current] as Id<"labels">[];
+		}
+
 		// Build the update payload with only provided fields
 		const updates: Record<string, unknown> = {};
 		if (args.title !== undefined) updates.title = args.title;
@@ -577,6 +622,7 @@ export const updateIssue = createTool({
 		if (args.priority !== undefined) updates.priority = args.priority;
 		if (args.type !== undefined) updates.type = args.type;
 		if (args.assigneeId !== undefined) updates.assigneeId = args.assigneeId;
+		if (resolvedLabelIds !== undefined) updates.labelIds = resolvedLabelIds;
 
 		// Destructive status transitions require approval
 		const DESTRUCTIVE_STATUSES = ["done", "cancelled"];
@@ -623,6 +669,8 @@ export const updateIssue = createTool({
 		if (args.type !== undefined) updatePayload.type = args.type;
 		if (args.assigneeId !== undefined)
 			updatePayload.assigneeId = args.assigneeId as Id<"users">;
+		if (resolvedLabelIds !== undefined)
+			updatePayload.labelIds = resolvedLabelIds;
 
 		await withTimeout(
 			ctx.runMutation(
