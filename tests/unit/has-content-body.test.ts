@@ -45,9 +45,7 @@ describe("hasContentBody", () => {
 
 	it("returns true for text + image markdown on separate lines", () => {
 		expect(
-			hasContentBody(
-				"some notes\n\n![image.png](https://example.com/x.png)",
-			),
+			hasContentBody("some notes\n\n![image.png](https://example.com/x.png)"),
 		).toBe(true);
 	});
 
