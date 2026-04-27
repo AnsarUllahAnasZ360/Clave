@@ -104,7 +104,7 @@ describe("google chat action contract", () => {
 			issueTitle: "Route card clicks",
 			issueStatus: "in_progress",
 			assigneeName: "Jane Doe",
-			deepLinkUrl: "https://clave.z360.js/acme/dev/issues/GC-12",
+			deepLinkUrl: "https://clave.z360.biz/acme/dev/issues/GC-12",
 		});
 
 		expect(card.actionResponse.type).toBe("UPDATE_USER_MESSAGE_CARDS");

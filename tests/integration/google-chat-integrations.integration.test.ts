@@ -157,8 +157,8 @@ describe("google chat integrations (integration)", () => {
 		await admin.mutation(connectRef, {
 			workspaceId: fx.workspaceId,
 			provider: "google-chat",
-			webhookUrl: "https://clave.z360.js/api/webhooks/google-chat",
-			authAudience: "https://clave.z360.js/api/webhooks/google-chat",
+			webhookUrl: "https://clave.z360.biz/api/webhooks/google-chat",
+			authAudience: "https://clave.z360.biz/api/webhooks/google-chat",
 			externalAppName: "Clave",
 		});
 

@@ -7,7 +7,7 @@ describe("google chat card builders", () => {
 			eventType: "issue_assigned",
 			title: "Issue assigned to you",
 			body: "CLV-42: Fix Google Chat relay retries",
-			deepLinkUrl: "https://clave.z360.js/acme/dev/issues/CLV-42",
+			deepLinkUrl: "https://clave.z360.biz/acme/dev/issues/CLV-42",
 			actorName: "Ansar",
 			issueIdentifier: "CLV-42",
 			issueTitle: "Fix Google Chat relay retries",
@@ -23,7 +23,7 @@ describe("google chat card builders", () => {
 						text: "Open in Clave",
 						onClick: {
 							openLink: {
-								url: "https://clave.z360.js/acme/dev/issues/CLV-42",
+								url: "https://clave.z360.biz/acme/dev/issues/CLV-42",
 							},
 						},
 					},
@@ -38,7 +38,7 @@ describe("google chat card builders", () => {
 			eventType: "comment",
 			title: "New comment on your issue",
 			preview: "Can we ship this in sprint 001?",
-			deepLinkUrl: "https://clave.z360.js/acme/dev/issues/CLV-88",
+			deepLinkUrl: "https://clave.z360.biz/acme/dev/issues/CLV-88",
 			actorName: "Teammate",
 			issueIdentifier: "CLV-88",
 			issueTitle: "Google Chat integration",
@@ -55,7 +55,7 @@ describe("google chat card builders", () => {
 			eventType: "project_update",
 			title: "Project update",
 			body: "<script>alert('xss')</script>",
-			deepLinkUrl: "https://clave.z360.js/acme/dev/projects/google-chat",
+			deepLinkUrl: "https://clave.z360.biz/acme/dev/projects/google-chat",
 		});
 
 		const contentWidget = message.cardsV2[0]?.card.sections[0]?.widgets[0];
