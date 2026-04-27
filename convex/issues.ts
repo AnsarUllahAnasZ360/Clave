@@ -1263,6 +1263,17 @@ export const update = mutation({
 			}
 		}
 
+		const oldAssigneeIds = new Set<Id<"users">>([
+			...(issue.assigneeIds ?? []),
+			...(issue.assigneeId ? [issue.assigneeId] : []),
+		]);
+		const nextAssigneeIds =
+			args.assigneeIds !== undefined
+				? new Set(args.assigneeIds)
+				: args.assigneeId !== undefined
+					? new Set([args.assigneeId])
+					: null;
+
 		// When moving to a different project and no new sprint/list/milestone
 		// is explicitly set, the stale ones must be cleared — they're scoped
 		// to the old project and can't travel with the issue, otherwise the
@@ -1683,9 +1694,57 @@ export const update = mutation({
 		}
 
 		// Notify subscribers for significant field changes
+		const assigneesChanged =
+			nextAssigneeIds !== null &&
+			(nextAssigneeIds.size !== oldAssigneeIds.size ||
+				[...nextAssigneeIds].some((id) => !oldAssigneeIds.has(id)));
+
+		if (assigneesChanged) {
+			const actor = await ctx.db.get(userId);
+			const actorName = actor?.name ?? "Someone";
+			const newlyAdded = [...nextAssigneeIds].filter(
+				(id) => !oldAssigneeIds.has(id),
+			);
+			const newNames = await Promise.all(
+				[...nextAssigneeIds].map(
+					async (id) => (await ctx.db.get(id))?.name ?? "someone",
+				),
+			);
+			const newNamesLabel =
+				newNames.length > 0 ? newNames.join(", ") : "unassigned";
+
+			for (const assigneeId of newlyAdded) {
+				await autoSubscribe(ctx, args.issueId, assigneeId);
+				await createNotification(ctx, {
+					userId: assigneeId,
+					workspaceId: issue.workspaceId,
+					type: "issue_assigned",
+					title: "Issue assigned to you",
+					body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to you`,
+					issueId: args.issueId,
+					projectId: issue.projectId ?? undefined,
+					actorId: userId,
+				});
+			}
+
+			await notifySubscribers(
+				ctx,
+				args.issueId,
+				{
+					workspaceId: issue.workspaceId,
+					type: "issue_assigned",
+					title: "Issue reassigned",
+					body: `${actorName} assigned '${issue.identifier}: ${issue.title}' to ${newNamesLabel}`,
+					issueId: args.issueId,
+					projectId: issue.projectId ?? undefined,
+					actorId: userId,
+				},
+				[...nextAssigneeIds],
+			);
+		}
+
 		const significantChange =
 			(args.status && args.status !== issue.status) ||
-			(args.assigneeId !== undefined && args.assigneeId !== issue.assigneeId) ||
 			(args.sprintId !== undefined && args.sprintId !== issue.sprintId) ||
 			(args.milestoneId !== undefined &&
 				args.milestoneId !== issue.milestoneId) ||
