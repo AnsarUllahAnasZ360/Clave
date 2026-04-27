@@ -1,6 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { enqueueGoogleChatRelayForNotification } from "../chatRelay";
+import { enqueueEmailForNotification } from "../emailRelay";
 
 type NotificationType =
 	// Issue-centric types (preferred)
@@ -146,11 +147,11 @@ export async function createNotification(
 			return false;
 		}
 
-		// Respect user-level in-app notification toggle when explicitly disabled.
 		const recipient = await ctx.db.get(args.userId);
-		if (!recipient || recipient.notifyInApp === false) {
+		if (!recipient) {
 			return false;
 		}
+		const inAppEnabled = recipient.notifyInApp !== false;
 
 		// De-dupe idempotent notifications (e.g. reminders)
 		if (args.dedupeKey) {
@@ -196,14 +197,17 @@ export async function createNotification(
 			source: args.source ?? "mutation",
 			dedupeKey: args.dedupeKey,
 			isRead: false,
+			isArchived: !inAppEnabled,
 		});
+
+		const eventType = args.eventType ?? args.type;
 
 		try {
 			await enqueueGoogleChatRelayForNotification(ctx, {
 				notificationId,
 				workspaceId: args.workspaceId,
 				userId: args.userId,
-				eventType: args.eventType ?? args.type,
+				eventType,
 			});
 		} catch (relayError) {
 			// Relay enqueue failures should not block in-app notification writes.
@@ -211,6 +215,18 @@ export async function createNotification(
 				"Failed to enqueue Google Chat relay for notification:",
 				relayError,
 			);
+		}
+
+		try {
+			await enqueueEmailForNotification(ctx, {
+				notificationId,
+				workspaceId: args.workspaceId,
+				userId: args.userId,
+				eventType,
+			});
+		} catch (emailError) {
+			// Email enqueue failures should not block in-app notification writes.
+			console.error("Failed to enqueue email for notification:", emailError);
 		}
 		return true;
 	} catch (_error) {

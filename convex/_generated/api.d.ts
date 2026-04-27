@@ -120,6 +120,7 @@ import type * as documentComments from "../documentComments.js";
 import type * as documentPresence from "../documentPresence.js";
 import type * as documents from "../documents.js";
 import type * as email from "../email.js";
+import type * as emailRelay from "../emailRelay.js";
 import type * as favorites from "../favorites.js";
 import type * as files from "../files.js";
 import type * as github from "../github.js";
@@ -288,6 +289,7 @@ declare const fullApi: ApiFromModules<{
   documentPresence: typeof documentPresence;
   documents: typeof documents;
   email: typeof email;
+  emailRelay: typeof emailRelay;
   favorites: typeof favorites;
   files: typeof files;
   github: typeof github;
