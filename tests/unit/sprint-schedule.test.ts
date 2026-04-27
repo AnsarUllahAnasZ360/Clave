@@ -20,6 +20,24 @@ describe("deriveScheduledSprintStatus", () => {
 		).toBeNull();
 	});
 
+	it("respects override even when both boundaries have crossed", () => {
+		// Regression: covers the case that drove the validator-fix
+		// commit — once the user touches a sprint's dates we set
+		// statusOverride and the cron must keep its hands off, even if
+		// the schedule has fully elapsed.
+		expect(
+			deriveScheduledSprintStatus(
+				{
+					status: "active",
+					statusOverride: true,
+					startDate: now - 5 * DAY,
+					endDate: now - 2 * DAY,
+				},
+				now,
+			),
+		).toBeNull();
+	});
+
 	it("returns null for terminal statuses (completed, cancelled)", () => {
 		expect(
 			deriveScheduledSprintStatus(
