@@ -53,6 +53,15 @@ function normalizeAppBaseUrl(rawValue: string | undefined): string {
 	}
 }
 
+export function resolveNotificationAppBaseUrl(
+	env: {
+		NEXT_PUBLIC_APP_URL?: string;
+		APP_URL?: string;
+	} = process.env,
+): string {
+	return normalizeAppBaseUrl(env.NEXT_PUBLIC_APP_URL ?? env.APP_URL);
+}
+
 /**
  * Enqueue an email send for a notification, mirroring the Google Chat relay.
  * Callable from any mutation (e.g. createNotification). Gates:
@@ -136,9 +145,7 @@ export const prepareNotificationEmail = internalQuery({
 			return { status: "drop" as const, reason: "Workspace not found" };
 		}
 
-		const baseUrl = normalizeAppBaseUrl(
-			process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL,
-		);
+		const baseUrl = resolveNotificationAppBaseUrl();
 		const workspaceBase = `${baseUrl}/${workspace.slug}`;
 		const settingsUrl = `${workspaceBase}/inbox`;
 		const deepLinkUrl = (() => {
