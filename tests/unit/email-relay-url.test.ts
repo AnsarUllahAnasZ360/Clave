@@ -18,4 +18,12 @@ describe("resolveNotificationAppBaseUrl", () => {
 			}),
 		).toBe("https://clave.z360.biz");
 	});
+
+	it("normalizes bare NEXT_PUBLIC_APP_URL values to https", () => {
+		expect(
+			resolveNotificationAppBaseUrl({
+				NEXT_PUBLIC_APP_URL: "clave.z360.biz",
+			}),
+		).toBe("https://clave.z360.biz");
+	});
 });
