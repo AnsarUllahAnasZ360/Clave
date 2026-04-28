@@ -14,6 +14,11 @@ import { sendEmail } from "./email";
 
 export { EMAIL_RELAY_EVENT_TYPES };
 
+type NotificationAppUrlEnv = {
+	APP_URL?: string;
+	NEXT_PUBLIC_APP_URL?: string;
+};
+
 const sendNotificationEmailRef = makeFunctionReference<
 	"action",
 	{
@@ -54,7 +59,7 @@ function normalizeAppBaseUrl(rawValue: string | undefined): string {
 }
 
 export function resolveNotificationAppBaseUrl(
-	env: { NEXT_PUBLIC_APP_URL?: string; APP_URL?: string } = process.env,
+	env: NotificationAppUrlEnv = process.env as NotificationAppUrlEnv,
 ): string {
 	return normalizeAppBaseUrl(env.NEXT_PUBLIC_APP_URL ?? env.APP_URL);
 }
