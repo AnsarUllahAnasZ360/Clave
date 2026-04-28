@@ -54,10 +54,7 @@ function normalizeAppBaseUrl(rawValue: string | undefined): string {
 }
 
 export function resolveNotificationAppBaseUrl(
-	env: {
-		NEXT_PUBLIC_APP_URL?: string;
-		APP_URL?: string;
-	} = process.env,
+	env: { NEXT_PUBLIC_APP_URL?: string; APP_URL?: string } = process.env,
 ): string {
 	return normalizeAppBaseUrl(env.NEXT_PUBLIC_APP_URL ?? env.APP_URL);
 }

@@ -289,7 +289,7 @@ describe("emailRelay prepareNotificationEmail (integration)", () => {
 		});
 
 		vi.stubEnv("APP_URL", "https://clave.z360.js");
-		vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://clave.z360.app");
+		vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://clave.z360.biz");
 
 		try {
 			const prepared = await t.query(prepareEmailRef, {
@@ -298,8 +298,12 @@ describe("emailRelay prepareNotificationEmail (integration)", () => {
 			});
 
 			expect(prepared.status).toBe("ready");
-			expect(prepared.html).toContain("https://clave.z360.app/acme/issues/CLV-42");
-			expect(prepared.html).not.toContain("https://clave.z360.js/acme/issues/CLV-42");
+			expect(prepared.html).toContain(
+				"https://clave.z360.biz/acme/issues/CLV-42",
+			);
+			expect(prepared.html).not.toContain(
+				"https://clave.z360.js/acme/issues/CLV-42",
+			);
 		} finally {
 			vi.unstubAllEnvs();
 		}
