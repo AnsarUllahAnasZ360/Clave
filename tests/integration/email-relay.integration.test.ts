@@ -2,7 +2,7 @@
 
 import { makeFunctionReference } from "convex/server";
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Id } from "../../convex/_generated/dataModel";
 import { enqueueEmailForNotification } from "../../convex/emailRelay";
 import { createNotification } from "../../convex/lib/notifications";
@@ -257,6 +257,52 @@ describe("emailRelay prepareNotificationEmail (integration)", () => {
 		expect(prepared.html).toContain("Fix widget crash");
 		expect(prepared.html).toContain("/acme/issues/CLV-42");
 		expect(prepared.html).toContain("Sarah");
+	});
+
+	it("prefers NEXT_PUBLIC_APP_URL over APP_URL when building notification links", async () => {
+		const t = createBackend();
+		const f = await seedFixture(t);
+		const issueId = await t.run(async (ctx) => {
+			return await ctx.db.insert("issues", {
+				title: "Fix widget crash",
+				identifier: "CLV-42",
+				workspaceId: f.workspaceId,
+				status: "todo",
+				priority: "high",
+				type: "bug",
+				sortOrder: 0,
+				createdBy: f.actorId,
+				updatedAt: Date.now(),
+			});
+		});
+		const notificationId = await t.run(async (ctx) => {
+			return await ctx.db.insert("notifications", {
+				userId: f.recipientId,
+				workspaceId: f.workspaceId,
+				type: "issue_assigned",
+				eventType: "issue_assigned",
+				title: "Assigned to you: CLV-42 Fix widget crash",
+				actorId: f.actorId,
+				issueId,
+				isRead: false,
+			});
+		});
+
+		vi.stubEnv("APP_URL", "https://clave.z360.js");
+		vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://clave.z360.app");
+
+		try {
+			const prepared = await t.query(prepareEmailRef, {
+				notificationId,
+				workspaceId: f.workspaceId,
+			});
+
+			expect(prepared.status).toBe("ready");
+			expect(prepared.html).toContain("https://clave.z360.app/acme/issues/CLV-42");
+			expect(prepared.html).not.toContain("https://clave.z360.js/acme/issues/CLV-42");
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("drops when recipient has opted out (guards against a stale scheduled send)", async () => {
