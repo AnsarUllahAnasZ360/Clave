@@ -102,6 +102,7 @@ export type IssueListData = {
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
 	milestoneId?: Id<"milestones">;
+	parentId?: Id<"issues">;
 	updatedAt?: number;
 };
 
@@ -182,6 +183,18 @@ export type IssueListRowProps = {
 	bulkSelect?: {
 		selected: boolean;
 		onToggle: (shiftKey: boolean) => void;
+	};
+	/**
+	 * Sub-issue presentation: when set, this row is a sub-issue and the parent
+	 * provides the parent's identifier + whether the parent is rendered in
+	 * the same list. `inView=true` shifts the row to the right with a tree
+	 * line so it visually nests under its parent. `inView=false` keeps the
+	 * row at top-level indent and shows a small "↳ PARENT-ID" indicator so
+	 * the user still sees the relationship.
+	 */
+	parentRef?: {
+		identifier: string;
+		inView: boolean;
 	};
 };
 
@@ -293,6 +306,7 @@ export const IssueListRow = memo(function IssueListRow({
 	onProjectChange,
 	onClick,
 	bulkSelect,
+	parentRef,
 }: IssueListRowProps) {
 	const statusConfig = statusItems.find((s) => s.id === issue.status);
 	const priorityConfig = PRIORITY_CONFIG.find((p) => p.id === issue.priority);
@@ -429,6 +443,9 @@ export const IssueListRow = memo(function IssueListRow({
 		[issue._id, onAssigneesChange],
 	);
 
+	const isNestedSubIssue = parentRef?.inView ?? false;
+	const isOrphanSubIssue = parentRef && !parentRef.inView;
+
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: spreadsheet-like list row with click-to-open and inline editing cells
 		<div
@@ -437,6 +454,7 @@ export const IssueListRow = memo(function IssueListRow({
 				"group flex items-center gap-x-6 h-9 border-b border-border/50 text-sm hover:bg-muted/40 transition-colors cursor-pointer",
 				isHighlighted && "bg-muted/60 ring-1 ring-primary/30",
 				isDone && "opacity-60",
+				isNestedSubIssue && "bg-muted/10",
 			)}
 			onClick={onClick}
 			onKeyDown={(e) => {
@@ -461,15 +479,31 @@ export const IssueListRow = memo(function IssueListRow({
 					/>
 				</div>
 			) : null}
+			{isNestedSubIssue && (
+				<div
+					aria-hidden
+					className="w-5 shrink-0 self-stretch flex items-center justify-end pr-0.5 text-muted-foreground/40"
+				>
+					<span className="text-xs leading-none">↳</span>
+				</div>
+			)}
 			{columns.map((col) => {
 				switch (col) {
 					case "identifier":
 						return (
 							<div
 								key={col}
-								className="w-[80px] shrink-0 px-2 text-xs text-muted-foreground font-mono truncate"
+								className="w-[80px] shrink-0 px-2 text-xs text-muted-foreground font-mono truncate flex items-center gap-1.5"
 							>
-								{issue.identifier}
+								{isOrphanSubIssue && (
+									<span
+										className="text-muted-foreground/50 shrink-0"
+										title={`Sub-issue of ${parentRef.identifier}`}
+									>
+										↳
+									</span>
+								)}
+								<span className="truncate">{issue.identifier}</span>
 							</div>
 						);
 

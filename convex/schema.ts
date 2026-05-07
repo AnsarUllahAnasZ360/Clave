@@ -14,6 +14,30 @@ const slashCommandValidator = v.object({
 	createdBy: v.optional(v.id("users")),
 });
 
+// Status categories — the 5-bucket model (Linear-style) used to group statuses
+// across projects on workspace-wide views (e.g. My Issues kanban). Every status
+// — workspace default or project custom — should be tagged with exactly one
+// category so cross-project boards have a stable column axis even when each
+// project names its statuses differently.
+//
+// Optional on existing rows during the backfill window; once backfilled, every
+// status definition should carry a category. Code that consumes this must
+// handle `undefined` defensively until backfill is complete.
+export const statusCategoryValidator = v.union(
+	v.literal("backlog"),
+	v.literal("unstarted"),
+	v.literal("started"),
+	v.literal("completed"),
+	v.literal("canceled"),
+);
+
+export const customStatusValidator = v.object({
+	key: v.string(),
+	name: v.string(),
+	color: v.string(),
+	category: v.optional(statusCategoryValidator),
+});
+
 export default defineSchema({
 	...authTables,
 
@@ -192,11 +216,7 @@ export default defineSchema({
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),
 			),
 		),
-		customStatuses: v.optional(
-			v.array(
-				v.object({ key: v.string(), name: v.string(), color: v.string() }),
-			),
-		),
+		customStatuses: v.optional(v.array(customStatusValidator)),
 		// Persisted display order for the merged status list (defaults + customs).
 		// When set, the effective status list is sorted by this key ordering;
 		// keys not in the array fall back to their natural order at the end.
@@ -271,14 +291,16 @@ export default defineSchema({
 		typeLabel: v.optional(v.string()),
 		tags: v.optional(v.array(v.string())),
 		// Project-level overrides (if set, these override workspace defaults)
-		customStatuses: v.optional(
-			v.array(
-				v.object({ key: v.string(), name: v.string(), color: v.string() }),
-			),
-		),
+		customStatuses: v.optional(v.array(customStatusValidator)),
 		// Persisted display order for the merged status list at this project's
 		// scope (overrides workspace ordering when set).
 		customStatusOrder: v.optional(v.array(v.string())),
+		// Project-scoped exclusion list for status keys. Lets a project hide
+		// built-in defaults or workspace-inherited statuses it doesn't use,
+		// without affecting the workspace or other projects. Resolution order:
+		//   effective = (defaults + workspace customs + project customs) − hidden
+		// Re-adding a hidden key (via createCustomIssueStatus) un-hides it.
+		hiddenStatusKeys: v.optional(v.array(v.string())),
 		customTypes: v.optional(
 			v.array(
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),

@@ -47,6 +47,11 @@ export type IssueCardData = {
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
 	milestoneId?: Id<"milestones">;
+	parentId?: Id<"issues">;
+	/** Optional timestamps used by the shared sort helper for created/updated
+	 *  ordering. Falling back to `sortOrder` when missing keeps things sane. */
+	_creationTime?: number;
+	updatedAt?: number;
 };
 
 export type DisplayProperties = {
@@ -90,6 +95,18 @@ export type IssueBoardCardProps = {
 	assignees?: { name: string; avatarUrl?: string }[];
 	/** Resolved labels */
 	labels?: { _id: Id<"labels">; name: string; color: string }[];
+	/**
+	 * Project-specific status chip. Rendered in cross-project boards (e.g.
+	 * My Issues category-grouped kanban) so each card surfaces its real
+	 * project status — "Testing in staging", "QA review" — alongside the
+	 * generic category column it lives in. Omit on single-project boards
+	 * where the column header already conveys the status.
+	 */
+	statusBadge?: {
+		label: string;
+		colorHex: string;
+		icon: LucideIcon;
+	};
 	onClick?: () => void;
 };
 
@@ -108,6 +125,7 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 	assignee,
 	assignees,
 	labels,
+	statusBadge,
 	onClick,
 }: IssueBoardCardProps) {
 	const display = { ...DEFAULT_DISPLAY, ...displayProperties };
@@ -177,6 +195,15 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 				<div className="flex items-center gap-1.5 min-w-0">
 					{display.priority && priorityEntry && (
 						<PriorityIcon entry={priorityEntry} />
+					)}
+					{issue.parentId && (
+						<span
+							className="text-[10px] text-muted-foreground/60 shrink-0"
+							title="Sub-issue"
+							aria-label="Sub-issue"
+						>
+							↳
+						</span>
 					)}
 					{display.identifier && (
 						<span className="text-xs text-muted-foreground font-mono shrink-0">
@@ -311,6 +338,19 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 
 			{/* Bottom row: badges */}
 			<div className="flex items-center gap-1.5 mt-2 flex-wrap empty:hidden">
+				{statusBadge && (
+					<span
+						className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+						title={`Status: ${statusBadge.label}`}
+					>
+						<statusBadge.icon
+							className="h-3 w-3 shrink-0"
+							style={{ color: statusBadge.colorHex }}
+						/>
+						<span className="truncate max-w-[110px]">{statusBadge.label}</span>
+					</span>
+				)}
+
 				{display.labels && labels && labels.length > 0 && (
 					<>
 						{labels.slice(0, 2).map((label) => (

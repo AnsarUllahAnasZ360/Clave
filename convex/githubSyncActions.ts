@@ -607,30 +607,63 @@ export const listBranches = action({
 		}
 
 		const accessToken = await decryptToken(connection.accessToken);
-		const { repoOwner, repoName, defaultBranch } = connection;
+		const { repoOwner, repoName, defaultBranch: storedDefault } = connection;
 
-		const resp = await fetch(
-			`${GITHUB_API_BASE}/repos/${repoOwner}/${repoName}/branches?per_page=100`,
-			{
+		// Two parallel requests:
+		//  1) /branches — full branch list for the picker
+		//  2) /repos/{owner}/{name} — the *live* default branch
+		// Computing `isDefault` against the stored copy alone made the auto-
+		// selection fail whenever the stored value was stale (default
+		// branch renamed on GitHub, e.g. master → main) or never populated.
+		// Falling back to the live value makes the picker self-heal.
+		const [branchesResp, repoResp] = await Promise.all([
+			fetch(
+				`${GITHUB_API_BASE}/repos/${repoOwner}/${repoName}/branches?per_page=100`,
+				{
+					headers: {
+						Authorization: `Bearer ${accessToken}`,
+						...GITHUB_HEADERS,
+					},
+				},
+			),
+			fetch(`${GITHUB_API_BASE}/repos/${repoOwner}/${repoName}`, {
 				headers: {
 					Authorization: `Bearer ${accessToken}`,
 					...GITHUB_HEADERS,
 				},
-			},
-		);
+			}),
+		]);
 
-		if (!resp.ok) {
-			const errorText = await resp.text();
-			throw new Error(`GitHub API ${resp.status}: ${errorText}`);
+		if (!branchesResp.ok) {
+			const errorText = await branchesResp.text();
+			throw new Error(`GitHub API ${branchesResp.status}: ${errorText}`);
 		}
 
-		const branches: Array<{ name: string }> = await resp.json();
+		// `default_branch` is on the live repo payload. If the repo lookup
+		// fails for any reason we fall back to the stored value rather than
+		// failing the whole dialog.
+		let liveDefault: string | null = null;
+		if (repoResp.ok) {
+			try {
+				const repoData = (await repoResp.json()) as {
+					default_branch?: string;
+				};
+				if (typeof repoData.default_branch === "string") {
+					liveDefault = repoData.default_branch;
+				}
+			} catch {
+				// fall through to stored
+			}
+		}
+		const effectiveDefault = liveDefault ?? storedDefault;
+
+		const branches: Array<{ name: string }> = await branchesResp.json();
 		const result = branches.map((b) => ({
 			name: b.name,
-			isDefault: b.name === defaultBranch,
+			isDefault: b.name === effectiveDefault,
 		}));
 		console.log(
-			`[listBranches] Returning ${result.length} branches for ${repoOwner}/${repoName}`,
+			`[listBranches] Returning ${result.length} branches for ${repoOwner}/${repoName} (default=${effectiveDefault})`,
 		);
 		return result;
 	},

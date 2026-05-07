@@ -10,7 +10,9 @@ import {
 	requireWorkspaceMember,
 } from "./lib/auth";
 import { notifyUsers } from "./lib/notifications";
+import { inferStatusCategory } from "./lib/statusCategory";
 import { generateSlug } from "./lib/utils";
+import { customStatusValidator, statusCategoryValidator } from "./schema";
 
 function slugifyKey(input: string): string {
 	return input
@@ -70,12 +72,11 @@ export const projectDocValidator = v.object({
 	),
 	typeLabel: v.optional(v.string()),
 	tags: v.optional(v.array(v.string())),
-	customStatuses: v.optional(
-		v.array(v.object({ key: v.string(), name: v.string(), color: v.string() })),
-	),
+	customStatuses: v.optional(v.array(customStatusValidator)),
 	// Persisted drag-to-reorder order for the merged status list at this
 	// project's scope. Must stay in sync with the schema field.
 	customStatusOrder: v.optional(v.array(v.string())),
+	hiddenStatusKeys: v.optional(v.array(v.string())),
 	customTypes: v.optional(
 		v.array(v.object({ key: v.string(), name: v.string(), color: v.string() })),
 	),
@@ -878,11 +879,7 @@ export const update = mutation({
 		),
 		typeLabel: v.optional(v.string()),
 		tags: v.optional(v.array(v.string())),
-		customStatuses: v.optional(
-			v.array(
-				v.object({ key: v.string(), name: v.string(), color: v.string() }),
-			),
-		),
+		customStatuses: v.optional(v.array(customStatusValidator)),
 		customTypes: v.optional(
 			v.array(
 				v.object({ key: v.string(), name: v.string(), color: v.string() }),
@@ -1003,6 +1000,7 @@ export const createCustomIssueStatus = mutation({
 		projectId: v.id("projects"),
 		name: v.string(),
 		color: v.string(),
+		category: v.optional(statusCategoryValidator),
 	},
 	returns: v.object({ key: v.string() }),
 	handler: async (ctx, args) => {
@@ -1011,16 +1009,32 @@ export const createCustomIssueStatus = mutation({
 			throw new ConvexError("Project not found");
 		}
 		await requireProjectAccess(ctx, args.projectId, project.workspaceId);
+
+		// Restore-on-create: if the user types the name of a status they
+		// previously hid (a default or workspace custom), un-hide it instead
+		// of generating a new key. Matches by slugified base key.
+		const base = slugifyKey(args.name);
+		if (!base) throw new ConvexError("Status name is required");
+		const hiddenSet = new Set(project.hiddenStatusKeys ?? []);
+		if (hiddenSet.has(base)) {
+			hiddenSet.delete(base);
+			await ctx.db.patch(args.projectId, {
+				hiddenStatusKeys: Array.from(hiddenSet),
+				updatedAt: Date.now(),
+			});
+			return { key: base };
+		}
+
 		const existing = new Set<string>();
 		for (const k of DEFAULT_STATUS_KEYS) existing.add(k);
 		for (const s of project.customStatuses ?? []) existing.add(s.key);
-		const base = slugifyKey(args.name);
-		if (!base) throw new ConvexError("Status name is required");
 		const key = dedupeKey(base, existing);
+		const category =
+			args.category ?? inferStatusCategory({ key, name: args.name });
 		await ctx.db.patch(args.projectId, {
 			customStatuses: [
 				...(project.customStatuses ?? []),
-				{ key, name: args.name, color: args.color },
+				{ key, name: args.name, color: args.color, category },
 			],
 			updatedAt: Date.now(),
 		});
@@ -1034,6 +1048,7 @@ export const updateCustomIssueStatus = mutation({
 		key: v.string(),
 		name: v.optional(v.string()),
 		color: v.optional(v.string()),
+		category: v.optional(statusCategoryValidator),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -1052,6 +1067,7 @@ export const updateCustomIssueStatus = mutation({
 									...s,
 									name: args.name ?? s.name,
 									color: args.color ?? s.color,
+									category: args.category ?? s.category,
 								}
 							: s,
 					)
@@ -1061,6 +1077,12 @@ export const updateCustomIssueStatus = mutation({
 							key: args.key,
 							name: args.name ?? args.key.replaceAll("_", " "),
 							color: args.color ?? "#6b7280",
+							category:
+								args.category ??
+								inferStatusCategory({
+									key: args.key,
+									name: args.name,
+								}),
 						},
 					],
 			updatedAt: Date.now(),
@@ -1085,14 +1107,33 @@ export const deleteCustomIssueStatus = mutation({
 		if (args.key === args.replacementKey) {
 			throw new ConvexError("Replacement must be different");
 		}
-		if ((DEFAULT_STATUS_KEYS as readonly string[]).includes(args.key)) {
-			throw new ConvexError("Default statuses cannot be deleted");
-		}
-		const allowed = new Set<string>(DEFAULT_STATUS_KEYS);
+
+		// Compute the project's effective status keys before this delete so we
+		// can validate the replacement points to something real. The set is:
+		// defaults + workspace customs + project customs, minus already-hidden.
+		const settings = await ctx.db
+			.query("workspaceSettings")
+			.withIndex("by_workspace", (q) =>
+				q.eq("workspaceId", project.workspaceId),
+			)
+			.unique();
+		const allowed = new Set<string>();
+		for (const k of DEFAULT_STATUS_KEYS) allowed.add(k);
+		for (const s of settings?.customStatuses ?? []) allowed.add(s.key);
 		for (const s of project.customStatuses ?? []) allowed.add(s.key);
+		for (const k of project.hiddenStatusKeys ?? []) allowed.delete(k);
 		if (!allowed.has(args.replacementKey)) {
 			throw new ConvexError("Replacement status not found");
 		}
+		// Replacement must survive the delete — guard against picking the
+		// status the user is removing.
+		if (args.replacementKey === args.key) {
+			throw new ConvexError("Replacement must be different");
+		}
+
+		// Reassign every project issue with the deleted status to the
+		// replacement before mutating the status set, so we never leave
+		// dangling status references.
 		const issues = await ctx.db
 			.query("issues")
 			.withIndex("by_project", (q) => q.eq("projectId", args.projectId))
@@ -1102,10 +1143,25 @@ export const deleteCustomIssueStatus = mutation({
 			if (issue.status !== args.key) continue;
 			await ctx.db.patch(issue._id, { status: args.replacementKey });
 		}
+
+		const isProjectOwned = (project.customStatuses ?? []).some(
+			(s) => s.key === args.key,
+		);
+		const isInherited = !isProjectOwned;
+
+		// Remove any project-level override row + add the key to the project's
+		// hidden list when it's inherited (default or workspace custom). The
+		// overlay needs both edits because a project may have an override row
+		// AND need to hide the inherited base for full removal.
+		const nextCustomStatuses = (project.customStatuses ?? []).filter(
+			(s) => s.key !== args.key,
+		);
+		const nextHidden = new Set(project.hiddenStatusKeys ?? []);
+		if (isInherited) nextHidden.add(args.key);
+
 		await ctx.db.patch(args.projectId, {
-			customStatuses: (project.customStatuses ?? []).filter(
-				(s) => s.key !== args.key,
-			),
+			customStatuses: nextCustomStatuses,
+			hiddenStatusKeys: Array.from(nextHidden),
 			updatedAt: Date.now(),
 		});
 		return null;

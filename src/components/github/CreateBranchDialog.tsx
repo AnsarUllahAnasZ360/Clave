@@ -303,15 +303,44 @@ export function CreateBranchDialog({
 							) : branches.length > 0 ? (
 								<Select value={baseBranch} onValueChange={setBaseBranch}>
 									<SelectTrigger>
-										<SelectValue placeholder="Select base branch" />
+										<SelectValue placeholder="Select base branch">
+											{baseBranch ? (
+												<span className="inline-flex items-center gap-2 font-mono text-sm">
+													{baseBranch}
+													{branches.find((b) => b.name === baseBranch)
+														?.isDefault && (
+														<span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-sienna-500/15 text-sienna-500 uppercase tracking-wide">
+															default
+														</span>
+													)}
+												</span>
+											) : null}
+										</SelectValue>
 									</SelectTrigger>
 									<SelectContent>
-										{branches.map((b) => (
-											<SelectItem key={b.name} value={b.name}>
-												{b.name}
-												{b.isDefault ? " (default)" : ""}
-											</SelectItem>
-										))}
+										{/* Default branch always renders first so users
+										   see it before scrolling — common pattern in
+										   GitHub's own UI when picking a base branch. */}
+										{[...branches]
+											.sort((a, b) =>
+												a.isDefault === b.isDefault
+													? a.name.localeCompare(b.name)
+													: a.isDefault
+														? -1
+														: 1,
+											)
+											.map((b) => (
+												<SelectItem key={b.name} value={b.name}>
+													<span className="inline-flex items-center gap-2 font-mono text-sm">
+														{b.name}
+														{b.isDefault && (
+															<span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-sienna-500/15 text-sienna-500 uppercase tracking-wide">
+																default
+															</span>
+														)}
+													</span>
+												</SelectItem>
+											))}
 									</SelectContent>
 								</Select>
 							) : selectedConnectionId ? (

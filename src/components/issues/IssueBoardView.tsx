@@ -35,11 +35,27 @@ import { useWorkspace } from "@/components/providers/workspace-context";
 import {
 	useWorkspaceLabels,
 	useWorkspaceMembers,
+	useWorkspaceProjects,
 } from "@/components/providers/workspace-data-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
-import { PRIORITY_LABELS, type StatusKey } from "@/lib/issue-config";
+import {
+	useEffectiveIssueConfig,
+	useProjectsEffectiveConfigs,
+} from "@/hooks/use-effective-issue-config";
+import type {
+	OrderByOption,
+	OrderDirection,
+} from "@/lib/display-options";
+import { sortIssues } from "@/lib/issue-sort";
+import {
+	PRIORITY_LABELS,
+	STATUS_CATEGORY_COLUMN_CONFIG,
+	STATUS_CATEGORY_LABELS,
+	STATUS_CATEGORY_ORDER,
+	type StatusCategory,
+	type StatusKey,
+} from "@/lib/issue-config";
 import {
 	pulseDropTarget,
 	resolveSidebarDropTarget,
@@ -94,6 +110,14 @@ export type IssueBoardViewProps = {
 	projectId?: Id<"projects">;
 	displayProperties?: DisplayProperties;
 	swimlaneBy?: SwimlaneSetting;
+	/**
+	 * Sort order for cards within each column. Mirrors the list view's
+	 * `orderBy` so picking "Created date" / "Priority" / etc. in Display
+	 * options applies consistently across both layouts. Defaults to manual
+	 * (drag-drop position) when not provided.
+	 */
+	orderBy?: OrderByOption;
+	orderDirection?: OrderDirection;
 	/**
 	 * When viewing a sprint-scoped board, pass the sprint so inline create attaches
 	 * the issue to that sprint (required for listBySprint and correct column placement).
@@ -156,6 +180,8 @@ export function IssueBoardView({
 	projectId,
 	displayProperties,
 	swimlaneBy = "none",
+	orderBy = "manual",
+	orderDirection = "asc",
 	boardSprintId,
 	externalIssues,
 	createDefaults,
@@ -170,7 +196,51 @@ export function IssueBoardView({
 		projectId ? { projectId } : "skip",
 	);
 	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
-	const STATUS_COLUMNS = effective.statusItems;
+	// Cross-project resolver — used when this board renders issues from many
+	// projects (e.g. My Issues). Each project may define statuses the workspace
+	// doesn't know about; without per-project resolution those keys fall back
+	// to defaults and render as the wrong column.
+	const workspaceProjects = useWorkspaceProjects();
+	const crossProject = useProjectsEffectiveConfigs(
+		workspaceId,
+		workspaceProjects ?? undefined,
+	);
+	// Category-grouped columns for cross-project boards: a stable 5-column
+	// axis (Backlog · Not started · In progress · Done · Cancelled) so users
+	// don't see N×M columns when issues span many projects with different
+	// custom statuses. Single-project boards keep their per-status columns.
+	const isCrossProject = !projectId;
+	const CATEGORY_COLUMNS: StatusColumnConfig[] = useMemo(
+		() =>
+			STATUS_CATEGORY_ORDER.map((cat) => ({
+				id: cat,
+				label: STATUS_CATEGORY_LABELS[cat],
+				icon: STATUS_CATEGORY_COLUMN_CONFIG[cat].icon,
+				colorHex: STATUS_CATEGORY_COLUMN_CONFIG[cat].colorHex,
+			})),
+		[],
+	);
+	const STATUS_COLUMNS: StatusColumnConfig[] = isCrossProject
+		? CATEGORY_COLUMNS
+		: effective.statusItems;
+
+	// Cross-project boards render the issue's project-specific status as a
+	// chip on each card so users still see "Testing in staging" / "QA review"
+	// even when the column header is a generic category. Single-project boards
+	// already convey status via the column itself, so the chip is redundant.
+	const getStatusBadge = useMemo(() => {
+		if (!isCrossProject) return undefined;
+		return (issue: IssueCardData) => {
+			const cfg = crossProject.getConfigForIssue(issue);
+			const item = cfg.statusItems.find((s) => s.id === issue.status);
+			if (!item) return undefined;
+			return {
+				label: item.label,
+				colorHex: item.colorHex,
+				icon: item.icon,
+			};
+		};
+	}, [isCrossProject, crossProject]);
 
 	const hasExternalIssues = externalIssues !== undefined;
 
@@ -369,7 +439,11 @@ export function IssueBoardView({
 		}),
 	);
 
-	// Group issues by status
+	// Group issues into columns. In single-project mode columns are status
+	// keys, so the bucket key is `issue.status`. In cross-project (category)
+	// mode columns are categories, so the bucket key is the issue's resolved
+	// category — looked up via its own project's dictionary so a project-only
+	// custom status like `testing_staging` lands in `started` correctly.
 	const columnGroups = useMemo(() => {
 		const groups = new Map<IssueStatus, IssueCardData[]>();
 		for (const col of STATUS_COLUMNS) {
@@ -378,19 +452,57 @@ export function IssueBoardView({
 		const fallbackId =
 			STATUS_COLUMNS.find((c) => c.id === "backlog")?.id ??
 			STATUS_COLUMNS[0]?.id;
+
+		// Hierarchy-first: when a sub-issue's parent is also in the visible
+		// set, the sub-issue does not render as its own card. The parent card
+		// already conveys child existence via the sub-issue count badge
+		// (`display.subIssueCount`) and clicking the parent drills in. This
+		// keeps the kanban scannable instead of showing duplicate cards for
+		// the parent + every child of every parent.
+		//
+		// Sub-issues whose parent ISN'T in view (typically My Issues — user
+		// is assigned to a child but not its parent) keep their own card so
+		// the user can still see and act on them; the small `↳` glyph on the
+		// card identifier preserves the hierarchy hint.
+		const idsInView = new Set(localIssues.map((i) => i._id as string));
+
 		for (const issue of localIssues) {
-			const col = groups.get(issue.status as IssueStatus);
+			if (issue.parentId && idsInView.has(issue.parentId as string)) continue;
+			const bucketKey = isCrossProject
+				? crossProject.getCategoryForIssue(issue)
+				: (issue.status as IssueStatus);
+			const col = groups.get(bucketKey);
 			if (col) {
 				col.push(issue);
 			} else if (fallbackId) {
 				groups.get(fallbackId)?.push(issue);
 			}
 		}
-		for (const col of groups.values()) {
-			col.sort((a, b) => a.sortOrder - b.sortOrder);
+		// Apply the user's chosen sort within each column. Without this the
+		// board ignored Display options entirely and always rendered cards
+		// in `sortOrder` (drag-drop) position. The `statusOrder` lookup
+		// supports the "Status" sort mode — meaningful when the column axis
+		// is category (cross-project) since cards in the same category may
+		// have different status keys.
+		const statusOrderForSort = isCrossProject
+			? crossProject.unionStatusOrder
+			: effective.statusOrder;
+		for (const [colId, items] of groups.entries()) {
+			groups.set(
+				colId,
+				sortIssues(items, orderBy, statusOrderForSort, orderDirection),
+			);
 		}
 		return groups;
-	}, [localIssues, STATUS_COLUMNS]);
+	}, [
+		localIssues,
+		STATUS_COLUMNS,
+		isCrossProject,
+		crossProject,
+		effective.statusOrder,
+		orderBy,
+		orderDirection,
+	]);
 
 	// Find which column an item is in
 	const findItemColumn = useCallback(
@@ -446,50 +558,73 @@ export function IssueBoardView({
 			// position is the honest signal for "did they aim at the sidebar?".
 			const sidebarTarget = resolveSidebarDropTarget(event);
 			if (sidebarTarget) {
-				// Optimistic removal: most sidebar drops move the issue out of
-				// the current board's scope (different project, or out of the
-				// backlog/sprint filter). Strip it now so the board tracks the
-				// list view's feel. If the filter still matches post-mutation,
-				// the sync effect re-adds the card from the refreshed query —
-				// worst case is a sub-second flicker for same-scope drops.
-				setLocalIssues((prev) => prev.filter((i) => i._id !== activeId));
+				// Bulk-drag: when the dragged card belongs to a multi-card
+				// selection, the whole selection moves together. Dragging an
+				// unselected card moves only that one (preserving any prior
+				// selection's intended destination).
+				const idsToMove =
+					selectedIds.size > 1 && selectedIds.has(activeId)
+						? Array.from(selectedIds)
+						: [activeId];
 
-				if (sidebarTarget.kind === "sprint") {
-					void updateIssue({
-						issueId: activeId as Id<"issues">,
-						projectId: sidebarTarget.projectId as Id<"projects">,
-						sprintId: sidebarTarget.sprintId as Id<"sprints">,
+				// Optimistic removal: most sidebar drops move issues out of
+				// the current board's scope (different project, or out of the
+				// backlog/sprint filter). Strip them now so the board tracks
+				// the list view's feel. If the filter still matches
+				// post-mutation, the sync effect re-adds them from the
+				// refreshed query — worst case is a sub-second flicker for
+				// same-scope drops.
+				const idSet = new Set(idsToMove);
+				setLocalIssues((prev) => prev.filter((i) => !idSet.has(i._id)));
+
+				const movePatch =
+					sidebarTarget.kind === "sprint"
+						? {
+								projectId: sidebarTarget.projectId as Id<"projects">,
+								sprintId: sidebarTarget.sprintId as Id<"sprints">,
+							}
+						: ({
+								projectId: sidebarTarget.projectId as Id<"projects">,
+								sprintId: null as Id<"sprints"> | null,
+								listId: null as Id<"lists"> | null,
+							} as const);
+
+				const successLabel =
+					sidebarTarget.kind === "sprint"
+						? "sprint"
+						: sidebarTarget.kind === "project"
+							? "project"
+							: "backlog";
+
+				Promise.all(
+					idsToMove.map((id) =>
+						updateIssue({
+							issueId: id as Id<"issues">,
+							...movePatch,
+						}),
+					),
+				)
+					.then(() => {
+						toast.success(
+							idsToMove.length === 1
+								? `Moved to ${successLabel}`
+								: `Moved ${idsToMove.length} issues to ${successLabel}`,
+						);
+						pulseDropTarget(sidebarTarget.kind, {
+							projectId: sidebarTarget.projectId,
+							...(sidebarTarget.kind === "sprint"
+								? { sprintId: sidebarTarget.sprintId }
+								: {}),
+						});
+						if (idsToMove.length > 1) clearSelection();
 					})
-						.then(() => {
-							toast.success("Moved to sprint");
-							pulseDropTarget("sprint", {
-								projectId: sidebarTarget.projectId,
-								sprintId: sidebarTarget.sprintId,
-							});
-						})
-						.catch(() => toast.error("Failed to move issue"));
-				} else if (
-					sidebarTarget.kind === "backlog" ||
-					sidebarTarget.kind === "project"
-				) {
-					void updateIssue({
-						issueId: activeId as Id<"issues">,
-						projectId: sidebarTarget.projectId as Id<"projects">,
-						sprintId: null,
-						listId: null,
-					})
-						.then(() => {
-							toast.success(
-								sidebarTarget.kind === "project"
-									? "Moved to project"
-									: "Moved to backlog",
-							);
-							pulseDropTarget(sidebarTarget.kind, {
-								projectId: sidebarTarget.projectId,
-							});
-						})
-						.catch(() => toast.error("Failed to move issue"));
-				}
+					.catch(() =>
+						toast.error(
+							idsToMove.length === 1
+								? "Failed to move issue"
+								: "Failed to move some issues",
+						),
+					);
 				return;
 			}
 
@@ -574,6 +709,27 @@ export function IssueBoardView({
 				const insertIndex = overIndex === -1 ? targetItems.length : overIndex;
 				const newSortOrder = computeSortOrder(targetItems, insertIndex);
 
+				// In category mode, `targetStatus` is a category string, not a
+				// status key. Translate it to a concrete status the issue's
+				// project recognizes — the project's first status in that
+				// category, per its display order. If the project has no status
+				// in that category we abort the cross-column move (silently
+				// dropping the change is better than writing a bogus status).
+				let resolvedTargetStatus: string = targetStatus;
+				if (isCrossProject) {
+					const mapped = crossProject.resolveStatusForCategory(
+						activeIssue,
+						targetStatus as StatusCategory,
+					);
+					if (!mapped) {
+						toast.error(
+							`This project has no "${STATUS_CATEGORY_LABELS[targetStatus as StatusCategory]}" status`,
+						);
+						return;
+					}
+					resolvedTargetStatus = mapped;
+				}
+
 				const issuePatch: {
 					status: IssueStatus;
 					sortOrder: number;
@@ -582,7 +738,7 @@ export function IssueBoardView({
 					sprintId?: Id<"sprints">;
 					milestoneId?: Id<"milestones">;
 				} = {
-					status: targetStatus,
+					status: resolvedTargetStatus as IssueStatus,
 					sortOrder: newSortOrder,
 				};
 
@@ -656,7 +812,7 @@ export function IssueBoardView({
 					operations.push(
 						updateStatus({
 							issueId: activeId as Id<"issues">,
-							status: targetStatus as IssueStatus,
+							status: resolvedTargetStatus as IssueStatus,
 						}),
 					);
 				}
@@ -678,6 +834,14 @@ export function IssueBoardView({
 			updateStatus,
 			reorderIssue,
 			updateIssue,
+			isCrossProject,
+			crossProject,
+			STATUS_COLUMNS,
+			// Read by the bulk-drag-to-sidebar branch — without this dep
+			// the first bulk drop after building a selection saw a stale
+			// (empty) Set in the closure and only moved the active card.
+			selectedIds,
+			clearSelection,
 		],
 	);
 
@@ -1148,6 +1312,7 @@ export function IssueBoardView({
 											onDeleteIssue={onDeleteIssue}
 											onMoveIssueToBacklog={onMoveIssueToBacklog}
 											bulkSelect={bulkSelectProp}
+											getStatusBadge={getStatusBadge}
 										/>
 									))}
 								</div>
@@ -1172,6 +1337,7 @@ export function IssueBoardView({
 												createDefaults={createDefaults}
 												onCardClick={onCardClick}
 												workspaceSlug={workspaceSlug}
+												getStatusBadge={getStatusBadge}
 												onDeleteIssue={onDeleteIssue}
 												onMoveIssueToBacklog={onMoveIssueToBacklog}
 												bulkSelect={bulkSelectProp}
@@ -1234,31 +1400,70 @@ export function IssueBoardView({
 			    the sidebar node underneath. */}
 				<DragOverlay style={{ pointerEvents: "none" }}>
 					{activeItem ? (
-						<div
-							className={cn(
-								"shadow-lg rounded-lg pointer-events-none transition-all duration-150 origin-center",
-								overlayOverSidebar
-									? "scale-[0.45] opacity-80 w-[272px]"
-									: "scale-[1.02] opacity-90 w-[272px]",
-							)}
-						>
-							<IssueBoardCard
-								issue={activeItem}
-								displayProperties={displayProperties}
-								issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
-								onDelete={() =>
-									onDeleteIssue(activeItem._id, activeItem.identifier)
-								}
-								assignee={(() => {
-									const id =
-										activeItem.assigneeId ??
-										activeItem.assigneeIds?.[0] ??
-										undefined;
-									return id ? (memberLookup.get(id) ?? null) : null;
-								})()}
-								labels={resolveLabels(activeItem, labelLookup)}
-							/>
-						</div>
+						(() => {
+							// Bulk drag visual: when the dragged card belongs to a
+							// multi-select, render a stack of two ghost cards
+							// behind the active card and a sienna count badge on
+							// the corner. Communicates "you're moving N things"
+							// at a glance — without this, multi-select bulk drag
+							// looked identical to single-card drag.
+							const isBulkDrag =
+								selectedIds.size > 1 && selectedIds.has(activeItem._id);
+							const bulkCount = isBulkDrag ? selectedIds.size : 1;
+							return (
+								<div
+									className={cn(
+										"relative pointer-events-none transition-all duration-150 origin-center w-[272px]",
+										overlayOverSidebar
+											? "scale-[0.45] opacity-80"
+											: "scale-[1.02] opacity-90",
+									)}
+								>
+									{isBulkDrag && (
+										<>
+											{/* Stack ghosts — two stylized rectangles
+											   offset behind the active card so users
+											   see at a glance "this is a stack". */}
+											<div
+												aria-hidden
+												className="absolute inset-0 rounded-lg border border-border bg-card shadow-md translate-x-1.5 translate-y-1.5 -z-10"
+											/>
+											<div
+												aria-hidden
+												className="absolute inset-0 rounded-lg border border-border bg-card shadow-md translate-x-3 translate-y-3 -z-20 opacity-80"
+											/>
+										</>
+									)}
+									<div className="shadow-lg rounded-lg relative">
+										<IssueBoardCard
+											issue={activeItem}
+											displayProperties={displayProperties}
+											issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
+											onDelete={() =>
+												onDeleteIssue(activeItem._id, activeItem.identifier)
+											}
+											assignee={(() => {
+												const id =
+													activeItem.assigneeId ??
+													activeItem.assigneeIds?.[0] ??
+													undefined;
+												return id ? (memberLookup.get(id) ?? null) : null;
+											})()}
+											labels={resolveLabels(activeItem, labelLookup)}
+											statusBadge={getStatusBadge?.(activeItem)}
+										/>
+										{isBulkDrag && (
+											<span
+												aria-label={`${bulkCount} issues selected`}
+												className="absolute -top-2 -right-2 inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-full bg-sienna-500 text-white text-xs font-semibold shadow-md tabular-nums"
+											>
+												{bulkCount}
+											</span>
+										)}
+									</div>
+								</div>
+							);
+						})()
 					) : null}
 				</DragOverlay>
 			</DndContext>
@@ -1307,6 +1512,7 @@ function BoardColumn({
 	onDeleteIssue,
 	onMoveIssueToBacklog,
 	bulkSelect,
+	getStatusBadge,
 }: {
 	column: StatusColumnConfig;
 	items: IssueCardData[];
@@ -1324,6 +1530,11 @@ function BoardColumn({
 		selectedIds: Set<string>;
 		onSelect: (id: string, shiftKey: boolean) => void;
 	};
+	/** Cross-project boards pass a per-card resolver to render the issue's
+	 *  project-specific status as a chip alongside the column's category. */
+	getStatusBadge?: (
+		issue: IssueCardData,
+	) => { label: string; colorHex: string; icon: LucideIcon } | undefined;
 }) {
 	const { isOver, setNodeRef } = useDroppable({ id: column.id });
 	const itemIds = useMemo(() => items.map((i) => i._id), [items]);
@@ -1359,6 +1570,7 @@ function BoardColumn({
 								onDeleteIssue={onDeleteIssue}
 								onMoveIssueToBacklog={onMoveIssueToBacklog}
 								bulkSelect={bulkSelect}
+								statusBadge={getStatusBadge?.(item)}
 							/>
 						))
 					)}
@@ -1404,6 +1616,7 @@ function SwimlaneRow({
 	onDeleteIssue,
 	onMoveIssueToBacklog,
 	bulkSelect,
+	getStatusBadge,
 }: {
 	swimlane: SwimlaneGroup;
 	columns: StatusColumnConfig[];
@@ -1423,6 +1636,9 @@ function SwimlaneRow({
 		selectedIds: Set<string>;
 		onSelect: (id: string, shiftKey: boolean) => void;
 	};
+	getStatusBadge?: (
+		issue: IssueCardData,
+	) => { label: string; colorHex: string; icon: LucideIcon } | undefined;
 }) {
 	const sprintIdForCreate = resolveSprintIdForBoardCreate(
 		swimlaneBy,
@@ -1477,6 +1693,7 @@ function SwimlaneRow({
 								onDeleteIssue={onDeleteIssue}
 								onMoveIssueToBacklog={onMoveIssueToBacklog}
 								bulkSelect={bulkSelect}
+								getStatusBadge={getStatusBadge}
 							/>
 						);
 					})}
@@ -1503,6 +1720,7 @@ function SwimlaneCell({
 	onDeleteIssue,
 	onMoveIssueToBacklog,
 	bulkSelect,
+	getStatusBadge,
 }: {
 	columnId: IssueStatus;
 	swimlaneKey: string;
@@ -1521,6 +1739,9 @@ function SwimlaneCell({
 		selectedIds: Set<string>;
 		onSelect: (id: string, shiftKey: boolean) => void;
 	};
+	getStatusBadge?: (
+		issue: IssueCardData,
+	) => { label: string; colorHex: string; icon: LucideIcon } | undefined;
 }) {
 	const droppableId = makeSwimlaneDroppableId(columnId, swimlaneKey);
 	const { isOver, setNodeRef } = useDroppable({ id: droppableId });
@@ -1551,6 +1772,7 @@ function SwimlaneCell({
 								onDeleteIssue={onDeleteIssue}
 								onMoveIssueToBacklog={onMoveIssueToBacklog}
 								bulkSelect={bulkSelect}
+								statusBadge={getStatusBadge?.(item)}
 							/>
 						))
 					)}
@@ -1582,6 +1804,7 @@ function SortableCard({
 	onDeleteIssue,
 	onMoveIssueToBacklog,
 	bulkSelect,
+	statusBadge,
 }: {
 	issue: IssueCardData;
 	memberLookup: Map<string, { name: string; avatarUrl?: string }>;
@@ -1595,6 +1818,7 @@ function SortableCard({
 		selectedIds: Set<string>;
 		onSelect: (id: string, shiftKey: boolean) => void;
 	};
+	statusBadge?: { label: string; colorHex: string; icon: LucideIcon };
 }) {
 	const {
 		attributes,
@@ -1648,6 +1872,7 @@ function SortableCard({
 				}
 				assignee={assignee}
 				labels={labels}
+				statusBadge={statusBadge}
 				onClick={onCardClick ? () => onCardClick(issue.identifier) : undefined}
 			/>
 		</div>

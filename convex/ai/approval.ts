@@ -201,6 +201,15 @@ async function executeDeferredApprovalMutation(
 			args.description,
 			attachments,
 		);
+		// Issues must always have a project (data-model invariant). The AI
+		// proposal must carry a `projectId` — fail the approval cleanly if
+		// it doesn't, rather than letting the mutation reject with a less
+		// descriptive validator error.
+		if (!args.projectId) {
+			throw new Error(
+				"Cannot create an issue without a project. Re-run the AI suggestion targeting a specific project.",
+			);
+		}
 		const result = await ctx.runMutation(api.issues.create, {
 			workspaceId: payload.workspaceId as Id<"workspaces">,
 			title: args.title,
@@ -228,7 +237,7 @@ async function executeDeferredApprovalMutation(
 				| "feature"
 				| undefined,
 			assigneeId: args.assigneeId as Id<"users"> | undefined,
-			projectId: args.projectId as Id<"projects"> | undefined,
+			projectId: args.projectId as Id<"projects">,
 			labelIds: args.labelIds as Array<Id<"labels">> | undefined,
 		});
 		resultMessage = `Created issue ${result.identifier}: "${args.title}"`;

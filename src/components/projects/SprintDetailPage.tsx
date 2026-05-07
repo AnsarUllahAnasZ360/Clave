@@ -218,6 +218,9 @@ export function SprintDetailPage({
 			projectId: issue.projectId ?? undefined,
 			sprintId: issue.sprintId ?? undefined,
 			milestoneId: issue.milestoneId ?? undefined,
+			parentId: issue.parentId ?? undefined,
+			_creationTime: issue._creationTime,
+			updatedAt: issue.updatedAt ?? undefined,
 		}));
 	}, [sprintIssues, applyFilters]);
 
@@ -241,6 +244,7 @@ export function SprintDetailPage({
 			projectId: issue.projectId ?? undefined,
 			sprintId: issue.sprintId ?? undefined,
 			milestoneId: issue.milestoneId ?? undefined,
+			parentId: issue.parentId ?? undefined,
 			updatedAt: issue.updatedAt ?? undefined,
 		}));
 	}, [sprintIssues, applyFilters]);
@@ -498,6 +502,8 @@ export function SprintDetailPage({
 								externalIssues={filteredBoardIssues}
 								displayProperties={boardDisplayProperties}
 								swimlaneBy={options.swimlaneBy}
+								orderBy={options.orderBy}
+								orderDirection={options.orderDirection}
 								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 							/>
 						</div>
@@ -512,6 +518,7 @@ export function SprintDetailPage({
 							orderDirection={options.orderDirection}
 							displayProperties={options.displayProperties}
 							showEmptyGroups={options.showEmptyGroups}
+							showSubIssues={options.showSubIssues}
 							hideFilter
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>

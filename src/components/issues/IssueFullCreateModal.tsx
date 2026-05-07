@@ -288,6 +288,12 @@ function IssueFullCreateModalContent({
 			titleRef.current?.focus();
 			return;
 		}
+		// Issues must always belong to a project. Backend mutation also
+		// enforces this; the client check is for a fast, friendly error.
+		if (!formState.projectId) {
+			toast.error("Select a project for this issue");
+			return;
+		}
 
 		submittingRef.current = true;
 		try {
@@ -321,9 +327,7 @@ function IssueFullCreateModalContent({
 					| "bug"
 					| "improvement"
 					| "feature",
-				projectId: formState.projectId
-					? (formState.projectId as Id<"projects">)
-					: undefined,
+				projectId: formState.projectId as Id<"projects">,
 				sprintId: formState.sprintId
 					? (formState.sprintId as Id<"sprints">)
 					: undefined,
