@@ -8,6 +8,7 @@ export type GroupByOption =
 	| "none"
 	| "focus"
 	| "status"
+	| "category"
 	| "priority"
 	| "assignee"
 	| "project"
@@ -82,6 +83,7 @@ export const GROUP_BY_LABELS: Record<GroupByOption, string> = {
 	none: "No grouping",
 	focus: "Focus",
 	status: "Status",
+	category: "Category",
 	priority: "Priority",
 	assignee: "Assignee",
 	project: "Project",

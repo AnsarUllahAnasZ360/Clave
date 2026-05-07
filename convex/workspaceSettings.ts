@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireWorkspaceAdmin, requireWorkspaceMember } from "./lib/auth";
+import { inferStatusCategory } from "./lib/statusCategory";
+import { customStatusValidator, statusCategoryValidator } from "./schema";
 
 function slugifyKey(input: string): string {
 	return input
@@ -133,11 +135,11 @@ export const updateTypes = mutation({
 	},
 });
 
-/** Update custom status names and colors (admin only) */
+/** Update custom status names, colors, and categories (admin only) */
 export const updateStatuses = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
-		customStatuses: v.array(customItemValidator),
+		customStatuses: v.array(customStatusValidator),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -220,6 +222,7 @@ export const createCustomStatus = mutation({
 		workspaceId: v.id("workspaces"),
 		name: v.string(),
 		color: v.string(),
+		category: v.optional(statusCategoryValidator),
 	},
 	returns: v.object({ key: v.string() }),
 	handler: async (ctx, args) => {
@@ -239,10 +242,13 @@ export const createCustomStatus = mutation({
 		if (!base) throw new Error("Status name is required");
 		const key = dedupeKey(base, existing);
 
+		const category =
+			args.category ?? inferStatusCategory({ key, name: args.name });
+
 		await ctx.db.patch(settings._id, {
 			customStatuses: [
 				...(settings.customStatuses ?? []),
-				{ key, name: args.name, color: args.color },
+				{ key, name: args.name, color: args.color, category },
 			],
 		});
 
@@ -256,6 +262,7 @@ export const updateCustomStatus = mutation({
 		key: v.string(),
 		name: v.optional(v.string()),
 		color: v.optional(v.string()),
+		category: v.optional(statusCategoryValidator),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -272,7 +279,12 @@ export const updateCustomStatus = mutation({
 		const updated = has
 			? existing.map((s) =>
 					s.key === args.key
-						? { ...s, name: args.name ?? s.name, color: args.color ?? s.color }
+						? {
+								...s,
+								name: args.name ?? s.name,
+								color: args.color ?? s.color,
+								category: args.category ?? s.category,
+							}
 						: s,
 				)
 			: [
@@ -281,6 +293,12 @@ export const updateCustomStatus = mutation({
 						key: args.key,
 						name: args.name ?? args.key.replaceAll("_", " "),
 						color: args.color ?? "#6b7280",
+						category:
+							args.category ??
+							inferStatusCategory({
+								key: args.key,
+								name: args.name,
+							}),
 					},
 				];
 

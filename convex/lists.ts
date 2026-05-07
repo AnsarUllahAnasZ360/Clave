@@ -3,7 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { canAccessProject, requireWorkspaceMember } from "./lib/auth";
 import { fractionalIndex } from "./lib/utils";
 
-const listDocValidator = v.object({
+export const listDocValidator = v.object({
 	_id: v.id("lists"),
 	_creationTime: v.number(),
 	projectId: v.id("projects"),

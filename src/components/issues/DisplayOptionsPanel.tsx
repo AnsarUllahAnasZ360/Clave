@@ -83,6 +83,7 @@ const GROUP_BY_OPTIONS: GroupByOption[] = [
 	"none",
 	"focus",
 	"status",
+	"category",
 	"priority",
 	"assignee",
 	"project",
@@ -261,7 +262,14 @@ export function DisplayOptionsPanel({
 										orderDirection === "asc" ? "desc" : "asc",
 									)
 								}
-								title={orderDirection === "asc" ? "Ascending" : "Descending"}
+								title={
+									orderBy === "manual"
+										? "Direction doesn't apply to manual order"
+										: orderDirection === "asc"
+											? "Ascending"
+											: "Descending"
+								}
+								disabled={orderBy === "manual"}
 							>
 								{orderDirection === "asc" ? (
 									<ArrowUp className="h-3.5 w-3.5" />

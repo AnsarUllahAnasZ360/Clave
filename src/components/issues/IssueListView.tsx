@@ -4,13 +4,16 @@ import {
 	closestCenter,
 	DndContext,
 	type DragEndEvent,
+	KeyboardSensor,
 	PointerSensor,
 	useDroppable,
 	useSensor,
 	useSensors,
 } from "@dnd-kit/core";
 import {
+	arrayMove,
 	SortableContext,
+	sortableKeyboardCoordinates,
 	useSortable,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -57,7 +60,10 @@ import {
 	useWorkspaceProjects,
 } from "@/components/providers/workspace-data-context";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import {
+	useEffectiveIssueConfig,
+	useProjectsEffectiveConfigs,
+} from "@/hooks/use-effective-issue-config";
 import type {
 	DisplayPropertyId,
 	GroupByOption,
@@ -69,8 +75,12 @@ import { displayPropertiesToColumns } from "@/lib/display-options";
 import {
 	DEFAULT_PRIORITIES,
 	PRIORITY_ITEMS as PRIORITY_CONFIG,
-	PRIORITY_ORDER,
+	STATUS_CATEGORY_COLUMN_CONFIG,
+	STATUS_CATEGORY_LABELS,
+	STATUS_CATEGORY_ORDER,
+	type StatusCategory,
 } from "@/lib/issue-config";
+import { sortIssues } from "@/lib/issue-sort";
 import {
 	pulseDropTarget,
 	resolveSidebarDropTarget,
@@ -85,6 +95,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 export type ListGroupBy =
 	| "none"
 	| "status"
+	| "category"
 	| "priority"
 	| "assignee"
 	| "project"
@@ -148,54 +159,9 @@ const PRIORITY_ICONS: Record<string, React.ReactNode> = Object.fromEntries(
 );
 
 // ── Sorting ────────────────────────────────────────────────────────────────
-
-function sortIssues(
-	issues: IssueListData[],
-	sortBy: ListSortBy,
-	statusOrder: Record<string, number>,
-	direction: "asc" | "desc" = "asc",
-): IssueListData[] {
-	const sorted = [...issues];
-	const dir = direction === "desc" ? -1 : 1;
-	switch (sortBy) {
-		case "status":
-			sorted.sort(
-				(a, b) =>
-					dir * ((statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99)),
-			);
-			break;
-		case "priority":
-			sorted.sort(
-				(a, b) =>
-					dir *
-					((PRIORITY_ORDER[a.priority] ?? 99) -
-						(PRIORITY_ORDER[b.priority] ?? 99)),
-			);
-			break;
-		case "created":
-			sorted.sort((a, b) => dir * (b._creationTime - a._creationTime));
-			break;
-		case "updated":
-			sorted.sort(
-				(a, b) =>
-					dir *
-					((b.updatedAt ?? b._creationTime) - (a.updatedAt ?? a._creationTime)),
-			);
-			break;
-		case "dueDate":
-			sorted.sort((a, b) => {
-				if (!a.dueDate && !b.dueDate) return 0;
-				if (!a.dueDate) return 1;
-				if (!b.dueDate) return -1;
-				return dir * (a.dueDate - b.dueDate);
-			});
-			break;
-		case "manual":
-			sorted.sort((a, b) => dir * (a.sortOrder - b.sortOrder));
-			break;
-	}
-	return sorted;
-}
+// Implementation moved to `@/lib/issue-sort` so the kanban can share it.
+// Keeping the local re-export so existing call sites in this file still
+// compile without churning every reference.
 
 // ── Grouping ───────────────────────────────────────────────────────────────
 
@@ -212,6 +178,7 @@ function groupIssues(
 	projectMap: Map<string, string>,
 	milestoneMap: Map<string, string>,
 	statusDescriptors: StatusDescriptor[],
+	resolveCategory?: (issue: IssueListData) => StatusCategory,
 ): GroupedIssues[] {
 	if (groupBy === "none") {
 		return [{ key: "all", label: "All issues", count: issues.length, issues }];
@@ -224,6 +191,9 @@ function groupIssues(
 		switch (groupBy) {
 			case "status":
 				key = issue.status;
+				break;
+			case "category":
+				key = resolveCategory ? resolveCategory(issue) : "unstarted";
 				break;
 			case "priority":
 				key = issue.priority;
@@ -278,6 +248,23 @@ function groupIssues(
 					key: sc.id,
 					label: sc.label,
 					icon: sc.icon,
+					count: items.length,
+					issues: items,
+				});
+			}
+		}
+	} else if (groupBy === "category") {
+		// Render the 5 categories in canonical order. Empty buckets are dropped
+		// here; `showEmptyGroups` is enforced by the caller after grouping.
+		for (const cat of STATUS_CATEGORY_ORDER) {
+			const items = groups.get(cat);
+			if (items) {
+				const cfg = STATUS_CATEGORY_COLUMN_CONFIG[cat];
+				const Icon = cfg.icon;
+				result.push({
+					key: cat,
+					label: STATUS_CATEGORY_LABELS[cat],
+					icon: <Icon className="h-4 w-4" style={{ color: cfg.colorHex }} />,
 					count: items.length,
 					issues: items,
 				});
@@ -393,6 +380,15 @@ export type IssueListViewProps = {
 	displayProperties?: DisplayPropertyId[];
 	/** Hide empty groups when grouping is active */
 	showEmptyGroups?: boolean;
+	/**
+	 * Show sub-issues (issues with a parentId) in the list. When true and the
+	 * parent is also visible in this view, the sub-issue is rendered nested
+	 * under its parent with an indent + tree-line guide. When the parent is
+	 * not in the list (e.g. the user is assigned to the sub-issue but not the
+	 * parent), the sub-issue renders flat with a small "↳ parent identifier"
+	 * indicator so context isn't lost.
+	 */
+	showSubIssues?: boolean;
 	/** Hide the internal filter toolbar (when parent already provides one) */
 	hideFilter?: boolean;
 	/** When the parent owns the filter state (hideFilter=true), pass its
@@ -430,6 +426,7 @@ export function IssueListView({
 	orderDirection: orderDirectionProp = "asc",
 	displayProperties,
 	showEmptyGroups: showEmptyGroupsProp = true,
+	showSubIssues: showSubIssuesProp = true,
 	hideFilter,
 	externalFilters,
 	onIssueClick,
@@ -445,8 +442,34 @@ export function IssueListView({
 		projectId ? { projectId } : "skip",
 	);
 	const effective = useEffectiveIssueConfig(workspaceId, project ?? undefined);
-	const statusItems = effective.statusItems;
-	const statusOrder = effective.statusOrder;
+	// Cross-project resolver — see IssueBoardView for the same pattern. When
+	// this list renders issues from many projects (My Issues, sprint board
+	// without a project), per-project status keys must resolve via their own
+	// project's dictionary, not the workspace fallback.
+	const allWorkspaceProjects = useWorkspaceProjects();
+	const crossProject = useProjectsEffectiveConfigs(
+		workspaceId,
+		allWorkspaceProjects ?? undefined,
+	);
+	// `statusItems` here is the *grouping/column axis* — when grouping rows
+	// by status on a cross-project list we need every visible status across
+	// every project, hence the union. The per-row status picker uses a
+	// different, narrower set: only the issue's *own* project's statuses
+	// (see `getRowStatusItems` below), so changing a card's status doesn't
+	// offer keys the project doesn't recognize.
+	const statusItems = projectId
+		? effective.statusItems
+		: crossProject.unionStatusItems;
+	const statusOrder = projectId
+		? effective.statusOrder
+		: crossProject.unionStatusOrder;
+	const getRowStatusItems = useCallback(
+		(issue: { projectId?: Id<"projects"> | string | null; status: string }) =>
+			projectId
+				? effective.statusItems
+				: crossProject.getConfigForIssue(issue).statusItems,
+		[projectId, effective, crossProject],
+	);
 	const statusDescriptors = useMemo<StatusDescriptor[]>(
 		() =>
 			statusItems.map((s) => ({
@@ -463,7 +486,16 @@ export function IssueListView({
 		[statusItems],
 	);
 	const sensors = useSensors(
+		// `distance: 6` keeps a small click+move from registering as a drag —
+		// users can still single-click rows to open them and drag-select text
+		// inside cells without accidentally activating dnd.
 		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+		// Keyboard reorder: focus the grip handle and use Space to pick up,
+		// arrow keys to move, Space again to drop. Critical for accessibility
+		// — without this sensor screen-reader users have no way to reorder.
+		useSensor(KeyboardSensor, {
+			coordinateGetter: sortableKeyboardCoordinates,
+		}),
 	);
 	// Prevent accidental navigation when a drag ends (mouse up can trigger click).
 	const suppressClickRef = useRef(false);
@@ -509,6 +541,19 @@ export function IssueListView({
 	// ── Bulk selection state (ClickUp-style) ─────────────────────────────
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 	const [lastClickedId, setLastClickedId] = useState<string | null>(null);
+	// ID of the row currently being dragged — used to fade *other* selected
+	// rows so the user sees the whole multi-selection respond to the drag.
+	const [activelyDraggingId, setActivelyDraggingId] = useState<string | null>(
+		null,
+	);
+	// Optimistic hide for bulk sidebar moves: when the user drops a
+	// multi-selection on a sidebar target, those rows should visually leave
+	// the list immediately rather than waiting for the server round-trip.
+	// Cleared once those issues drop out of the upstream `issues` prop
+	// (server caught up) or if the mutation rejects.
+	const [optimisticallyHiddenIds, setOptimisticallyHiddenIds] = useState<
+		Set<string>
+	>(new Set());
 
 	// ── View state (derived from props) ─────────────────────────────────
 	const groupBy = (
@@ -589,7 +634,7 @@ export function IssueListView({
 
 	// ── Data fetching for resolving names ───────────────────────────────
 	const members = useWorkspaceMembers();
-	const projects = useWorkspaceProjects();
+	const projects = allWorkspaceProjects;
 	const labels = useWorkspaceLabels();
 
 	// When no projectId prop (e.g. My Issues), derive from selected issues
@@ -627,6 +672,7 @@ export function IssueListView({
 	const updateStatus = useMutation(api.issues.updateStatus);
 	const assignIssue = useMutation(api.issues.assign);
 	const removeIssue = useMutation(api.issues.remove);
+	const reorderIssue = useMutation(api.issues.reorder);
 
 	// ── Computed maps ───────────────────────────────────────────────────
 	const memberOptions = useMemo(() => {
@@ -719,27 +765,138 @@ export function IssueListView({
 	}, [labels]);
 
 	// ── Filtered + sorted + grouped data ────────────────────────────────
-	const filteredIssues = useMemo(
-		() => applyFilters(issues),
-		[issues, applyFilters],
-	);
+	// Hide sub-issues when the toggle is off. We strip them here (not at the
+	// page level) so every consumer of IssueListView gets the same behavior
+	// for free, whether they're on My Issues, Backlog, Sprint, etc. When the
+	// toggle is on, sub-issues stay in the set and the grouping pipeline
+	// downstream nests them under their parent.
+	const filteredIssues = useMemo(() => {
+		let base = applyFilters(issues);
+		if (!showSubIssuesProp) base = base.filter((i) => !i.parentId);
+		// Optimistic: hide rows that the user just bulk-moved to a sidebar
+		// target. The cleanup effect below clears entries from the hidden
+		// set as the server-confirmed `issues` prop drops them.
+		if (optimisticallyHiddenIds.size > 0) {
+			base = base.filter((i) => !optimisticallyHiddenIds.has(i._id as string));
+		}
+		return base;
+	}, [issues, applyFilters, showSubIssuesProp, optimisticallyHiddenIds]);
 
-	const sortedIssues = useMemo(
-		() => sortIssues(filteredIssues, sortBy, statusOrder, orderDirectionProp),
-		[filteredIssues, sortBy, statusOrder, orderDirectionProp],
+	// Once the upstream `issues` prop no longer contains a hidden id (server
+	// has caught up and the issue moved out of this view's scope), clear the
+	// optimistic entry so the set doesn't grow without bound.
+	useEffect(() => {
+		if (optimisticallyHiddenIds.size === 0) return;
+		const stillPresent = new Set(issues.map((i) => i._id as string));
+		setOptimisticallyHiddenIds((prev) => {
+			let mutated = false;
+			const next = new Set(prev);
+			for (const id of prev) {
+				if (!stillPresent.has(id)) {
+					next.delete(id);
+					mutated = true;
+				}
+			}
+			return mutated ? next : prev;
+		});
+	}, [issues, optimisticallyHiddenIds]);
+
+	// Optimistic reorder overrides — when the user drags a row, we apply the
+	// new sortOrder locally before the mutation round-trips so the row stays
+	// at the drop position instead of briefly snapping back. Each entry is
+	// cleared once the upstream `issues` prop carries the same sortOrder
+	// (server caught up) — preventing stale overrides from sticking when
+	// other clients edit the same issue.
+	const [pendingSortOrders, setPendingSortOrders] = useState<
+		Map<string, number>
+	>(new Map());
+	useEffect(() => {
+		if (pendingSortOrders.size === 0) return;
+		setPendingSortOrders((prev) => {
+			let mutated = false;
+			const next = new Map(prev);
+			for (const issue of issues) {
+				const id = issue._id as string;
+				const override = next.get(id);
+				if (override !== undefined && issue.sortOrder === override) {
+					next.delete(id);
+					mutated = true;
+				}
+			}
+			return mutated ? next : prev;
+		});
+	}, [issues, pendingSortOrders]);
+
+	const sortedIssues = useMemo(() => {
+		// Splice in any pending optimistic sortOrder overrides before sorting,
+		// so a freshly-dropped row keeps its visual position even though the
+		// server hasn't confirmed yet.
+		const enriched =
+			pendingSortOrders.size > 0
+				? filteredIssues.map((i) => {
+						const override = pendingSortOrders.get(i._id as string);
+						return override !== undefined ? { ...i, sortOrder: override } : i;
+					})
+				: filteredIssues;
+		return sortIssues(enriched, sortBy, statusOrder, orderDirectionProp);
+	}, [
+		filteredIssues,
+		sortBy,
+		statusOrder,
+		orderDirectionProp,
+		pendingSortOrders,
+	]);
+
+	// Category resolver — uses the issue's own project's dictionary in
+	// cross-project mode (so a project-only "Testing in staging" lands in
+	// `started`), else the project-scoped effective config.
+	const resolveCategoryForIssue = useCallback(
+		(issue: IssueListData): StatusCategory =>
+			projectId
+				? effective.getStatusCategory(issue.status)
+				: crossProject.getCategoryForIssue(issue),
+		[projectId, effective, crossProject],
 	);
 
 	const groupedIssues = useMemo(() => {
+		// Hierarchy-first grouping for sub-issues: when a sub-issue's parent
+		// is also in this view, the sub-issue is *excluded* from grouping and
+		// appended under its parent after grouping completes. This means a
+		// sub-issue with status "Triage" whose parent has status "In progress"
+		// renders nested under the parent in the "In progress" group, rather
+		// than appearing alone in its own "Triage" bucket.
+		//
+		// Sub-issues whose parent isn't in the view (e.g. user is assigned to
+		// the child but not the parent) fall through to normal grouping with
+		// the "↳ PARENT-ID" hint badge from `renderIssueRow`.
+		const idsInView = new Set(sortedIssues.map((i) => i._id as string));
+		const childrenByParent = new Map<string, IssueListData[]>();
+		const issuesForGrouping: IssueListData[] = [];
+
+		for (const issue of sortedIssues) {
+			const pid = issue.parentId as string | undefined;
+			if (showSubIssuesProp && pid && idsInView.has(pid)) {
+				const arr = childrenByParent.get(pid) ?? [];
+				arr.push(issue);
+				childrenByParent.set(pid, arr);
+			} else {
+				issuesForGrouping.push(issue);
+			}
+		}
+
 		const groups = groupIssues(
-			sortedIssues,
+			issuesForGrouping,
 			groupBy,
 			memberMap,
 			projectMap,
 			milestoneMap,
 			statusDescriptors,
+			resolveCategoryForIssue,
 		);
 
-		// Apply sub-grouping
+		// Apply sub-grouping (over the same already-filtered set; sub-issues
+		// stay attached to their parents and never become their own sub-group
+		// entries either).
 		if (subGroupBy !== "none" && subGroupBy !== groupBy) {
 			for (const group of groups) {
 				group.subGroups = groupIssues(
@@ -749,7 +906,33 @@ export function IssueListView({
 					projectMap,
 					milestoneMap,
 					statusDescriptors,
+					resolveCategoryForIssue,
 				);
+			}
+		}
+
+		// Append children immediately after their parent within whichever
+		// group/sub-group the parent landed in. Children skip group placement
+		// entirely; their position is dictated by the parent's, not by their
+		// own status / category / priority.
+		if (showSubIssuesProp && childrenByParent.size > 0) {
+			const expandWithChildren = (rows: IssueListData[]): IssueListData[] => {
+				const out: IssueListData[] = [];
+				for (const issue of rows) {
+					out.push(issue);
+					const kids = childrenByParent.get(issue._id as string);
+					if (kids) out.push(...kids);
+				}
+				return out;
+			};
+			for (const group of groups) {
+				if (group.subGroups) {
+					for (const sub of group.subGroups) {
+						sub.issues = expandWithChildren(sub.issues);
+					}
+				} else {
+					group.issues = expandWithChildren(group.issues);
+				}
 			}
 		}
 
@@ -764,11 +947,22 @@ export function IssueListView({
 		groupBy,
 		subGroupBy,
 		showEmptyGroupsProp,
+		showSubIssuesProp,
 		memberMap,
 		projectMap,
 		milestoneMap,
 		statusDescriptors,
+		resolveCategoryForIssue,
 	]);
+
+	// Lookup map for sub-issue parent identifier: when a sub-issue's parent
+	// is in the visible list we mark it as nested; when not, we render an
+	// "↳ PARENT-ID" hint so the relationship isn't lost.
+	const issueLookup = useMemo(() => {
+		const map = new Map<string, IssueListData>();
+		for (const i of issues) map.set(i._id as string, i);
+		return map;
+	}, [issues]);
 
 	// ── Flat list of visible issue IDs for keyboard nav ──────────────────
 	const flatIssueIds = useMemo(() => {
@@ -1007,28 +1201,49 @@ export function IssueListView({
 	const issueIdToGroupKey = useMemo(() => {
 		const map = new Map<string, string>();
 		for (const issue of sortedIssues) {
-			if (groupBy === "priority") {
-				map.set(issue._id as string, issue.priority);
-			} else if (groupBy === "assignee") {
-				const ids =
-					issue.assigneeIds && issue.assigneeIds.length > 0
-						? issue.assigneeIds
-						: issue.assigneeId
-							? [issue.assigneeId]
-							: [];
-				const key =
-					ids.length === 0
-						? "unassigned"
-						: ids.length === 1
-							? (ids[0] as string)
-							: "multiple";
-				map.set(issue._id as string, key);
-			} else {
-				map.set(issue._id as string, issue.status);
+			let key: string;
+			switch (groupBy) {
+				case "priority":
+					key = issue.priority;
+					break;
+				case "assignee": {
+					const ids =
+						issue.assigneeIds && issue.assigneeIds.length > 0
+							? issue.assigneeIds
+							: issue.assigneeId
+								? [issue.assigneeId]
+								: [];
+					key =
+						ids.length === 0
+							? "unassigned"
+							: ids.length === 1
+								? (ids[0] as string)
+								: "multiple";
+					break;
+				}
+				case "category":
+					key = resolveCategoryForIssue(issue);
+					break;
+				case "project":
+					key = issue.projectId ? (issue.projectId as string) : "no_project";
+					break;
+				case "milestone":
+					key = issue.sprintId
+						? (issue.sprintId as string)
+						: issue.milestoneId
+							? (issue.milestoneId as string)
+							: "no_milestone";
+					break;
+				case "none":
+					key = "all";
+					break;
+				default:
+					key = issue.status;
 			}
+			map.set(issue._id as string, key);
 		}
 		return map;
-	}, [sortedIssues, groupBy]);
+	}, [sortedIssues, groupBy, resolveCategoryForIssue]);
 	const handleDragEnd = useCallback(
 		(event: DragEndEvent) => {
 			const activeId = String(event.active.id);
@@ -1039,49 +1254,200 @@ export function IssueListView({
 			// rect and can still reference a group dropzone at the edge).
 			const sidebarTarget = resolveSidebarDropTarget(event);
 			if (sidebarTarget) {
-				if (sidebarTarget.kind === "sprint") {
-					void updateIssue({
-						issueId: activeId as Id<"issues">,
-						projectId: sidebarTarget.projectId as Id<"projects">,
-						sprintId: sidebarTarget.sprintId as Id<"sprints">,
+				// Bulk-drag: when the dragged row is part of a multi-row
+				// selection, the whole selection moves together. Dragging a
+				// row that ISN'T in the selection only moves that single row
+				// (so users can drag a non-selected card without losing their
+				// existing selection's destination).
+				const idsToMove =
+					selectedIds.size > 1 && selectedIds.has(activeId)
+						? Array.from(selectedIds)
+						: [activeId];
+
+				const movePatch =
+					sidebarTarget.kind === "sprint"
+						? {
+								projectId: sidebarTarget.projectId as Id<"projects">,
+								sprintId: sidebarTarget.sprintId as Id<"sprints">,
+							}
+						: ({
+								projectId: sidebarTarget.projectId as Id<"projects">,
+								sprintId: null as Id<"sprints"> | null,
+								listId: null as Id<"lists"> | null,
+							} as const);
+
+				const successLabel =
+					sidebarTarget.kind === "sprint"
+						? "sprint"
+						: sidebarTarget.kind === "project"
+							? "project"
+							: "backlog";
+
+				// Optimistic hide so the rows visibly leave the list right
+				// away — the alternative is a half-second pause where the
+				// dragged rows stay in place, which feels unresponsive on
+				// bulk drops. Cleanup effect clears these as the upstream
+				// query drops them; failures clear immediately.
+				setOptimisticallyHiddenIds((prev) => {
+					const next = new Set(prev);
+					for (const id of idsToMove) next.add(id);
+					return next;
+				});
+
+				const clearOptimistic = () => {
+					setOptimisticallyHiddenIds((prev) => {
+						if (prev.size === 0) return prev;
+						const next = new Set(prev);
+						for (const id of idsToMove) next.delete(id);
+						return next;
+					});
+				};
+
+				Promise.all(
+					idsToMove.map((id) =>
+						updateIssue({
+							issueId: id as Id<"issues">,
+							...movePatch,
+						}),
+					),
+				)
+					.then(() => {
+						toast.success(
+							idsToMove.length === 1
+								? `Moved to ${successLabel}`
+								: `Moved ${idsToMove.length} issues to ${successLabel}`,
+						);
+						pulseDropTarget(sidebarTarget.kind, {
+							projectId: sidebarTarget.projectId,
+							...(sidebarTarget.kind === "sprint"
+								? { sprintId: sidebarTarget.sprintId }
+								: {}),
+						});
+						// Clear the optimistic-hide entries on success too.
+						// Otherwise, if a moved issue stays in scope (e.g.
+						// the user is still assigned to it on My Issues, or
+						// it's still in the same project), my upstream
+						// cleanup effect can't tell it to come back: the id
+						// is still in `issues`, so the effect never deletes
+						// the entry. Result: rows hidden permanently until
+						// refresh, which read as "I had to retry the drop".
+						// Selection follows the same lifecycle.
+						clearOptimistic();
+						if (idsToMove.length > 1) setSelectedIds(new Set());
 					})
-						.then(() => {
-							toast.success("Moved to sprint");
-							pulseDropTarget("sprint", {
-								projectId: sidebarTarget.projectId,
-								sprintId: sidebarTarget.sprintId,
-							});
-						})
-						.catch(() => toast.error("Failed to move issue"));
-				} else if (
-					sidebarTarget.kind === "backlog" ||
-					sidebarTarget.kind === "project"
-				) {
-					void updateIssue({
-						issueId: activeId as Id<"issues">,
-						projectId: sidebarTarget.projectId as Id<"projects">,
-						sprintId: null,
-						listId: null,
-					})
-						.then(() => {
-							toast.success(
-								sidebarTarget.kind === "project"
-									? "Moved to project"
-									: "Moved to backlog",
-							);
-							pulseDropTarget(sidebarTarget.kind, {
-								projectId: sidebarTarget.projectId,
-							});
-						})
-						.catch(() => toast.error("Failed to move issue"));
-				}
+					.catch(() => {
+						toast.error(
+							idsToMove.length === 1
+								? "Failed to move issue"
+								: "Failed to move some issues",
+						);
+						// Restore the rows so the user can retry.
+						clearOptimistic();
+					});
 				return;
 			}
 
 			if (!event.over) return;
+			const overId = String(event.over.id);
+
+			// Within-group reorder: sortedIssues stays in `manual` order =
+			// `sortOrder` ASC. When the user drops a row onto another row in
+			// the same group, compute a fractional sortOrder so the dragged
+			// row lands at the target position. This is the only way "manual"
+			// ordering is mutable from the UI.
+			//
+			// Only meaningful when sort is `manual` — for other sorts the
+			// `sortOrder` field doesn't drive visual position, so changing
+			// it would just appear to do nothing. We still allow it (the
+			// mutation succeeds) but the user wouldn't notice.
+			if (!overId.startsWith("group:")) {
+				const currentGroupKey = issueIdToGroupKey.get(activeId);
+				const targetGroupKey = issueIdToGroupKey.get(overId);
+				if (
+					currentGroupKey &&
+					targetGroupKey &&
+					currentGroupKey === targetGroupKey
+				) {
+					// Build the row order within this group from the rendered
+					// `groupedIssues` so the fractional index lines up with
+					// what the user sees on screen.
+					let rowsInGroup: IssueListData[] | null = null;
+					for (const g of groupedIssues) {
+						if (g.subGroups) {
+							for (const sg of g.subGroups) {
+								if (sg.issues.some((i) => i._id === activeId)) {
+									rowsInGroup = sg.issues;
+									break;
+								}
+							}
+						} else if (g.issues.some((i) => i._id === activeId)) {
+							rowsInGroup = g.issues;
+						}
+						if (rowsInGroup) break;
+					}
+					if (!rowsInGroup) return;
+
+					const oldIndex = rowsInGroup.findIndex(
+						(i) => (i._id as string) === activeId,
+					);
+					const overIndex = rowsInGroup.findIndex(
+						(i) => (i._id as string) === overId,
+					);
+					if (oldIndex === -1 || overIndex === -1 || oldIndex === overIndex)
+						return;
+
+					// Use dnd-kit's `arrayMove` to compute the post-drop order,
+					// then derive `sortOrder` from the *neighbors* of the
+					// dragged item in that final array. This avoids the
+					// off-by-one trap of computing against a "filtered without
+					// active" array using the original index — which silently
+					// produced a position one slot off when dragging downward
+					// across multiple items, making it look like the row only
+					// moved one position at a time.
+					const newOrder = arrayMove(rowsInGroup, oldIndex, overIndex);
+					const newIndex = newOrder.findIndex(
+						(i) => (i._id as string) === activeId,
+					);
+					if (newIndex === -1) return;
+
+					let newSortOrder: number;
+					if (newOrder.length === 1) {
+						newSortOrder = 1.0;
+					} else if (newIndex === 0) {
+						newSortOrder = (newOrder[1].sortOrder ?? 1) / 2;
+					} else if (newIndex === newOrder.length - 1) {
+						newSortOrder = (newOrder[newOrder.length - 2].sortOrder ?? 0) + 1.0;
+					} else {
+						const before = newOrder[newIndex - 1].sortOrder ?? 0;
+						const after = newOrder[newIndex + 1].sortOrder ?? 1;
+						newSortOrder = (before + after) / 2;
+					}
+
+					// Optimistic: write the override immediately so the row sits
+					// at the drop position; the effect above clears it once the
+					// upstream `issues` prop catches up with the server value.
+					setPendingSortOrders((prev) => {
+						const next = new Map(prev);
+						next.set(activeId, newSortOrder);
+						return next;
+					});
+					reorderIssue({
+						issueId: activeId as Id<"issues">,
+						newSortOrder,
+					}).catch(() => {
+						toast.error("Failed to reorder");
+						setPendingSortOrders((prev) => {
+							if (!prev.has(activeId)) return prev;
+							const next = new Map(prev);
+							next.delete(activeId);
+							return next;
+						});
+					});
+					return;
+				}
+			}
 
 			if (!canDragAcrossGroups) return;
-			const overId = String(event.over.id);
 			// Prefer explicit group drop zone, but also support dropping onto a row
 			// inside the destination group (typical sortable list behavior).
 			const nextGroupKey = overId.startsWith("group:")
@@ -1112,6 +1478,18 @@ export function IssueListView({
 			issueIdToGroupKey,
 			groupBy,
 			updateIssue,
+			groupedIssues,
+			reorderIssue,
+			// `selectedIds` is read by the bulk-drag-to-sidebar branch to
+			// decide whether the drop applies to one row or to the whole
+			// multi-selection. Omitting it from deps caused `useCallback` to
+			// keep referencing the stale (often empty) Set from before the
+			// user made the selection — so the first drop after selecting
+			// only moved the actively-dragged row. Subsequent drops worked
+			// because some other state change had since re-memoized the
+			// callback. This dep makes the bulk move correct on the first
+			// try.
+			selectedIds,
 		],
 	);
 
@@ -1134,12 +1512,29 @@ export function IssueListView({
 			transform: CSS.Transform.toString(transform),
 			transition,
 		};
+		// Bulk-drag visual: when this row is the actively-dragged one AND
+		// part of a multi-select, show a count badge on its leading edge
+		// so users can see at a glance "I'm moving 5". Other selected rows
+		// fade in opacity while a bulk drag is in progress so the user
+		// sees the whole selection responding to the gesture.
+		const isInSelection = selectedIds.has(issueId);
+		const isBulkDrag = isDragging && isInSelection && selectedIds.size > 1;
+		const isPassengerInBulkDrag =
+			!isDragging &&
+			isInSelection &&
+			activelyDraggingId !== null &&
+			selectedIds.has(activelyDraggingId);
+		const bulkCount = selectedIds.size;
 		return (
 			<div
 				ref={setNodeRef}
 				style={style}
 				data-issue-id={issueId}
-				className={cn(isDragging && "opacity-70")}
+				className={cn(
+					"relative",
+					isDragging && "opacity-60 ring-1 ring-primary/40 z-10",
+					isPassengerInBulkDrag && "opacity-40",
+				)}
 				onClickCapture={(e) => {
 					if (suppressClickRef.current) {
 						e.preventDefault();
@@ -1149,6 +1544,15 @@ export function IssueListView({
 				{...attributes}
 				{...listeners}
 			>
+				{isBulkDrag && (
+					<span
+						role="status"
+						aria-label={`${bulkCount} issues selected`}
+						className="absolute left-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center min-w-[1.5rem] h-5 px-1.5 rounded-full bg-sienna-500 text-white text-[11px] font-semibold shadow-md tabular-nums z-20 pointer-events-none"
+					>
+						{bulkCount}
+					</span>
+				)}
 				{children}
 			</div>
 		);
@@ -1535,6 +1939,21 @@ export function IssueListView({
 		const issueId = issue._id as string;
 		const issueUrl = `/${workspaceSlug}/issues/${issue.identifier}`;
 
+		// Sub-issue presentation: if this row has a parent and the parent is
+		// also visible in the list, render nested. If parent isn't in the list,
+		// fall back to a flat row with a small "↳ PARENT-ID" hint so the user
+		// still sees the relationship.
+		let parentRef: { identifier: string; inView: boolean } | undefined;
+		if (issue.parentId) {
+			const pidStr = issue.parentId as unknown as string;
+			const parent = issueLookup.get(pidStr);
+			if (parent) {
+				parentRef = { identifier: parent.identifier, inView: true };
+			} else {
+				parentRef = { identifier: pidStr, inView: false };
+			}
+		}
+
 		return (
 			<SortableIssueRow key={issue._id} issueId={issueId}>
 				<div
@@ -1550,7 +1969,7 @@ export function IssueListView({
 					<IssueListRow
 						issue={issue}
 						columns={visibleColumns}
-						statusItems={statusItems}
+						statusItems={getRowStatusItems(issue)}
 						isHighlighted={idx === highlightedIndex}
 						issueUrl={issueUrl}
 						onDelete={handleDeleteIssue}
@@ -1577,6 +1996,7 @@ export function IssueListView({
 							selected: selectedIds.has(issueId),
 							onToggle: (shiftKey) => handleSelectIssue(issueId, shiftKey),
 						}}
+						parentRef={parentRef}
 						onClick={() => handleIssueClick(issue.identifier)}
 					/>
 				</div>
@@ -1653,9 +2073,10 @@ export function IssueListView({
 				<DndContext
 					sensors={sensors}
 					collisionDetection={closestCenter}
-					onDragStart={() => {
+					onDragStart={(e) => {
 						suppressClickRef.current = true;
 						setSidebarDragActive(true);
+						setActivelyDraggingId(String(e.active.id));
 					}}
 					onDragEnd={(e) => {
 						requestAnimationFrame(() => {
@@ -1664,11 +2085,13 @@ export function IssueListView({
 							});
 						});
 						setSidebarDragActive(false);
+						setActivelyDraggingId(null);
 						handleDragEnd(e);
 					}}
 					onDragCancel={() => {
 						suppressClickRef.current = false;
 						setSidebarDragActive(false);
+						setActivelyDraggingId(null);
 					}}
 				>
 					<SortableContext

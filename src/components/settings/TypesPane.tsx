@@ -51,6 +51,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { resolveStatusCategory } from "@/hooks/use-effective-issue-config";
 import { applyOrder } from "@/hooks/use-workspace-settings";
 import {
 	DEFAULT_ISSUE_TYPES,
@@ -59,6 +60,9 @@ import {
 	getPriorityConfig,
 	getStatusConfig,
 	getTypeConfig,
+	STATUS_CATEGORY_LABELS,
+	STATUS_CATEGORY_ORDER,
+	type StatusCategory,
 } from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
@@ -155,16 +159,24 @@ export function TypesSettingsPane() {
 
 	const mergeDefaults = (
 		defaults: { key: string; name: string; color: string }[],
-		custom: { key: string; name: string; color: string }[] | undefined,
+		custom:
+			| {
+					key: string;
+					name: string;
+					color: string;
+					category?: StatusCategory;
+			  }[]
+			| undefined,
 	) => {
 		if (!custom || custom.length === 0)
 			return defaults.map((d) => ({ ...d, isDefault: true }));
-		// Override defaults + append custom-added items
+		// Override defaults + append custom-added items. Preserve `category` from
+		// the custom override where present (statuses only — types/priorities
+		// pass items without category, so the field stays undefined for those).
 		const merged = defaults.map((def) => {
 			const override = custom.find((c) => c.key === def.key);
 			return { ...(override ?? def), isDefault: true };
 		});
-		// Add items that don't exist in defaults (user-created)
 		const customOnly = custom.filter(
 			(c) => !defaults.some((d) => d.key === c.key),
 		);
@@ -176,8 +188,18 @@ export function TypesSettingsPane() {
 	// same sequence the app (kanban, list, pickers) sees. Without this, the
 	// optimistic local order from SortableStatusList gets clobbered as soon as
 	// the server round-trip replaces `items` on the next render.
+	const statusesUnordered = mergeDefaults(
+		defaultStatusItems,
+		settings?.customStatuses,
+	);
+	// Tag each status with its effective category so the row UI can display
+	// and edit it. Resolution order: explicit category on the row → default
+	// category for built-in keys → heuristic inference.
 	const statuses = applyOrder(
-		mergeDefaults(defaultStatusItems, settings?.customStatuses),
+		statusesUnordered.map((s) => ({
+			...s,
+			category: resolveStatusCategory(s, s.key),
+		})),
 		settings?.customStatusOrder,
 	);
 	const priorities = mergeDefaults(
@@ -478,6 +500,21 @@ export function TypesSettingsPane() {
 		name: string;
 		color: string;
 		isDefault: boolean;
+		/** Status category — only set for status rows. Resolved from explicit
+		 *  category, default-keyed mapping, or heuristic inference. */
+		category?: StatusCategory;
+	};
+
+	const handleStatusCategoryChange = async (
+		key: string,
+		category: StatusCategory,
+	) => {
+		if (!workspaceId) return;
+		try {
+			await updateCustomStatus({ workspaceId, key, category });
+		} catch {
+			toast.error("Failed to update category");
+		}
 	};
 
 	const renderRow = (
@@ -569,6 +606,29 @@ export function TypesSettingsPane() {
 
 				{/* Spacer */}
 				<div className="flex-1" />
+
+				{/* Category picker (statuses only). Editable on custom statuses;
+				   defaults are pinned to their built-in category and read-only. */}
+				{section === "statuses" && item.category && (
+					<Select
+						value={item.category}
+						onValueChange={(value) =>
+							handleStatusCategoryChange(item.key, value as StatusCategory)
+						}
+						disabled={!isAdmin || item.isDefault}
+					>
+						<SelectTrigger className="h-7 w-32 text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{STATUS_CATEGORY_ORDER.map((cat) => (
+								<SelectItem key={cat} value={cat} className="text-xs">
+									{STATUS_CATEGORY_LABELS[cat]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				)}
 
 				{/* Delete button (visible on hover) */}
 				{isAdmin && !item.isDefault && (

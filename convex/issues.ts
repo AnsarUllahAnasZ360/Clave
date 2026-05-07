@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
 	internalMutation,
 	internalQuery,
@@ -145,7 +145,7 @@ async function ensureAssigneeInWorkspace(
 
 // ── Shared Return Validators ────────────────────────────────────────────────
 
-const issueDocValidator = v.object({
+export const issueDocValidator = v.object({
 	_id: v.id("issues"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),
@@ -180,7 +180,7 @@ const issueDocValidator = v.object({
 	),
 });
 
-const issueWithParentValidator = v.object({
+export const issueWithParentValidator = v.object({
 	_id: v.id("issues"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),
@@ -457,7 +457,14 @@ export const listBySprint = query({
 			.withIndex("by_sprint_sort", (q) => q.eq("sprintId", args.sprintId))
 			.collect();
 
-		return issues.filter((issue) => !issue.deletedAt);
+		const directlyInSprint = issues.filter((issue) => !issue.deletedAt);
+		// Pull in sub-issues whose parent is in this sprint, even if the
+		// child's own sprintId is unset (or set to a different sprint —
+		// happens when the parent's sprint changes after creation, since
+		// we don't auto-update children's sprintId). This keeps the list
+		// view's hierarchy-first nesting intact: parent visible → children
+		// visible right under it.
+		return await expandWithSubIssues(ctx, directlyInSprint);
 	},
 });
 
@@ -875,7 +882,13 @@ export const getProgress = query({
 export const create = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
-		projectId: v.optional(v.id("projects")),
+		// Issues must always belong to a project. A workspace-level orphan
+		// makes every cross-project view (My Issues, kanban, search) ambiguous
+		// — there's no project context to resolve status, no parent for
+		// inheritance, and the rest of the data model assumes ownership.
+		// Sub-issue creation (`createSubIssue`) defaults this from the parent
+		// when omitted; the top-level create requires it explicitly.
+		projectId: v.id("projects"),
 		sprintId: v.optional(v.id("sprints")),
 		listId: v.optional(v.id("lists")),
 		milestoneId: v.optional(v.id("milestones")),
@@ -3397,6 +3410,43 @@ async function autoSubscribe(
 
 // ── My Issues Queries ───────────────────────────────────────────────────────
 
+/**
+ * Expand a set of "primary" matched issues with any of their sub-issues that
+ * live in the same workspace. Used by My Issues / Sprint queries so when a
+ * parent matches the user's filter, its children come along for the ride —
+ * even if the children weren't directly matched (different assignee, no
+ * sprint set, etc.). The list view then nests them under their parent.
+ *
+ * Sub-issues of matched parents that aren't deleted and share the workspace
+ * are appended; duplicates are deduped by id.
+ */
+async function expandWithSubIssues(
+	ctx: QueryCtx | MutationCtx,
+	primary: Doc<"issues">[],
+): Promise<Doc<"issues">[]> {
+	if (primary.length === 0) return primary;
+	const seen = new Set<Id<"issues">>(primary.map((i) => i._id));
+	const result: Doc<"issues">[] = [...primary];
+	const expectedWorkspaceId = primary[0]?.workspaceId;
+	for (const parent of primary) {
+		const subs = await ctx.db
+			.query("issues")
+			.withIndex("by_parent", (q) => q.eq("parentId", parent._id))
+			.collect();
+		for (const sub of subs) {
+			if (seen.has(sub._id)) continue;
+			if (sub.deletedAt) continue;
+			// Defensive: only include sub-issues from the same workspace as
+			// the parent. Cross-workspace pairing shouldn't happen, but if it
+			// did (legacy data) we'd leak issues into the wrong scope.
+			if (sub.workspaceId !== expectedWorkspaceId) continue;
+			seen.add(sub._id);
+			result.push(sub);
+		}
+	}
+	return result;
+}
+
 /** Issues assigned to the current user in the workspace */
 export const myIssuesAssigned = query({
 	args: {
@@ -3414,13 +3464,19 @@ export const myIssuesAssigned = query({
 			.withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
 			.collect();
 
-		// RBAC: assigned issues are always visible to the assignee
-		return issues.filter(
+		const directlyAssigned = issues.filter(
 			(issue) =>
 				!issue.deletedAt &&
 				(issue.assigneeId === userId ||
 					(issue.assigneeIds?.includes(userId) ?? false)),
 		);
+
+		// Pull in sub-issues whose parent is "mine" so the list view can nest
+		// them under their parent. Without this, sub-issues that weren't
+		// explicitly assigned to me wouldn't appear at all on My Issues, and
+		// the parent card would show "1 sub-issue" with no way to see it from
+		// this page.
+		return await expandWithSubIssues(ctx, directlyAssigned);
 	},
 });
 
@@ -3440,8 +3496,8 @@ export const myIssuesCreated = query({
 			)
 			.collect();
 
-		// RBAC: created issues are always visible to the creator
-		return issues.filter((issue) => !issue.deletedAt);
+		const directlyCreated = issues.filter((issue) => !issue.deletedAt);
+		return await expandWithSubIssues(ctx, directlyCreated);
 	},
 });
 

@@ -4,9 +4,10 @@ import { X } from "lucide-react";
 import { useMemo } from "react";
 
 import { useWorkspace } from "@/components/providers/workspace-context";
+import { useWorkspaceProjects } from "@/components/providers/workspace-data-context";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import { useProjectsEffectiveConfigs } from "@/hooks/use-effective-issue-config";
 import { DEFAULT_PRIORITIES, PRIORITY_LABELS } from "@/lib/issue-config";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -39,8 +40,16 @@ export function MyIssuesInsightsPanel({
 	onClose,
 }: MyIssuesInsightsPanelProps) {
 	const { workspaceId } = useWorkspace();
-	const effective = useEffectiveIssueConfig(workspaceId);
-	const statusItems = effective.statusItems;
+	// Cross-project view — resolve via the union of all visible projects'
+	// status definitions, not just the workspace defaults. Otherwise issues
+	// with project-only custom statuses get bucketed against unknown keys
+	// and disappear from the breakdown.
+	const workspaceProjects = useWorkspaceProjects();
+	const crossProject = useProjectsEffectiveConfigs(
+		workspaceId,
+		workspaceProjects ?? undefined,
+	);
+	const statusItems = crossProject.unionStatusItems;
 	const STATUS_ORDER = useMemo(
 		() => statusItems.map((s) => s.id),
 		[statusItems],

@@ -16,6 +16,7 @@ type Fixture = {
 	adminId: Id<"users">;
 	memberId: Id<"users">;
 	workspaceId: Id<"workspaces">;
+	projectId: Id<"projects">;
 };
 
 async function seedFixture(
@@ -58,7 +59,17 @@ async function seedFixture(
 			nextIssueNumber: 1,
 		});
 
-		return { adminId, memberId, workspaceId };
+		// Issues now require projectId — seed a project so create() succeeds.
+		const projectId = await ctx.db.insert("projects", {
+			workspaceId,
+			name: "Notif Project",
+			slug: "notif-project",
+			status: "active",
+			sortOrder: 0,
+			createdBy: adminId,
+		});
+
+		return { adminId, memberId, workspaceId, projectId };
 	});
 }
 
@@ -70,6 +81,7 @@ describe("issue assignment notifications", () => {
 
 		const { issueId } = await admin.mutation(api.issues.create, {
 			workspaceId: fx.workspaceId,
+			projectId: fx.projectId,
 			title: "Wire notification flow",
 		});
 
@@ -100,6 +112,7 @@ describe("issue assignment notifications", () => {
 
 		const { issueId } = await admin.mutation(api.issues.create, {
 			workspaceId: fx.workspaceId,
+			projectId: fx.projectId,
 			title: "Track assignment subscriptions",
 		});
 

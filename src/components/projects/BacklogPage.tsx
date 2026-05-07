@@ -55,13 +55,18 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 		slug: projectSlug,
 	});
 
-	const backlogIssues = useQuery(
-		api.issues.listBacklog,
-		project ? { projectId: project._id } : "skip",
-	);
-
 	const displayOpts = useDisplayOptions(`backlog-${projectSlug}`);
 	const options = displayOpts.options;
+
+	// Fetch with `showSubIssues=true` so sub-issues are returned by the
+	// backend; the list view's hierarchy-first grouping handles whether to
+	// render them nested under their parent or hide them when the toggle is
+	// off. Without this flag, `listBacklog` filters sub-issues out at the
+	// server which made nesting impossible regardless of the client toggle.
+	const backlogIssues = useQuery(
+		api.issues.listBacklog,
+		project ? { projectId: project._id, showSubIssues: true } : "skip",
+	);
 
 	const handleCreateIssue = useCallback(() => {
 		if (project) {
@@ -112,6 +117,9 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			projectId: issue.projectId ?? undefined,
 			sprintId: issue.sprintId ?? undefined,
 			milestoneId: issue.milestoneId ?? undefined,
+			parentId: issue.parentId ?? undefined,
+			_creationTime: issue._creationTime,
+			updatedAt: issue.updatedAt ?? undefined,
 		}));
 	}, [filteredIssues]);
 
@@ -134,6 +142,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 			projectId: issue.projectId ?? undefined,
 			sprintId: issue.sprintId ?? undefined,
 			milestoneId: issue.milestoneId ?? undefined,
+			parentId: issue.parentId ?? undefined,
 			updatedAt: issue.updatedAt ?? undefined,
 		}));
 	}, [filteredIssues]);
@@ -255,6 +264,8 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 								externalIssues={filteredBoardIssues}
 								displayProperties={boardDisplayProperties}
 								swimlaneBy={options.swimlaneBy}
+								orderBy={options.orderBy}
+								orderDirection={options.orderDirection}
 								onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 							/>
 						</div>
@@ -270,6 +281,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 							orderDirection={options.orderDirection}
 							displayProperties={options.displayProperties}
 							showEmptyGroups={options.showEmptyGroups}
+							showSubIssues={options.showSubIssues}
 							hideFilter
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>

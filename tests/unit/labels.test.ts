@@ -35,7 +35,17 @@ async function seedWorkspace(t: ReturnType<typeof createBackend>) {
 			joinedAt: Date.now(),
 		});
 
-		return { adminId, memberId, workspaceId };
+		// Issues require projectId — seed a project so create() works.
+		const projectId = await ctx.db.insert("projects", {
+			workspaceId,
+			name: "Labels Test Project",
+			slug: "labels-test-project",
+			status: "active",
+			sortOrder: 0,
+			createdBy: adminId,
+		});
+
+		return { adminId, memberId, workspaceId, projectId };
 	});
 }
 
@@ -286,6 +296,7 @@ describe("labels", () => {
 			// Create issue with this label
 			const { issueId } = await admin.mutation(api.issues.create, {
 				workspaceId: fx.workspaceId,
+				projectId: fx.projectId,
 				title: "Test issue",
 				labelIds: [labelId],
 			});

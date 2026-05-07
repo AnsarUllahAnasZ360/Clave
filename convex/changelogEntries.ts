@@ -25,6 +25,37 @@ export type ChangelogEntry = {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
 	{
+		version: "0.6.0",
+		releasedAt: "2026-05-07T00:00:00Z",
+		title: "Per-project status resolution, status categories, and list-view UX",
+		features: [
+			"Issue statuses now resolve per-issue against the issue's own project — a project-only custom status (e.g. 'Testing in staging') renders correctly on My Issues, Inbox, and AI duplicate panels instead of falling back to the workspace default",
+			"Status categories (Backlog · Not started · In progress · Done · Cancelled): every status — built-in or custom — is assigned to one of five buckets, used as the column axis on the cross-project kanban so My Issues no longer fans out into one column per project's custom statuses",
+			"Project settings now show workspace-inherited statuses and types alongside the project's own customs, with origin badges; you can rename, recolor, recategorize, or hide any of them — hiding only affects the current project",
+			"Sub-issues nest under their parent in the list view regardless of grouping (parent's group wins), and skip the kanban as separate cards when the parent is visible — the parent card carries the sub-issue count badge",
+			"Sub-issues now show on Backlog, Sprint, My Issues, and List pages — earlier they were filtered out by those queries before reaching the view",
+			"Inline status change and inline delete on each sub-issue row in the parent issue's detail page — no need to drill into the sub-issue first",
+			"My Issues defaults to category grouping; tab pills (Assigned · Created · Subscribed · Activity) gain icons and a sienna-tinted active state with count chips",
+			"My Issues filter popover gains a Category filter; the Status filter now lists every visible project's statuses, not just workspace defaults",
+			"Bulk drag-to-sidebar moves the entire selection to the target — count badge and stack visual on the drag overlay tell you how many cards are coming along; rows visibly leave the list/board on drop",
+			"Manual ordering works via drag-drop on every list view; reorders persist optimistically so the row stays where you drop it instead of snapping back",
+			"List and kanban share one sort implementation — picking 'Priority' or 'Created date' in Display options applies identically on both layouts; date sorts now follow consistent ascending = oldest semantics; manual sort disables the direction toggle",
+			"Issue creation enforces a project — every create path (quick create, full create, inline, AI suggestion) requires a project selection",
+			"Create-branch dialog defaults to the repo's *live* default branch from GitHub — handles renames (master → main) and stale stored values; a 'default' badge shows on the picker",
+			"Robust 404 / 500 routing: dedicated error.tsx and not-found.tsx pages at root and workspace levels — broken paths render cleanly instead of falling through to the marketing layout",
+		],
+		bugFixes: [
+			"Status displayed on cross-project views matches the issue's actual status (was rendering as 'To Do' for any project-only custom key)",
+			"Project settings list now matches what the kanban shows — workspace-level custom statuses appear here too with a 'workspace' badge",
+			"Backlog, Sprint, and My Issues no longer hide sub-issues by default; the 'Show sub-issues' toggle in Display options now actually works on every page that uses the list view",
+			"Manual reorder in list view now reorders correctly across multiple positions; the off-by-one that made it look like rows could only move one slot at a time is gone",
+			"Bulk drag now moves the whole selection on the very first drop — the closure-stale selectedIds bug that made the first attempt move only one row is fixed",
+			"My Issues no longer overrides the persisted sort order with `_creationTime + index` on every render — drag-drop reorder actually persists across reloads",
+			"Issues remain readable when their underlying project's custom status set changes — the resolver gracefully falls back so legacy data doesn't break the UI",
+			"Status-key sort direction (Created / Updated / Due) is consistent with the arrow-up/arrow-down toggle — ascending now means oldest/earliest first across all date sorts",
+		],
+	},
+	{
 		version: "0.5.0",
 		releasedAt: "2026-04-21T00:00:00Z",
 		title: "Sprint reports: burndown, velocity, schedule-aware summary",

@@ -26,7 +26,6 @@ import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	useCallback,
 	useEffect,
-	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -60,6 +59,7 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspacePresenceIndicator } from "@/components/workspace/WorkspacePresenceIndicator";
@@ -374,18 +374,26 @@ export function AppSidebar() {
 			collapsible="icon"
 			className="border-border/40 border-r-0 shadow-none border-none overflow-x-hidden"
 		>
-			<SidebarHeader className="p-4 group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:pt-7 group-data-[collapsible=icon]:pb-2">
+			<SidebarHeader className="p-4 group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:pt-7 group-data-[collapsible=icon]:pb-2 group-data-[collapsible=icon]:gap-2">
 				<div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
 					<div className="flex-1 min-w-0 group-data-[collapsible=icon]:flex-none">
 						<WorkspaceSelector />
 					</div>
-					<div className="group-data-[collapsible=icon]:hidden">
+					<div className="flex items-center gap-1 group-data-[collapsible=icon]:hidden">
 						<WorkspacePresenceIndicator
 							onlineUsers={onlineUsers}
 							isAnyoneOnline={isAnyoneOnline}
 						/>
+						<SidebarTrigger
+							className="size-7 text-muted-foreground hover:text-foreground"
+							title="Collapse sidebar"
+						/>
 					</div>
 				</div>
+				<SidebarTrigger
+					className="hidden size-7 mx-auto text-muted-foreground hover:text-foreground group-data-[collapsible=icon]:flex"
+					title="Expand sidebar"
+				/>
 			</SidebarHeader>
 
 			<div className="mx-3 border-b border-border/40" />

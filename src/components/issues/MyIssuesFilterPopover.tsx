@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWorkspaceOptional } from "@/components/providers/workspace-context";
+import { useWorkspaceProjects } from "@/components/providers/workspace-data-context";
 import { Button } from "@/components/ui/button";
 import {
 	FilterEmptyState,
@@ -10,14 +11,31 @@ import {
 	FilterOptionItem,
 	UnifiedFilterPopover,
 } from "@/components/unified-filter-popover";
-import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
-import { DEFAULT_PRIORITIES, PRIORITY_LABELS } from "@/lib/issue-config";
+import {
+	useEffectiveIssueConfig,
+	useProjectsEffectiveConfigs,
+} from "@/hooks/use-effective-issue-config";
+import {
+	DEFAULT_PRIORITIES,
+	PRIORITY_LABELS,
+	STATUS_CATEGORY_COLUMN_CONFIG,
+	STATUS_CATEGORY_LABELS,
+	STATUS_CATEGORY_ORDER,
+	type StatusCategory,
+} from "@/lib/issue-config";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type IssueFilters = {
 	statuses: string[];
+	/**
+	 * Status categories (Backlog · Not started · In progress · Done · Cancelled).
+	 * Used on cross-project views (My Issues) where filtering by raw status key
+	 * doesn't compose across projects with different custom statuses. Empty
+	 * array = no category filter applied. Values are `StatusCategory` strings.
+	 */
+	categories: string[];
 	priorities: string[];
 	projectId: string | null;
 	labelIds: string[];
@@ -30,6 +48,7 @@ export type IssueFilters = {
 
 const EMPTY_FILTERS: IssueFilters = {
 	statuses: [],
+	categories: [],
 	priorities: [],
 	projectId: null,
 	labelIds: [],
@@ -51,7 +70,21 @@ const ACTIVE_SPRINT_STORAGE_KEY = "clave:active-sprint-mode";
  * The mode is persisted to localStorage. Manually selecting individual
  * sprints via the filter popover turns the mode off.
  */
-export function useIssueFilters(activeSprintIds?: string[]) {
+export function useIssueFilters(
+	activeSprintIds?: string[],
+	options?: {
+		/**
+		 * Resolver for status → category, used when filtering by category on
+		 * cross-project views. Required if `filters.categories` is set;
+		 * otherwise the category filter silently no-ops.
+		 */
+		getCategoryForIssue?: (issue: {
+			status: string;
+			projectId?: string | null;
+		}) => StatusCategory;
+	},
+) {
+	const getCategoryForIssue = options?.getCategoryForIssue;
 	const [filters, setFilters] = useState<IssueFilters>(EMPTY_FILTERS);
 
 	// Active Sprint mode — persisted to localStorage, default true
@@ -99,6 +132,7 @@ export function useIssueFilters(activeSprintIds?: string[]) {
 			filters.milestoneIds.length === 0;
 		return (
 			filters.statuses.length +
+			filters.categories.length +
 			filters.priorities.length +
 			(filters.projectId ? 1 : 0) +
 			filters.labelIds.length +
@@ -138,6 +172,7 @@ export function useIssueFilters(activeSprintIds?: string[]) {
 		): T[] => {
 			const hasExplicitFilters =
 				filters.statuses.length > 0 ||
+				filters.categories.length > 0 ||
 				filters.priorities.length > 0 ||
 				filters.projectId !== null ||
 				filters.labelIds.length > 0 ||
@@ -154,6 +189,16 @@ export function useIssueFilters(activeSprintIds?: string[]) {
 					!filters.statuses.includes(issue.status)
 				)
 					return false;
+				// Category filter — only enforced when a resolver was supplied.
+				// On project-scoped views (no resolver), category filters are
+				// silently ignored rather than dropping every row.
+				if (filters.categories.length > 0 && getCategoryForIssue) {
+					const cat = getCategoryForIssue({
+						status: issue.status,
+						projectId: issue.projectId ?? null,
+					});
+					if (!filters.categories.includes(cat)) return false;
+				}
 				if (
 					filters.priorities.length > 0 &&
 					!filters.priorities.includes(issue.priority)
@@ -186,7 +231,7 @@ export function useIssueFilters(activeSprintIds?: string[]) {
 				return true;
 			});
 		},
-		[filters, effectiveSprintIds],
+		[filters, effectiveSprintIds, getCategoryForIssue],
 	);
 
 	return {
@@ -229,12 +274,23 @@ const PRIORITY_OPTIONS = [...DEFAULT_PRIORITIES]
 
 type FilterCategoryId =
 	| "status"
+	| "category"
 	| "priority"
 	| "project"
 	| "labels"
 	| "assignee"
 	| "sprint"
 	| "type";
+
+const CATEGORY_OPTIONS = STATUS_CATEGORY_ORDER.map((cat) => {
+	const cfg = STATUS_CATEGORY_COLUMN_CONFIG[cat];
+	const Icon = cfg.icon;
+	return {
+		id: cat as string,
+		label: STATUS_CATEGORY_LABELS[cat],
+		icon: <Icon className="h-3.5 w-3.5" style={{ color: cfg.colorHex }} />,
+	};
+});
 
 export function MyIssuesFilterPopover({
 	open,
@@ -266,24 +322,39 @@ export function MyIssuesFilterPopover({
 	}[];
 }) {
 	const [activeCategory, setActiveCategory] =
-		useState<FilterCategoryId>("status");
+		useState<FilterCategoryId>("category");
 	const workspace = useWorkspaceOptional();
 	const issueConfig = useEffectiveIssueConfig(workspace?.workspaceId);
+	// On cross-project My Issues we want filter options to include statuses
+	// from every visible project — not just the workspace's defaults — so the
+	// user can filter by a project-only "Testing in staging". The union
+	// resolver provides exactly this view.
+	const workspaceProjects = useWorkspaceProjects();
+	const crossProject = useProjectsEffectiveConfigs(
+		workspace?.workspaceId,
+		workspaceProjects ?? undefined,
+	);
 	const statusOptions = useMemo(() => {
-		return issueConfig.statuses.map((s) => {
-			const Icon = issueConfig.getStatusIcon(s.key);
+		// Use the cross-project union when projects are loaded; fall back to
+		// workspace-only otherwise so initial render isn't empty.
+		const items =
+			crossProject.unionStatusItems.length > 0
+				? crossProject.unionStatusItems
+				: issueConfig.statuses.map((s) => ({
+						id: s.key,
+						label: s.name,
+						icon: issueConfig.getStatusIcon(s.key),
+						colorHex: issueConfig.getStatusColor(s.key),
+					}));
+		return items.map((s) => {
+			const Icon = s.icon;
 			return {
-				id: s.key,
-				label: s.name,
-				icon: (
-					<Icon
-						className="h-3.5 w-3.5"
-						style={{ color: issueConfig.getStatusColor(s.key) }}
-					/>
-				),
+				id: s.id,
+				label: s.label,
+				icon: <Icon className="h-3.5 w-3.5" style={{ color: s.colorHex }} />,
 			};
 		});
-	}, [issueConfig]);
+	}, [crossProject.unionStatusItems, issueConfig]);
 	const typeOptions = useMemo(() => {
 		return issueConfig.types.map((t) => {
 			const Icon = issueConfig.getTypeIcon(t.key);
@@ -308,6 +379,7 @@ export function MyIssuesFilterPopover({
 		if (open) {
 			setTemp({
 				statuses: [...filters.statuses],
+				categories: [...filters.categories],
 				priorities: [...filters.priorities],
 				projectId: filters.projectId,
 				labelIds: [...filters.labelIds],
@@ -321,6 +393,7 @@ export function MyIssuesFilterPopover({
 	const toggleArrayItem = (
 		key:
 			| "statuses"
+			| "categories"
 			| "priorities"
 			| "labelIds"
 			| "assigneeIds"
@@ -339,6 +412,7 @@ export function MyIssuesFilterPopover({
 
 	const draftCount =
 		temp.statuses.length +
+		temp.categories.length +
 		temp.priorities.length +
 		(temp.projectId ? 1 : 0) +
 		temp.labelIds.length +
@@ -348,6 +422,7 @@ export function MyIssuesFilterPopover({
 
 	const handleApply = () => {
 		setFilter("statuses", temp.statuses);
+		setFilter("categories", temp.categories);
 		setFilter("priorities", temp.priorities);
 		setFilter("projectId", temp.projectId);
 		setFilter("labelIds", temp.labelIds);
@@ -363,6 +438,11 @@ export function MyIssuesFilterPopover({
 	};
 
 	const categories = [
+		// Category bucket filter — listed first because it's the consistent
+		// cross-project axis (Backlog · Not started · In progress · Done ·
+		// Cancelled). The status filter below is still useful for picking a
+		// specific status name across projects but produces a noisy list.
+		{ id: "category", label: "Category", count: temp.categories.length },
 		{ id: "status", label: "Status", count: temp.statuses.length },
 		{ id: "priority", label: "Priority", count: temp.priorities.length },
 		{ id: "assignee", label: "Assignee", count: temp.assigneeIds.length },
@@ -374,6 +454,17 @@ export function MyIssuesFilterPopover({
 
 	const renderOptions = (categoryId: string) => {
 		switch (categoryId) {
+			case "category":
+				return CATEGORY_OPTIONS.map((opt) => (
+					<FilterOptionItem
+						key={opt.id}
+						checked={temp.categories.includes(opt.id)}
+						onToggle={() => toggleArrayItem("categories", opt.id)}
+						icon={opt.icon}
+						label={opt.label}
+					/>
+				));
+
 			case "status":
 				return statusOptions.map((opt) => (
 					<FilterOptionItem
@@ -556,6 +647,7 @@ export function IssueFilterChips({
 	const removeArrayItem = (
 		key:
 			| "statuses"
+			| "categories"
 			| "priorities"
 			| "labelIds"
 			| "assigneeIds"
@@ -571,6 +663,13 @@ export function IssueFilterChips({
 
 	const chips: { key: string; label: string; onRemove: () => void }[] = [];
 
+	for (const c of filters.categories) {
+		chips.push({
+			key: `category-${c}`,
+			label: `Category: ${STATUS_CATEGORY_LABELS[c as StatusCategory] ?? c}`,
+			onRemove: () => removeArrayItem("categories", c),
+		});
+	}
 	for (const s of filters.statuses) {
 		chips.push({
 			key: `status-${s}`,

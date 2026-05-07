@@ -299,6 +299,14 @@ export function IssueQuickCreateModal({
 			titleRef.current?.focus();
 			return;
 		}
+		// Issues must always belong to a project — workspace-level orphan
+		// issues complicate every cross-project view and the data model. The
+		// backend mutation also enforces this; the client check just gives a
+		// clearer error before the round-trip.
+		if (!formState.projectId) {
+			toast.error("Select a project for this issue");
+			return;
+		}
 
 		submittingRef.current = true;
 		try {
@@ -336,9 +344,7 @@ export function IssueQuickCreateModal({
 					| "low"
 					| "no_priority",
 				type: formState.issueType,
-				projectId: formState.projectId
-					? (formState.projectId as Id<"projects">)
-					: undefined,
+				projectId: formState.projectId as Id<"projects">,
 				sprintId: formState.sprintId
 					? (formState.sprintId as Id<"sprints">)
 					: undefined,
