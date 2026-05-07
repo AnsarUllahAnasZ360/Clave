@@ -30,7 +30,7 @@ async function computeProgress(ctx: QueryCtx, milestoneId: Id<"milestones">) {
 
 // ── Validators ─────────────────────────────────────────────────────────────
 
-const milestoneWithProgressValidator = v.object({
+export const milestoneWithProgressValidator = v.object({
 	_id: v.id("milestones"),
 	_creationTime: v.number(),
 	projectId: v.id("projects"),

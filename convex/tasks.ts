@@ -32,7 +32,7 @@ const taskTypeValidator = v.union(
 
 // ── Shared Return Validators ────────────────────────────────────────────────
 
-const taskDocValidator = v.object({
+export const taskDocValidator = v.object({
 	_id: v.id("tasks"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),

@@ -145,7 +145,7 @@ async function ensureAssigneeInWorkspace(
 
 // ── Shared Return Validators ────────────────────────────────────────────────
 
-const issueDocValidator = v.object({
+export const issueDocValidator = v.object({
 	_id: v.id("issues"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),
@@ -180,7 +180,7 @@ const issueDocValidator = v.object({
 	),
 });
 
-const issueWithParentValidator = v.object({
+export const issueWithParentValidator = v.object({
 	_id: v.id("issues"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),

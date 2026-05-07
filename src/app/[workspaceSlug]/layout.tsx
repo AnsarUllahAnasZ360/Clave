@@ -1,7 +1,10 @@
 "use client";
 
+import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation, useQuery } from "convex/react";
+import type { Route } from "next";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AIActionMenuDialog } from "@/components/ai/AIActionMenuDialog";
@@ -25,6 +28,7 @@ import { GlobalDictationProvider } from "@/components/providers/global-dictation
 import { WorkspaceProvider } from "@/components/providers/workspace-context";
 import { WorkspaceDataProvider } from "@/components/providers/workspace-data-context";
 import { ShortcutsHelpOverlay } from "@/components/shortcuts-help-overlay";
+import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AIActionMenuProvider } from "@/hooks/use-ai-keyboard-shortcuts";
@@ -173,24 +177,12 @@ export default function WorkspaceLayout({
 		return null;
 	}
 
-	// Workspace not found
+	// Workspace not found OR user is not a member. Render a recovery panel
+	// inline rather than calling notFound(): notFound() inside a layout
+	// escapes to the parent segment's not-found.tsx, which would lose the
+	// workspace-aware recovery affordances (switcher, sign-out).
 	if (workspace === null) {
-		return (
-			<div className="flex min-h-screen flex-col items-center justify-center gap-4">
-				<h1 className="text-2xl font-semibold">Workspace not found</h1>
-				<p className="text-muted-foreground">
-					The workspace &ldquo;{slug}&rdquo; does not exist or you don&apos;t
-					have access.
-				</p>
-				<button
-					type="button"
-					className="text-sm text-primary underline cursor-pointer"
-					onClick={() => router.push("/")}
-				>
-					Go to home
-				</button>
-			</div>
-		);
+		return <WorkspaceNotAccessible slug={slug} />;
 	}
 
 	return (
@@ -252,5 +244,69 @@ export default function WorkspaceLayout({
 				</GlobalDictationProvider>
 			</WorkspaceDataProvider>
 		</WorkspaceProvider>
+	);
+}
+
+function WorkspaceNotAccessible({ slug }: { slug: string }) {
+	const router = useRouter();
+	const { signOut } = useAuthActions();
+	const myWorkspaces = useQuery(api.workspaces.list);
+
+	const handleSignOut = async () => {
+		await signOut();
+		router.replace("/sign-in");
+	};
+
+	const accessible = myWorkspaces ?? [];
+
+	return (
+		<div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-4 py-12 text-center">
+			<div className="flex flex-col items-center gap-2">
+				<p className="font-mono text-xs uppercase tracking-[0.18em] text-sienna-500">
+					404
+				</p>
+				<h1 className="text-2xl font-semibold tracking-tight text-foreground">
+					Workspace not found
+				</h1>
+				<p className="max-w-sm text-sm text-muted-foreground">
+					&ldquo;{slug}&rdquo; doesn&apos;t exist or you don&apos;t have access
+					with this account.
+				</p>
+			</div>
+
+			{myWorkspaces === undefined ? (
+				<div className="h-px w-full max-w-sm" />
+			) : accessible.length > 0 ? (
+				<div className="flex w-full max-w-sm flex-col gap-2">
+					<p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+						Your workspaces
+					</p>
+					<ul className="flex flex-col gap-1">
+						{accessible.map((ws) => (
+							<li key={ws._id}>
+								<Link
+									href={`/${ws.slug}/chat` as Route}
+									className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm transition-colors hover:border-sienna-500/50 hover:bg-accent"
+								>
+									<span className="font-medium text-foreground">{ws.name}</span>
+									<span className="font-mono text-xs text-muted-foreground">
+										/{ws.slug}
+									</span>
+								</Link>
+							</li>
+						))}
+					</ul>
+				</div>
+			) : null}
+
+			<div className="flex items-center gap-2">
+				<Button asChild variant="default" size="sm">
+					<Link href={"/" as Route}>Go home</Link>
+				</Button>
+				<Button onClick={handleSignOut} variant="outline" size="sm">
+					Sign out
+				</Button>
+			</div>
+		</div>
 	);
 }

@@ -246,13 +246,21 @@ export const getBySlug = query({
 		v.null(),
 	),
 	handler: async (ctx, args) => {
-		await requireAuth(ctx);
+		const userId = await requireAuth(ctx);
 		const workspace = await ctx.db
 			.query("workspaces")
 			.withIndex("by_slug", (q) => q.eq("slug", args.slug))
 			.unique();
 
 		if (!workspace || workspace.deletedAt) return null;
+		const member = await ctx.db
+			.query("workspaceMembers")
+			.withIndex("by_workspace_user", (q) =>
+				q.eq("workspaceId", workspace._id).eq("userId", userId),
+			)
+			.unique();
+		if (!member) return null;
+
 		return {
 			_id: workspace._id,
 			_creationTime: workspace._creationTime,
