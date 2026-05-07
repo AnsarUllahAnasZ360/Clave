@@ -18,7 +18,6 @@ import {
 	buildProjectNameMap,
 	buildUserNameMap,
 	extractPlateMedia,
-	MAX_CONTENT_LENGTH,
 	plateJsonToMarkdown,
 	resolveToolUserId,
 	resolveWorkspaceId,

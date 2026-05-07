@@ -27,8 +27,7 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
 	{
 		version: "0.6.0",
 		releasedAt: "2026-05-07T00:00:00Z",
-		title:
-			"Per-project status resolution, status categories, and list-view UX",
+		title: "Per-project status resolution, status categories, and list-view UX",
 		features: [
 			"Issue statuses now resolve per-issue against the issue's own project — a project-only custom status (e.g. 'Testing in staging') renders correctly on My Issues, Inbox, and AI duplicate panels instead of falling back to the workspace default",
 			"Status categories (Backlog · Not started · In progress · Done · Cancelled): every status — built-in or custom — is assigned to one of five buckets, used as the column axis on the cross-project kanban so My Issues no longer fans out into one column per project's custom statuses",
