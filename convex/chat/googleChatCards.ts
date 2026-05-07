@@ -3,21 +3,7 @@ import { v } from "convex/values";
 // @ts-ignore — resolved by Convex bundler at deploy time
 import { buildGoogleChatCardMessage } from "../../src/lib/chat/google-chat/card-builders";
 import { internalQuery } from "../_generated/server";
-
-function normalizeAppBaseUrl(rawValue: string | undefined): string {
-	const value = rawValue?.trim();
-	if (!value) return "";
-	const withProtocol =
-		value.startsWith("http://") || value.startsWith("https://")
-			? value
-			: `https://${value}`;
-	try {
-		const parsed = new URL(withProtocol);
-		return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}`;
-	} catch {
-		return "";
-	}
-}
+import { resolveChatAppBaseUrl } from "./appUrl";
 
 function buildWorkspaceBasePath(args: { workspaceSlug: string }) {
 	return `/${args.workspaceSlug}`;
@@ -98,9 +84,7 @@ export const prepareNotificationCard = internalQuery({
 			return `${workspaceBasePath}/inbox`;
 		})();
 
-		const appBaseUrl = normalizeAppBaseUrl(
-			process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
-		);
+		const appBaseUrl = resolveChatAppBaseUrl();
 		const deepLinkUrl = joinUrl(appBaseUrl, notificationPath);
 		const eventType = notification.eventType ?? notification.type;
 		const cardMessage = buildGoogleChatCardMessage({

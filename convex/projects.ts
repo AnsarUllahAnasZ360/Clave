@@ -42,7 +42,7 @@ const DEFAULT_TYPE_KEYS = ["issue", "bug", "improvement", "feature"] as const;
 
 // ── Queries ────────────────────────────────────────────────────────────────
 
-const projectDocValidator = v.object({
+export const projectDocValidator = v.object({
 	_id: v.id("projects"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),

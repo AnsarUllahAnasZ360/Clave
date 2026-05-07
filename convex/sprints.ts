@@ -125,7 +125,7 @@ const sprintStatusValidator = v.union(
 	v.literal("cancelled"),
 );
 
-const sprintWithProgressValidator = v.object({
+export const sprintWithProgressValidator = v.object({
 	_id: v.id("sprints"),
 	_creationTime: v.number(),
 	projectId: v.id("projects"),
@@ -148,7 +148,7 @@ const sprintWithProgressValidator = v.object({
 	progressPercentage: v.number(),
 });
 
-const sprintWithProgressAndProjectValidator = v.object({
+export const sprintWithProgressAndProjectValidator = v.object({
 	_id: v.id("sprints"),
 	_creationTime: v.number(),
 	projectId: v.id("projects"),

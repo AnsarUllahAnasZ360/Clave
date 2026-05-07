@@ -5,7 +5,7 @@ import { getAccessibleProjectIds, requireWorkspaceMember } from "./lib/auth";
 
 // ── Validators ─────────────────────────────────────────────────────────────
 
-const clientWithContactValidator = v.object({
+export const clientWithContactValidator = v.object({
 	_id: v.id("clients"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),

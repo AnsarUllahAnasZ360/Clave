@@ -42,6 +42,7 @@ import {
 } from "../../src/lib/chat/google-chat/interaction-contract";
 import type { Id } from "../_generated/dataModel";
 import { type ActionCtx, action } from "../_generated/server";
+import { resolveChatAppBaseUrl } from "./appUrl";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -359,27 +360,10 @@ const checkIdempotencyRef = makeFunctionReference<
 // Helper functions
 // ---------------------------------------------------------------------------
 
-function normalizeAppBaseUrl(rawValue: string | undefined): string {
-	const value = rawValue?.trim();
-	if (!value) return "";
-	const withProtocol =
-		value.startsWith("http://") || value.startsWith("https://")
-			? value
-			: `https://${value}`;
-	try {
-		const parsed = new URL(withProtocol);
-		return `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}`;
-	} catch {
-		return "";
-	}
-}
-
 function buildIssueDeepLink(issueContext: GoogleChatIssueContext): string {
 	const path = `/${issueContext.workspaceSlug}/issues/${issueContext.identifier}`;
 
-	const appBaseUrl = normalizeAppBaseUrl(
-		process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
-	);
+	const appBaseUrl = resolveChatAppBaseUrl();
 	if (!appBaseUrl) return path;
 	return `${appBaseUrl}${path}`;
 }

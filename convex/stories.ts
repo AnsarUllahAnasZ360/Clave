@@ -34,7 +34,7 @@ const storyTypeValidator = v.union(
 
 // ── Shared Return Validators ────────────────────────────────────────────────
 
-const storyDocValidator = v.object({
+export const storyDocValidator = v.object({
 	_id: v.id("stories"),
 	_creationTime: v.number(),
 	workspaceId: v.id("workspaces"),
