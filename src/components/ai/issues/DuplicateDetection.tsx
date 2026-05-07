@@ -2,8 +2,9 @@
 
 import { AlertTriangle, ExternalLink } from "lucide-react";
 import { useWorkspace } from "@/components/providers/workspace-context";
+import { useWorkspaceProjects } from "@/components/providers/workspace-data-context";
 import type { DuplicateIssue } from "@/hooks/use-duplicate-detection";
-import { useEffectiveIssueConfig } from "@/hooks/use-effective-issue-config";
+import { useProjectsEffectiveConfigs } from "@/hooks/use-effective-issue-config";
 import { cn } from "@/lib/utils";
 
 // ── Props ────────────────────────────────────────────────────────────────
@@ -26,7 +27,14 @@ export function DuplicateDetection({
 	workspaceSlug,
 }: DuplicateDetectionProps) {
 	const { workspaceId } = useWorkspace();
-	const effective = useEffectiveIssueConfig(workspaceId);
+	// Duplicates can come from any project the user has access to; resolve
+	// each one's status via its own project's dictionary so project-only
+	// custom statuses render correctly instead of falling back to defaults.
+	const workspaceProjects = useWorkspaceProjects();
+	const crossProject = useProjectsEffectiveConfigs(
+		workspaceId,
+		workspaceProjects ?? undefined,
+	);
 
 	if (loading) {
 		return <DuplicateDetectionSkeleton compact={compact} />;
@@ -58,7 +66,8 @@ export function DuplicateDetection({
 			{/* Issue list */}
 			<div className="space-y-1">
 				{shown.map((issue) => {
-					const statusCfg = effective.statusItems.find(
+					const issueConfig = crossProject.getConfigForIssue(issue);
+					const statusCfg = issueConfig.statusItems.find(
 						(s) => s.id === issue.status,
 					);
 					const StatusIcon = statusCfg?.icon ?? AlertTriangle;

@@ -68,6 +68,16 @@ export function IssueInlineCreate({
 			handleCancel();
 			return;
 		}
+		// Inline create only fires from a project- or sprint-scoped board/list
+		// — `projectId` should always be provided by the parent column. If
+		// it's missing we punt to the full create modal (caller's job to
+		// open it), since issues require a project. Quietly aborting is
+		// better than creating an orphan or showing a confusing toast inline.
+		if (!projectId) {
+			toast.error("This view doesn't have a project — open the full create dialog");
+			handleCancel();
+			return;
+		}
 
 		setSubmitting(true);
 		try {
@@ -82,7 +92,7 @@ export function IssueInlineCreate({
 					| "in_review"
 					| "done"
 					| "cancelled",
-				projectId: projectId ? (projectId as Id<"projects">) : undefined,
+				projectId: projectId as Id<"projects">,
 				sprintId: sprintId ? (sprintId as Id<"sprints">) : undefined,
 				milestoneId: milestoneId
 					? (milestoneId as Id<"milestones">)

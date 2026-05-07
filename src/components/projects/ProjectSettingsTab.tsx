@@ -17,7 +17,7 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -41,24 +41,52 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { resolveStatusCategory } from "@/hooks/use-effective-issue-config";
 import { applyOrder } from "@/hooks/use-workspace-settings";
-import { DEFAULT_ISSUE_TYPES, DEFAULT_STATUSES } from "@/lib/issue-config";
+import {
+	DEFAULT_ISSUE_TYPES,
+	DEFAULT_STATUSES,
+	STATUS_CATEGORY_LABELS,
+	STATUS_CATEGORY_ORDER,
+	type StatusCategory,
+} from "@/lib/issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-type CustomItem = { key: string; name: string; color: string };
+type CustomItem = {
+	key: string;
+	name: string;
+	color: string;
+	category?: StatusCategory;
+};
 
 type ProjectData = {
 	_id: Id<"projects">;
+	workspaceId: Id<"workspaces">;
 	customStatuses?: CustomItem[];
 	customTypes?: CustomItem[];
 	customStatusOrder?: string[];
+	hiddenStatusKeys?: string[];
 };
 
-type ListItem = CustomItem & { isDefault: boolean };
+/**
+ * Origin of a status/type row in the project settings list:
+ *   - `default`   — built into Clave (the 7 base statuses / 4 base types)
+ *   - `workspace` — inherited from workspace customs (added in workspace
+ *                   settings; the project doesn't own it but sees it)
+ *   - `project`   — created at project level only
+ *
+ * Both `default` and `workspace` rows are non-deletable from the project tab
+ * — deleting a workspace custom status from a single project would silently
+ * leave it orphaned everywhere else. Only `project`-origin rows have a delete
+ * button.
+ */
+type RowOrigin = "default" | "workspace" | "project";
+
+type ListItem = CustomItem & { isDefault: boolean; origin: RowOrigin };
 
 // ── Editable list section ────────────────────────────────────────────────
 // ── Main component ──────────────────────────────────────────────────────
@@ -78,6 +106,15 @@ export function ProjectSettingsTab({
 	const deleteStatus = useMutation(api.projects.deleteCustomIssueStatus);
 	const reorderStatuses = useMutation(api.projects.reorderCustomIssueStatuses);
 
+	// Workspace settings — needed so workspace-level custom statuses and types
+	// show up here as inherited rows. Without this, a workspace admin adding
+	// a "Review" status would see it on the kanban (which uses the effective
+	// resolver) but not in project settings (which only knew about defaults +
+	// the project's own customs). That divergence was the user-reported bug.
+	const workspaceSettings = useQuery(api.workspaceSettings.get, {
+		workspaceId: project.workspaceId,
+	});
+
 	const defaultTypes = DEFAULT_ISSUE_TYPES.map((t) => ({
 		key: t.key,
 		name: t.name,
@@ -90,30 +127,103 @@ export function ProjectSettingsTab({
 		color: s.color.replace("text-", ""),
 	}));
 
-	const mergeDefaults = (
-		defaults: CustomItem[],
-		custom: CustomItem[] | undefined,
-	) => {
-		if (!custom || custom.length === 0)
-			return defaults.map((d) => ({ ...d, isDefault: true }));
-		const merged = defaults.map((def) => {
-			const override = custom.find((c) => c.key === def.key);
-			return { ...(override ?? def), isDefault: true };
-		});
-		const customOnly = custom.filter(
-			(c) => !defaults.some((d) => d.key === c.key),
-		);
-		return [...merged, ...customOnly.map((c) => ({ ...c, isDefault: false }))];
-	};
+	/**
+	 * Three-layer merge: built-in defaults → workspace customs → project
+	 * overrides. The first two layers determine what the project *inherits*
+	 * (read-only at project scope, no delete button); only project-level
+	 * customs can be deleted from this UI.
+	 *
+	 * Override semantics: when a project-level row shares a key with an
+	 * inherited row (e.g. project renamed `done` to "Shipped"), the project's
+	 * name/color/category wins, but the row's origin stays inherited so it
+	 * remains non-deletable. Removing the project-level override (via the
+	 * mutation) restores the inherited values.
+	 */
+	function mergeProjectScope(
+		builtIns: CustomItem[],
+		workspaceCustoms: CustomItem[] | undefined,
+		projectCustoms: CustomItem[] | undefined,
+		hiddenKeys: string[] | undefined,
+	): ListItem[] {
+		// Start with the inherited base (defaults + workspace customs). Each
+		// row gets an origin tag so the UI can label its source. All rows are
+		// editable and deletable at project scope — origin only drives display.
+		const hiddenSet = new Set(hiddenKeys ?? []);
+		const inheritedKeys = new Set<string>();
+		const inherited: ListItem[] = [];
+		for (const d of builtIns) {
+			if (hiddenSet.has(d.key)) {
+				inheritedKeys.add(d.key);
+				continue;
+			}
+			inherited.push({ ...d, isDefault: true, origin: "default" });
+			inheritedKeys.add(d.key);
+		}
+		for (const w of workspaceCustoms ?? []) {
+			if (inheritedKeys.has(w.key)) continue;
+			if (hiddenSet.has(w.key)) {
+				inheritedKeys.add(w.key);
+				continue;
+			}
+			inherited.push({ ...w, isDefault: true, origin: "workspace" });
+			inheritedKeys.add(w.key);
+		}
 
-	const types = mergeDefaults(defaultTypes, project.customTypes);
-	const statusesUnordered = mergeDefaults(
-		defaultStatuses,
-		project.customStatuses,
+		// Apply project-level overlays. For matching inherited keys, project
+		// values override name/color/category; row origin stays inherited so
+		// the badge tells the user where it came from. For new keys, the row
+		// is project-origin.
+		const result: ListItem[] = [];
+		const projectByKey = new Map<string, CustomItem>();
+		for (const p of projectCustoms ?? []) projectByKey.set(p.key, p);
+
+		for (const row of inherited) {
+			const override = projectByKey.get(row.key);
+			result.push(
+				override
+					? { ...row, ...override, isDefault: true, origin: row.origin }
+					: row,
+			);
+		}
+		for (const p of projectCustoms ?? []) {
+			if (inheritedKeys.has(p.key)) continue;
+			if (hiddenSet.has(p.key)) continue;
+			result.push({ ...p, isDefault: false, origin: "project" });
+		}
+		return result;
+	}
+
+	const types = mergeProjectScope(
+		defaultTypes,
+		workspaceSettings?.customTypes,
+		project.customTypes,
+		undefined,
 	);
+	const statusesUnorderedRaw = mergeProjectScope(
+		defaultStatuses,
+		workspaceSettings?.customStatuses,
+		project.customStatuses,
+		project.hiddenStatusKeys,
+	);
+	// Tag each status with its effective category for the row UI.
+	const statusesUnordered = statusesUnorderedRaw.map((s) => ({
+		...s,
+		category: resolveStatusCategory(s, s.key),
+	}));
 	// Apply persisted display order so the reorderable list reflects the same
 	// sequence the rest of the app sees (kanban columns, list groups, etc).
 	const statuses = applyOrder(statusesUnordered, project.customStatusOrder);
+
+	const handleStatusCategoryChange = async (
+		key: string,
+		category: StatusCategory,
+	) => {
+		try {
+			await updateStatus({ projectId, key, category });
+		} catch {
+			toast.error("Failed to update category");
+		}
+	};
 
 	const [addingSection, setAddingSection] = useState<
 		"types" | "statuses" | null
@@ -182,7 +292,12 @@ export function ProjectSettingsTab({
 	const handleRequestDelete = (section: "types" | "statuses", key: string) => {
 		const items = section === "types" ? types : statuses;
 		const item = items.find((i) => i.key === key);
-		if (!item || item.isDefault) return;
+		if (!item) return;
+		// Types still don't support project-level hiding (no `hiddenTypeKeys`
+		// on the schema yet). Status rows of any origin are deletable —
+		// inherited keys go onto `hiddenStatusKeys`, project-only keys come
+		// off `customStatuses`.
+		if (section === "types" && item.isDefault) return;
 		const firstReplacement = items.find((i) => i.key !== key)?.key ?? "";
 		setReplacementKey(firstReplacement);
 		setDeleteState({ section, key, name: item.name });
@@ -264,13 +379,61 @@ export function ProjectSettingsTab({
 				</button>
 			)}
 
-			{item.isDefault ? (
-				<span className="text-[10px] text-muted-foreground/50">default</span>
-			) : (
+			{section === "statuses" && item.category && (
+				<Select
+					value={item.category}
+					onValueChange={(value) =>
+						handleStatusCategoryChange(item.key, value as StatusCategory)
+					}
+				>
+					<SelectTrigger className="h-7 w-32 text-xs">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{STATUS_CATEGORY_ORDER.map((cat) => (
+							<SelectItem key={cat} value={cat} className="text-xs">
+								{STATUS_CATEGORY_LABELS[cat]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			)}
+
+			{/* Origin badge — shows where the row came from. Purely informational
+			   now that all rows can be edited and deleted at project scope.
+			   Deleting an inherited row hides it from this project only via
+			   the project's `hiddenStatusKeys` exclusion list — the workspace
+			   status itself stays put for other projects. */}
+			{item.origin === "default" ? (
+				<span
+					className="text-[10px] text-muted-foreground/50"
+					title="Built-in default — hiding it only affects this project"
+				>
+					default
+				</span>
+			) : item.origin === "workspace" ? (
+				<span
+					className="text-[10px] text-muted-foreground/60"
+					title="Inherited from workspace — hiding it only affects this project"
+				>
+					workspace
+				</span>
+			) : null}
+
+			{/* Types can't be hidden at project level (no schema field for it
+			   yet) — only project-origin types are deletable. Statuses can be
+			   deleted regardless of origin: inherited rows go into the
+			   project's hiddenStatusKeys. */}
+			{(section === "statuses" || item.origin === "project") && (
 				<button
 					type="button"
 					onClick={() => handleRequestDelete(section, item.key)}
 					className="text-muted-foreground/50 hover:text-destructive transition-colors"
+					title={
+						item.origin === "project"
+							? "Delete from project"
+							: "Hide from this project"
+					}
 				>
 					<Trash2 className="h-3.5 w-3.5" />
 				</button>

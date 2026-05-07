@@ -25,6 +25,7 @@ import {
 	GripVertical,
 	Minus,
 	Plus,
+	Trash2,
 	User,
 } from "lucide-react";
 import Link from "next/link";
@@ -63,6 +64,8 @@ function SortableSubIssueRow({
 	workspaceSlug,
 	member,
 	onToggle,
+	onChangeStatus,
+	onDelete,
 	statusItems,
 }: {
 	subIssue: {
@@ -75,6 +78,8 @@ function SortableSubIssueRow({
 	workspaceSlug: string;
 	member?: { name: string; image?: string };
 	onToggle: (issueId: Id<"issues">, currentStatus: string) => void;
+	onChangeStatus: (issueId: Id<"issues">, status: string) => void;
+	onDelete: (issueId: Id<"issues">, identifier: string) => void;
 	statusItems: EffectivePickerItem[];
 }) {
 	const {
@@ -120,9 +125,39 @@ function SortableSubIssueRow({
 				className="shrink-0"
 			/>
 
-			<StatusIcon
-				className="h-4 w-4 shrink-0"
-				style={{ color: statusColorHex }}
+			{/* Status picker — click the status icon to change it directly
+			   from this row, instead of having to open the sub-issue page.
+			   Falls back to the same icon-only display when closed so the
+			   row's compact look is preserved. */}
+			<GenericPicker
+				trigger={
+					<button
+						type="button"
+						className="p-0.5 rounded hover:bg-muted/80 transition-colors shrink-0"
+						title={`Status: ${statusConfig?.label ?? subIssue.status}`}
+					>
+						<StatusIcon
+							className="h-4 w-4"
+							style={{ color: statusColorHex }}
+						/>
+					</button>
+				}
+				items={statusItems}
+				selectedId={subIssue.status}
+				onSelect={(item) => onChangeStatus(subIssue._id, item.id)}
+				placeholder="Set status..."
+				renderItem={(item, isSelected) => {
+					const Icon = item.icon;
+					return (
+						<div className="flex items-center gap-2 w-full">
+							<Icon className="h-4 w-4" style={{ color: item.colorHex }} />
+							<span className="flex-1">{item.label}</span>
+							{isSelected && (
+								<CircleCheck className="h-3.5 w-3.5 text-primary" />
+							)}
+						</div>
+					);
+				}}
 			/>
 
 			<span className="text-xs text-muted-foreground font-mono shrink-0">
@@ -148,6 +183,16 @@ function SortableSubIssueRow({
 					</AvatarFallback>
 				</Avatar>
 			)}
+
+			<button
+				type="button"
+				onClick={() => onDelete(subIssue._id, subIssue.identifier)}
+				className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/60 hover:text-destructive p-0.5 rounded hover:bg-muted/60 shrink-0"
+				title="Delete sub-issue"
+				aria-label="Delete sub-issue"
+			>
+				<Trash2 className="h-3.5 w-3.5" />
+			</button>
 		</div>
 	);
 }
@@ -415,6 +460,7 @@ export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
 	const members = useWorkspaceMembers();
 	const updateStatus = useMutation(api.issues.updateStatus);
 	const reorder = useMutation(api.issues.reorder);
+	const removeIssue = useMutation(api.issues.remove);
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, {
@@ -450,6 +496,48 @@ export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
 			}
 		},
 		[updateStatus],
+	);
+
+	// Direct status change from the row's icon picker — distinct from the
+	// done/backlog toggle on the checkbox. Accepts any status the parent's
+	// project supports (the same set the picker is fed).
+	const handleChangeStatus = useCallback(
+		async (issueId: Id<"issues">, status: string) => {
+			try {
+				await updateStatus({
+					issueId,
+					status: status as
+						| "triage"
+						| "backlog"
+						| "todo"
+						| "in_progress"
+						| "in_review"
+						| "done"
+						| "cancelled",
+				});
+			} catch {
+				toast.error("Failed to update status");
+			}
+		},
+		[updateStatus],
+	);
+
+	const handleDelete = useCallback(
+		async (issueId: Id<"issues">, identifier: string) => {
+			// Confirmation kept lightweight — the row's `↳` glyph + the
+			// identifier in the prompt makes it obvious which sub-issue is
+			// going away. A heavier alert dialog would be friction for a
+			// frequent micro-action.
+			const ok = window.confirm(`Delete ${identifier}? This can't be undone.`);
+			if (!ok) return;
+			try {
+				await removeIssue({ issueId });
+				toast.success("Sub-issue deleted");
+			} catch {
+				toast.error("Failed to delete sub-issue");
+			}
+		},
+		[removeIssue],
 	);
 
 	const handleDragEnd = useCallback(
@@ -562,6 +650,8 @@ export function SubIssuesList({ parentId }: { parentId: Id<"issues"> }) {
 													: undefined
 											}
 											onToggle={handleToggle}
+											onChangeStatus={handleChangeStatus}
+											onDelete={handleDelete}
 											statusItems={effective.statusItems}
 										/>
 									))}

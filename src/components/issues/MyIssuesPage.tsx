@@ -2,7 +2,9 @@
 
 import { useMutation, useQuery } from "convex/react";
 import {
+	Activity,
 	BarChart3,
+	Bell,
 	Calendar,
 	ChevronDown,
 	ChevronRight,
@@ -15,12 +17,15 @@ import {
 	ExternalLink,
 	Flag,
 	Link2,
+	type LucideIcon,
 	MoreHorizontal,
+	Pencil,
 	Plus,
 	SignalHigh,
 	Timer,
 	Trash2,
 	TriangleAlert,
+	UserCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -59,6 +64,7 @@ import { useDisplayOptions } from "@/hooks/use-display-options";
 import {
 	type EffectivePickerItem,
 	useEffectiveIssueConfig,
+	useProjectsEffectiveConfigs,
 } from "@/hooks/use-effective-issue-config";
 import { useShortcutsOptional } from "@/hooks/use-shortcuts";
 import type { DisplayPropertyId, GroupByOption } from "@/lib/display-options";
@@ -82,11 +88,11 @@ import { MyIssuesInsightsPanel } from "./MyIssuesInsightsPanel";
 
 type MyIssuesTab = "assigned" | "created" | "subscribed" | "activity";
 
-const TAB_OPTIONS: { id: MyIssuesTab; label: string }[] = [
-	{ id: "assigned", label: "Assigned" },
-	{ id: "created", label: "Created" },
-	{ id: "subscribed", label: "Subscribed" },
-	{ id: "activity", label: "Activity" },
+const TAB_OPTIONS: { id: MyIssuesTab; label: string; icon: LucideIcon }[] = [
+	{ id: "assigned", label: "Assigned", icon: UserCheck },
+	{ id: "created", label: "Created", icon: Pencil },
+	{ id: "subscribed", label: "Subscribed", icon: Bell },
+	{ id: "activity", label: "Activity", icon: Activity },
 ];
 
 // ── Status / Priority config (derived from centralized module) ───────────
@@ -167,9 +173,12 @@ type IssueData = {
 	projectId?: Id<"projects">;
 	sprintId?: Id<"sprints">;
 	milestoneId?: Id<"milestones">;
+	parentId?: Id<"issues">;
 	labelIds?: Id<"labels">[];
 	dueDate?: number;
 	estimate?: number;
+	sortOrder: number;
+	updatedAt?: number;
 	createdBy: Id<"users">;
 };
 
@@ -188,8 +197,13 @@ type GroupedSection = {
 
 // ── Adapter: IssueData -> IssueCardData for board view ──────────────────────
 
+// Note: we use the issue's actual `sortOrder` field (persisted by drag-drop
+// reorder via `api.issues.reorder`) — not a per-render `_creationTime + index`
+// fallback. The fallback was an old hack that broke manual ordering on My
+// Issues entirely: every re-render reassigned positions from query-result
+// index, so any saved reorder was invisibly overwritten on the next render.
 function toCardData(issues: IssueData[]): IssueCardData[] {
-	return issues.map((issue, index) => ({
+	return issues.map((issue) => ({
 		_id: issue._id,
 		identifier: issue.identifier,
 		title: issue.title,
@@ -200,15 +214,18 @@ function toCardData(issues: IssueData[]): IssueCardData[] {
 		labelIds: issue.labelIds,
 		dueDate: issue.dueDate,
 		estimate: issue.estimate,
-		sortOrder: issue._creationTime + index,
+		sortOrder: issue.sortOrder,
 		projectId: issue.projectId,
 		sprintId: issue.sprintId,
 		milestoneId: issue.milestoneId,
+		parentId: issue.parentId,
+		_creationTime: issue._creationTime,
+		updatedAt: issue.updatedAt,
 	}));
 }
 
 function toListData(issues: IssueData[]): IssueListData[] {
-	return issues.map((issue, index) => ({
+	return issues.map((issue) => ({
 		_id: issue._id,
 		_creationTime: issue._creationTime,
 		identifier: issue.identifier,
@@ -221,11 +238,29 @@ function toListData(issues: IssueData[]): IssueListData[] {
 		labelIds: issue.labelIds,
 		dueDate: issue.dueDate,
 		estimate: issue.estimate,
-		sortOrder: issue._creationTime + index,
+		sortOrder: issue.sortOrder,
 		projectId: issue.projectId,
 		sprintId: issue.sprintId,
 		milestoneId: issue.milestoneId,
+		parentId: issue.parentId,
+		updatedAt: issue.updatedAt,
 	}));
+}
+
+/**
+ * Hide sub-issues (issues with a `parentId`) when the user has toggled
+ * "Show sub-issues" off in the display options. Top-level issues
+ * (`parentId === undefined`) are always visible. When the toggle is on,
+ * sub-issues stay in the list and the list view nests them under their
+ * parent (when the parent is also assigned/visible) or renders them flat
+ * with a parent reference badge.
+ */
+function filterSubIssues(
+	issues: IssueData[],
+	showSubIssues: boolean,
+): IssueData[] {
+	if (showSubIssues) return issues;
+	return issues.filter((i) => !i.parentId);
 }
 
 function toBoardDisplayProperties(
@@ -1153,7 +1188,9 @@ export function MyIssuesPage() {
 		null,
 	);
 
-	// Display options (persisted per view context)
+	// Display options (persisted per view context). My Issues spans many
+	// projects — `project` is included by default so users can tell which
+	// project a row belongs to without having to enable the column manually.
 	const {
 		options: displayOptions,
 		setLayout,
@@ -1166,7 +1203,29 @@ export function MyIssuesPage() {
 		setShowEmptyGroups,
 		setSwimlaneSetting,
 		reset: resetDisplayOptions,
-	} = useDisplayOptions("my-issues");
+		// Storage key bumped from "my-issues" → "my-issues-v2" so existing
+		// users pick up the new defaults (`groupBy: "category"` plus the
+		// project column) once. The previous key persisted `groupBy: "status"`
+		// for anyone who used My Issues before — keeping the same key would
+		// have left them stuck on a status-grouped list across projects, which
+		// is exactly the inconsistency this branch is meant to fix.
+	} = useDisplayOptions("my-issues-v2", {
+		// Default cross-project view to category buckets (Backlog · Not started ·
+		// In progress · Done · Cancelled) — same axis as the kanban — so list
+		// and board grouping stay consistent. Status-key grouping doesn't
+		// compose across projects and was the source of the "looks wrong on
+		// My Issues" reports.
+		groupBy: "category",
+		displayProperties: [
+			"identifier",
+			"priority",
+			"status",
+			"project",
+			"assignee",
+			"labels",
+			"dueDate",
+		],
+	});
 
 	// Lookup data
 	const members = useWorkspaceMembers();
@@ -1185,6 +1244,15 @@ export function MyIssuesPage() {
 			.map((s) => s._id as string);
 	}, [workspaceSprints]);
 
+	// Cross-project category resolver — feeds the filter hook so users can
+	// filter by category bucket on My Issues (the new first-class axis), and
+	// the filter correctly maps each issue's status to its project-specific
+	// category rather than relying on workspace defaults.
+	const crossProjectFilters = useProjectsEffectiveConfigs(
+		workspaceId,
+		projects ?? undefined,
+	);
+
 	// Issue filters (with active sprint mode)
 	const {
 		filters,
@@ -1194,7 +1262,9 @@ export function MyIssuesPage() {
 		applyFilters,
 		activeSprintMode,
 		setActiveSprintMode,
-	} = useIssueFilters(activeSprintIds);
+	} = useIssueFilters(activeSprintIds, {
+		getCategoryForIssue: crossProjectFilters.getCategoryForIssue,
+	});
 
 	// Defaults for inline-create on this view. Always assigns the creator
 	// (so a new issue immediately matches the "my issues" filter) and
@@ -1377,35 +1447,44 @@ export function MyIssuesPage() {
 						New issue
 					</Button>
 
-					{/* Tab pills */}
-					<div className="flex items-center gap-0.5 p-0">
-						{TAB_OPTIONS.map((tab) => (
-							<button
-								key={tab.id}
-								type="button"
-								onClick={() => setActiveTab(tab.id)}
-								className={cn(
-									"inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-									activeTab === tab.id
-										? "bg-muted text-foreground shadow-sm"
-										: "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-								)}
-							>
-								{tab.label}
-								{tabCounts[tab.id] > 0 && (
-									<span
-										className={cn(
-											"text-[10px] tabular-nums",
-											activeTab === tab.id
-												? "text-muted-foreground"
-												: "text-muted-foreground/70",
-										)}
-									>
-										{tabCounts[tab.id]}
-									</span>
-								)}
-							</button>
-						))}
+					{/* Tab pills — icon + label + count chip. Active tab gets a
+					    sienna-tinted background to mirror the brand accent and
+					    give the active state more visual weight than the prior
+					    "just a different background" treatment. */}
+					<div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-muted/30">
+						{TAB_OPTIONS.map((tab) => {
+							const Icon = tab.icon;
+							const isActive = activeTab === tab.id;
+							const count = tabCounts[tab.id];
+							return (
+								<button
+									key={tab.id}
+									type="button"
+									onClick={() => setActiveTab(tab.id)}
+									className={cn(
+										"inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+										isActive
+											? "bg-sienna-500/15 text-sienna-500 shadow-sm dark:bg-sienna-500/20"
+											: "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+									)}
+								>
+									<Icon className="h-3.5 w-3.5 shrink-0" />
+									<span>{tab.label}</span>
+									{count > 0 && (
+										<span
+											className={cn(
+												"inline-flex items-center justify-center min-w-[1.25rem] px-1 h-[1.05rem] rounded-md text-[10px] tabular-nums leading-none",
+												isActive
+													? "bg-sienna-500/25 text-sienna-500"
+													: "bg-muted text-muted-foreground/80",
+											)}
+										>
+											{count}
+										</span>
+									)}
+								</button>
+							);
+						})}
 					</div>
 				</div>
 			</div>
@@ -1527,7 +1606,10 @@ export function MyIssuesPage() {
 							externalIssues={
 								activeIssues[activeTab]
 									? toCardData(
-											applyFilters(activeIssues[activeTab] as IssueData[]),
+											filterSubIssues(
+												applyFilters(activeIssues[activeTab] as IssueData[]),
+												displayOptions.showSubIssues,
+											),
 										)
 									: undefined
 							}
@@ -1535,6 +1617,8 @@ export function MyIssuesPage() {
 								displayOptions.displayProperties,
 							)}
 							swimlaneBy={displayOptions.swimlaneBy}
+							orderBy={displayOptions.orderBy}
+							orderDirection={displayOptions.orderDirection}
 							createDefaults={createDefaults}
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 						/>
@@ -1543,7 +1627,10 @@ export function MyIssuesPage() {
 							issues={
 								activeIssues[activeTab]
 									? toListData(
-											applyFilters(activeIssues[activeTab] as IssueData[]),
+											filterSubIssues(
+												applyFilters(activeIssues[activeTab] as IssueData[]),
+												displayOptions.showSubIssues,
+											),
 										)
 									: []
 							}
@@ -1557,6 +1644,7 @@ export function MyIssuesPage() {
 							orderDirection={displayOptions.orderDirection}
 							displayProperties={displayOptions.displayProperties}
 							showEmptyGroups={displayOptions.showEmptyGroups}
+							showSubIssues={displayOptions.showSubIssues}
 							onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 							hideFilter
 							externalFilters={filters}

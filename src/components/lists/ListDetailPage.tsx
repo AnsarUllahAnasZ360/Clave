@@ -130,6 +130,7 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 		projectId: issue.projectId,
 		sprintId: issue.sprintId,
 		milestoneId: issue.milestoneId,
+		parentId: issue.parentId,
 		updatedAt: issue.updatedAt,
 	}));
 
@@ -148,6 +149,9 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 		projectId: issue.projectId,
 		sprintId: issue.sprintId,
 		milestoneId: issue.milestoneId,
+		parentId: issue.parentId,
+		_creationTime: issue._creationTime,
+		updatedAt: issue.updatedAt,
 	}));
 
 	return (
@@ -273,6 +277,8 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 									projectId={list.projectId}
 									displayProperties={boardDisplayProperties}
 									swimlaneBy={options.swimlaneBy}
+									orderBy={options.orderBy}
+									orderDirection={options.orderDirection}
 									onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 								/>
 							) : (
@@ -285,6 +291,7 @@ export function ListDetailPage({ listId }: ListDetailPageProps) {
 									orderDirection={options.orderDirection}
 									displayProperties={options.displayProperties}
 									showEmptyGroups={options.showEmptyGroups}
+									showSubIssues={options.showSubIssues}
 									hideFilter
 									onIssueClick={(id) => setSelectedIssueId(id as Id<"issues">)}
 								/>

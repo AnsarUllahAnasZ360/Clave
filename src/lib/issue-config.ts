@@ -31,6 +31,55 @@ export type DefaultStatusKey =
 
 export type StatusKey = string;
 
+/**
+ * Status categories — the 5-bucket model used to group statuses across
+ * projects on workspace-wide views. Mirrors `statusCategoryValidator` in
+ * convex/schema.ts. Every status (workspace default or project custom) maps
+ * to exactly one category. Cross-project kanban groups by these 5 buckets;
+ * single-project boards use the project's specific status keys as columns.
+ */
+export type StatusCategory =
+	| "backlog"
+	| "unstarted"
+	| "started"
+	| "completed"
+	| "canceled";
+
+export const STATUS_CATEGORY_ORDER: StatusCategory[] = [
+	"backlog",
+	"unstarted",
+	"started",
+	"completed",
+	"canceled",
+];
+
+export const STATUS_CATEGORY_LABELS: Record<StatusCategory, string> = {
+	backlog: "Backlog",
+	unstarted: "Not started",
+	started: "In progress",
+	completed: "Done",
+	canceled: "Cancelled",
+};
+
+/**
+ * Visual config for category-grouped kanban columns. Mirrors the look-and-feel
+ * of the canonical default status of each category (so the column header for
+ * "In progress" feels like the familiar `in_progress` chip the user already
+ * knows). Hex colors match the per-status hex map in
+ * `src/hooks/use-workspace-settings.ts` to stay visually consistent across
+ * the app.
+ */
+export const STATUS_CATEGORY_COLUMN_CONFIG: Record<
+	StatusCategory,
+	{ icon: LucideIcon; colorHex: string }
+> = {
+	backlog: { icon: CircleDashed, colorHex: "#6b7280" },
+	unstarted: { icon: Circle, colorHex: "#a3a3a3" },
+	started: { icon: Timer, colorHex: "#3b82f6" },
+	completed: { icon: CircleCheck, colorHex: "#10b981" },
+	canceled: { icon: CircleX, colorHex: "#ef4444" },
+};
+
 export type PriorityKey = "no_priority" | "low" | "medium" | "high" | "urgent";
 
 export type DefaultIssueTypeKey = "issue" | "bug" | "improvement" | "feature";
@@ -42,6 +91,8 @@ export interface IssueConfigItem {
 	name: string;
 	icon: LucideIcon;
 	color: string; // Tailwind class e.g. "text-orange-500"
+	/** Status items only — undefined for type/priority items. */
+	category?: StatusCategory;
 }
 
 // ── Default Statuses (7) ──────────────────────────────────────────────────
@@ -53,42 +104,49 @@ export const DEFAULT_STATUSES: (IssueConfigItem & { key: DefaultStatusKey })[] =
 			name: "Triage",
 			icon: TriangleAlert,
 			color: "text-orange-500",
+			category: "backlog",
 		},
 		{
 			key: "backlog",
 			name: "Backlog",
 			icon: CircleDashed,
 			color: "text-muted-foreground",
+			category: "backlog",
 		},
 		{
 			key: "todo",
 			name: "Todo",
 			icon: Circle,
 			color: "text-muted-foreground",
+			category: "unstarted",
 		},
 		{
 			key: "in_progress",
 			name: "In progress",
 			icon: Timer,
 			color: "text-yellow-500",
+			category: "started",
 		},
 		{
 			key: "in_review",
 			name: "In review",
 			icon: Eye,
 			color: "text-blue-500",
+			category: "started",
 		},
 		{
 			key: "done",
 			name: "Done",
 			icon: CircleCheck,
 			color: "text-emerald-500",
+			category: "completed",
 		},
 		{
 			key: "cancelled",
 			name: "Cancelled",
 			icon: CircleX,
 			color: "text-muted-foreground",
+			category: "canceled",
 		},
 	];
 
