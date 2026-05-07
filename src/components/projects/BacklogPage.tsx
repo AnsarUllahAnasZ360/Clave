@@ -65,9 +65,7 @@ export function BacklogPage({ projectSlug }: BacklogPageProps) {
 	// server which made nesting impossible regardless of the client toggle.
 	const backlogIssues = useQuery(
 		api.issues.listBacklog,
-		project
-			? { projectId: project._id, showSubIssues: true }
-			: "skip",
+		project ? { projectId: project._id, showSubIssues: true } : "skip",
 	);
 
 	const handleCreateIssue = useCallback(() => {

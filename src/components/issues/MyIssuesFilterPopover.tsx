@@ -288,9 +288,7 @@ const CATEGORY_OPTIONS = STATUS_CATEGORY_ORDER.map((cat) => {
 	return {
 		id: cat as string,
 		label: STATUS_CATEGORY_LABELS[cat],
-		icon: (
-			<Icon className="h-3.5 w-3.5" style={{ color: cfg.colorHex }} />
-		),
+		icon: <Icon className="h-3.5 w-3.5" style={{ color: cfg.colorHex }} />,
 	};
 });
 
@@ -353,9 +351,7 @@ export function MyIssuesFilterPopover({
 			return {
 				id: s.id,
 				label: s.label,
-				icon: (
-					<Icon className="h-3.5 w-3.5" style={{ color: s.colorHex }} />
-				),
+				icon: <Icon className="h-3.5 w-3.5" style={{ color: s.colorHex }} />,
 			};
 		});
 	}, [crossProject.unionStatusItems, issueConfig]);

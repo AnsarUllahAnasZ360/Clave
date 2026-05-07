@@ -110,8 +110,8 @@ describe("inferStatusCategory — precedence (key beats name)", () => {
 		expect(inferStatusCategory({ key: "done", name: "Backlog" })).toBe(
 			"completed",
 		);
-		expect(
-			inferStatusCategory({ key: "in_progress", name: "Cancelled" }),
-		).toBe("started");
+		expect(inferStatusCategory({ key: "in_progress", name: "Cancelled" })).toBe(
+			"started",
+		);
 	});
 });

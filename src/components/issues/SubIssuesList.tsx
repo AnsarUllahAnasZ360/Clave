@@ -136,10 +136,7 @@ function SortableSubIssueRow({
 						className="p-0.5 rounded hover:bg-muted/80 transition-colors shrink-0"
 						title={`Status: ${statusConfig?.label ?? subIssue.status}`}
 					>
-						<StatusIcon
-							className="h-4 w-4"
-							style={{ color: statusColorHex }}
-						/>
+						<StatusIcon className="h-4 w-4" style={{ color: statusColorHex }} />
 					</button>
 				}
 				items={statusItems}

@@ -23,8 +23,7 @@ function makeWs(opts: {
 		priorities: [],
 		settings: undefined,
 		isLoading: false,
-		getStatusName: (k: string) =>
-			statuses.find((s) => s.key === k)?.name ?? k,
+		getStatusName: (k: string) => statuses.find((s) => s.key === k)?.name ?? k,
 		getStatusColor: (k: string) =>
 			statuses.find((s) => s.key === k)?.color ?? "#6b7280",
 		getStatusIcon: () => Circle,
@@ -185,7 +184,11 @@ describe("buildEffectiveIssueConfig — per-project resolution", () => {
 		const ws = makeWs({ statuses: wsStatuses });
 		const project = {
 			customStatuses: [
-				{ key: "testing_staging", name: "Testing in staging", color: "#f97316" },
+				{
+					key: "testing_staging",
+					name: "Testing in staging",
+					color: "#f97316",
+				},
 			],
 		};
 		const cfg = buildEffectiveIssueConfig(ws, project);
@@ -234,9 +237,7 @@ describe("buildEffectiveIssueConfig — per-project resolution", () => {
 	it("applies project's customStatusOrder over the merged list", () => {
 		const ws = makeWs({ statuses: wsStatuses });
 		const project = {
-			customStatuses: [
-				{ key: "blocked", name: "Blocked", color: "#ef4444" },
-			],
+			customStatuses: [{ key: "blocked", name: "Blocked", color: "#ef4444" }],
 			customStatusOrder: ["blocked", "done", "in_progress", "todo"],
 		};
 		const cfg = buildEffectiveIssueConfig(ws, project);
@@ -272,9 +273,9 @@ describe("category-aware resolution (cross-project kanban)", () => {
 		const testingItem = cfg.statusItems.find((s) => s.id === "testing_staging");
 		expect(testingItem?.category).toBe("started");
 		// Built-in keys still resolve via DEFAULT_STATUSES mapping.
-		expect(
-			cfg.statusItems.find((s) => s.id === "in_progress")?.category,
-		).toBe("started");
+		expect(cfg.statusItems.find((s) => s.id === "in_progress")?.category).toBe(
+			"started",
+		);
 		expect(cfg.statusItems.find((s) => s.id === "done")?.category).toBe(
 			"completed",
 		);

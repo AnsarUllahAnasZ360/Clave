@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireWorkspaceAdmin, requireWorkspaceMember } from "./lib/auth";
-import { customStatusValidator, statusCategoryValidator } from "./schema";
 import { inferStatusCategory } from "./lib/statusCategory";
+import { customStatusValidator, statusCategoryValidator } from "./schema";
 
 function slugifyKey(input: string): string {
 	return input

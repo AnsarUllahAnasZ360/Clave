@@ -74,7 +74,9 @@ export function IssueInlineCreate({
 		// open it), since issues require a project. Quietly aborting is
 		// better than creating an orphan or showing a confusing toast inline.
 		if (!projectId) {
-			toast.error("This view doesn't have a project — open the full create dialog");
+			toast.error(
+				"This view doesn't have a project — open the full create dialog",
+			);
 			handleCancel();
 			return;
 		}

@@ -200,9 +200,9 @@ export const IssueBoardCard = memo(function IssueBoardCard({
 						<span
 							className="text-[10px] text-muted-foreground/60 shrink-0"
 							title="Sub-issue"
-							aria-label="Sub-issue"
 						>
-							↳
+							<span className="sr-only">Sub-issue</span>
+							<span aria-hidden>↳</span>
 						</span>
 					)}
 					{display.identifier && (

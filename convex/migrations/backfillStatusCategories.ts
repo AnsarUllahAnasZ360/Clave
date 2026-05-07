@@ -104,7 +104,8 @@ export const runBatch = internalMutation({
 		}
 
 		const remaining =
-			settingsNeedingBackfill.length > settingsBatch.length || projectsRemaining;
+			settingsNeedingBackfill.length > settingsBatch.length ||
+			projectsRemaining;
 
 		return {
 			workspaceSettingsRowsPatched,
@@ -172,8 +173,7 @@ export const runAll = internalMutation({
 				);
 				const projectsBatch = projectsNeedingBackfill.slice(0, projectBudget);
 				projectsBatchLength = projectsBatch.length;
-				projectsHadMore =
-					projectsNeedingBackfill.length > projectsBatch.length;
+				projectsHadMore = projectsNeedingBackfill.length > projectsBatch.length;
 
 				for (const project of projectsBatch) {
 					const updated = (project.customStatuses ?? []).map((cs) => {

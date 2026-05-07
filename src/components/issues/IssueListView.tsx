@@ -264,9 +264,7 @@ function groupIssues(
 				result.push({
 					key: cat,
 					label: STATUS_CATEGORY_LABELS[cat],
-					icon: (
-						<Icon className="h-4 w-4" style={{ color: cfg.colorHex }} />
-					),
+					icon: <Icon className="h-4 w-4" style={{ color: cfg.colorHex }} />,
 					count: items.length,
 					issues: items,
 				});
@@ -779,9 +777,7 @@ export function IssueListView({
 		// target. The cleanup effect below clears entries from the hidden
 		// set as the server-confirmed `issues` prop drops them.
 		if (optimisticallyHiddenIds.size > 0) {
-			base = base.filter(
-				(i) => !optimisticallyHiddenIds.has(i._id as string),
-			);
+			base = base.filter((i) => !optimisticallyHiddenIds.has(i._id as string));
 		}
 		return base;
 	}, [issues, applyFilters, showSubIssuesProp, optimisticallyHiddenIds]);
@@ -839,9 +835,7 @@ export function IssueListView({
 			pendingSortOrders.size > 0
 				? filteredIssues.map((i) => {
 						const override = pendingSortOrders.get(i._id as string);
-						return override !== undefined
-							? { ...i, sortOrder: override }
-							: i;
+						return override !== undefined ? { ...i, sortOrder: override } : i;
 					})
 				: filteredIssues;
 		return sortIssues(enriched, sortBy, statusOrder, orderDirectionProp);
@@ -1231,9 +1225,7 @@ export function IssueListView({
 					key = resolveCategoryForIssue(issue);
 					break;
 				case "project":
-					key = issue.projectId
-						? (issue.projectId as string)
-						: "no_project";
+					key = issue.projectId ? (issue.projectId as string) : "no_project";
 					break;
 				case "milestone":
 					key = issue.sprintId
@@ -1424,8 +1416,7 @@ export function IssueListView({
 					} else if (newIndex === 0) {
 						newSortOrder = (newOrder[1].sortOrder ?? 1) / 2;
 					} else if (newIndex === newOrder.length - 1) {
-						newSortOrder =
-							(newOrder[newOrder.length - 2].sortOrder ?? 0) + 1.0;
+						newSortOrder = (newOrder[newOrder.length - 2].sortOrder ?? 0) + 1.0;
 					} else {
 						const before = newOrder[newIndex - 1].sortOrder ?? 0;
 						const after = newOrder[newIndex + 1].sortOrder ?? 1;
@@ -1555,6 +1546,7 @@ export function IssueListView({
 			>
 				{isBulkDrag && (
 					<span
+						role="status"
 						aria-label={`${bulkCount} issues selected`}
 						className="absolute left-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center min-w-[1.5rem] h-5 px-1.5 rounded-full bg-sienna-500 text-white text-[11px] font-semibold shadow-md tabular-nums z-20 pointer-events-none"
 					>

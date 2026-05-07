@@ -43,11 +43,7 @@ import {
 	useEffectiveIssueConfig,
 	useProjectsEffectiveConfigs,
 } from "@/hooks/use-effective-issue-config";
-import type {
-	OrderByOption,
-	OrderDirection,
-} from "@/lib/display-options";
-import { sortIssues } from "@/lib/issue-sort";
+import type { OrderByOption, OrderDirection } from "@/lib/display-options";
 import {
 	PRIORITY_LABELS,
 	STATUS_CATEGORY_COLUMN_CONFIG,
@@ -56,6 +52,7 @@ import {
 	type StatusCategory,
 	type StatusKey,
 } from "@/lib/issue-config";
+import { sortIssues } from "@/lib/issue-sort";
 import {
 	pulseDropTarget,
 	resolveSidebarDropTarget,
@@ -1399,72 +1396,73 @@ export function IssueBoardView({
 			    point, which would otherwise always be this overlay, never
 			    the sidebar node underneath. */}
 				<DragOverlay style={{ pointerEvents: "none" }}>
-					{activeItem ? (
-						(() => {
-							// Bulk drag visual: when the dragged card belongs to a
-							// multi-select, render a stack of two ghost cards
-							// behind the active card and a sienna count badge on
-							// the corner. Communicates "you're moving N things"
-							// at a glance — without this, multi-select bulk drag
-							// looked identical to single-card drag.
-							const isBulkDrag =
-								selectedIds.size > 1 && selectedIds.has(activeItem._id);
-							const bulkCount = isBulkDrag ? selectedIds.size : 1;
-							return (
-								<div
-									className={cn(
-										"relative pointer-events-none transition-all duration-150 origin-center w-[272px]",
-										overlayOverSidebar
-											? "scale-[0.45] opacity-80"
-											: "scale-[1.02] opacity-90",
-									)}
-								>
-									{isBulkDrag && (
-										<>
-											{/* Stack ghosts — two stylized rectangles
+					{activeItem
+						? (() => {
+								// Bulk drag visual: when the dragged card belongs to a
+								// multi-select, render a stack of two ghost cards
+								// behind the active card and a sienna count badge on
+								// the corner. Communicates "you're moving N things"
+								// at a glance — without this, multi-select bulk drag
+								// looked identical to single-card drag.
+								const isBulkDrag =
+									selectedIds.size > 1 && selectedIds.has(activeItem._id);
+								const bulkCount = isBulkDrag ? selectedIds.size : 1;
+								return (
+									<div
+										className={cn(
+											"relative pointer-events-none transition-all duration-150 origin-center w-[272px]",
+											overlayOverSidebar
+												? "scale-[0.45] opacity-80"
+												: "scale-[1.02] opacity-90",
+										)}
+									>
+										{isBulkDrag && (
+											<>
+												{/* Stack ghosts — two stylized rectangles
 											   offset behind the active card so users
 											   see at a glance "this is a stack". */}
-											<div
-												aria-hidden
-												className="absolute inset-0 rounded-lg border border-border bg-card shadow-md translate-x-1.5 translate-y-1.5 -z-10"
-											/>
-											<div
-												aria-hidden
-												className="absolute inset-0 rounded-lg border border-border bg-card shadow-md translate-x-3 translate-y-3 -z-20 opacity-80"
-											/>
-										</>
-									)}
-									<div className="shadow-lg rounded-lg relative">
-										<IssueBoardCard
-											issue={activeItem}
-											displayProperties={displayProperties}
-											issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
-											onDelete={() =>
-												onDeleteIssue(activeItem._id, activeItem.identifier)
-											}
-											assignee={(() => {
-												const id =
-													activeItem.assigneeId ??
-													activeItem.assigneeIds?.[0] ??
-													undefined;
-												return id ? (memberLookup.get(id) ?? null) : null;
-											})()}
-											labels={resolveLabels(activeItem, labelLookup)}
-											statusBadge={getStatusBadge?.(activeItem)}
-										/>
-										{isBulkDrag && (
-											<span
-												aria-label={`${bulkCount} issues selected`}
-												className="absolute -top-2 -right-2 inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-full bg-sienna-500 text-white text-xs font-semibold shadow-md tabular-nums"
-											>
-												{bulkCount}
-											</span>
+												<div
+													aria-hidden
+													className="absolute inset-0 rounded-lg border border-border bg-card shadow-md translate-x-1.5 translate-y-1.5 -z-10"
+												/>
+												<div
+													aria-hidden
+													className="absolute inset-0 rounded-lg border border-border bg-card shadow-md translate-x-3 translate-y-3 -z-20 opacity-80"
+												/>
+											</>
 										)}
+										<div className="shadow-lg rounded-lg relative">
+											<IssueBoardCard
+												issue={activeItem}
+												displayProperties={displayProperties}
+												issueUrl={`/${workspaceSlug}/issues/${activeItem.identifier}`}
+												onDelete={() =>
+													onDeleteIssue(activeItem._id, activeItem.identifier)
+												}
+												assignee={(() => {
+													const id =
+														activeItem.assigneeId ??
+														activeItem.assigneeIds?.[0] ??
+														undefined;
+													return id ? (memberLookup.get(id) ?? null) : null;
+												})()}
+												labels={resolveLabels(activeItem, labelLookup)}
+												statusBadge={getStatusBadge?.(activeItem)}
+											/>
+											{isBulkDrag && (
+												<span
+													role="status"
+													aria-label={`${bulkCount} issues selected`}
+													className="absolute -top-2 -right-2 inline-flex items-center justify-center min-w-[1.5rem] h-6 px-1.5 rounded-full bg-sienna-500 text-white text-xs font-semibold shadow-md tabular-nums"
+												>
+													{bulkCount}
+												</span>
+											)}
+										</div>
 									</div>
-								</div>
-							);
-						})()
-					) : null}
+								);
+							})()
+						: null}
 				</DragOverlay>
 			</DndContext>
 			<IssueBulkActionBar

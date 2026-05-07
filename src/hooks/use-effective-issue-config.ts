@@ -10,8 +10,8 @@ import {
 	getTypeConfig,
 	type StatusCategory,
 } from "@/lib/issue-config";
-import { inferStatusCategory } from "../../convex/lib/statusCategory";
 import type { Id } from "../../convex/_generated/dataModel";
+import { inferStatusCategory } from "../../convex/lib/statusCategory";
 
 type CustomItem = {
 	key: string;

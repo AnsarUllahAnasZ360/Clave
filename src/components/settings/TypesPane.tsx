@@ -51,6 +51,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { resolveStatusCategory } from "@/hooks/use-effective-issue-config";
 import { applyOrder } from "@/hooks/use-workspace-settings";
 import {
 	DEFAULT_ISSUE_TYPES,
@@ -63,7 +64,6 @@ import {
 	STATUS_CATEGORY_ORDER,
 	type StatusCategory,
 } from "@/lib/issue-config";
-import { resolveStatusCategory } from "@/hooks/use-effective-issue-config";
 import { cn } from "@/lib/utils";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -165,7 +165,7 @@ export function TypesSettingsPane() {
 					name: string;
 					color: string;
 					category?: StatusCategory;
-				}[]
+			  }[]
 			| undefined,
 	) => {
 		if (!custom || custom.length === 0)
