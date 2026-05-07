@@ -14,7 +14,18 @@ type RequiredVarSpec = {
 	name: string;
 	description: string;
 	pattern?: RegExp;
+	read: () => string | undefined;
 };
+
+// Critical detail: each `read()` accesses `process.env.<LITERAL_KEY>` — never
+// `process.env[name]`. Bundlers (Webpack, Turbopack) only inline NEXT_PUBLIC_*
+// values into the client bundle when the property is read by literal name; a
+// dynamic index access stays as a runtime lookup against a (non-existent on
+// the client) `process.env` object and the value comes back undefined even
+// though it's set in `.env.local`. The literal-only access is what makes the
+// validation work in the browser at all.
+const normalizeStringEnv = (raw: unknown): string | undefined =>
+	typeof raw === "string" && raw.length > 0 ? raw : undefined;
 
 const REQUIRED_VARS: RequiredVarSpec[] = [
 	{
@@ -22,16 +33,9 @@ const REQUIRED_VARS: RequiredVarSpec[] = [
 		description:
 			"Convex deployment URL. Without this, every query/mutation fails and the entire app hangs.",
 		pattern: /^https:\/\/.+\.convex\.cloud$/,
+		read: () => normalizeStringEnv(process.env.NEXT_PUBLIC_CONVEX_URL),
 	},
 ];
-
-function readEnv(name: string): string | undefined {
-	// process.env is the universal source on both server and client when a
-	// variable is prefixed NEXT_PUBLIC_*. Avoid optional chaining on a
-	// non-existent global.
-	const value = process.env[name];
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
 
 function formatMissing(specs: RequiredVarSpec[]): string {
 	return specs.map((s) => `  - ${s.name}: ${s.description}`).join("\n");
@@ -47,7 +51,7 @@ export function validateRequiredEnv(): void {
 	const malformed: RequiredVarSpec[] = [];
 
 	for (const spec of REQUIRED_VARS) {
-		const value = readEnv(spec.name);
+		const value = spec.read();
 		if (value === undefined) {
 			missing.push(spec);
 			continue;
@@ -73,10 +77,11 @@ export function validateRequiredEnv(): void {
 /**
  * Read NEXT_PUBLIC_CONVEX_URL after validation. Use this from places that
  * previously did `process.env.NEXT_PUBLIC_CONVEX_URL as string` — the cast
- * was lying when the var was unset.
+ * was lying when the var was unset. Literal property access (not dynamic
+ * indexing) so bundlers inline the value into client bundles.
  */
 export function getConvexUrl(): string {
-	const url = readEnv("NEXT_PUBLIC_CONVEX_URL");
+	const url = normalizeStringEnv(process.env.NEXT_PUBLIC_CONVEX_URL);
 	if (!url) {
 		throw new Error(
 			"NEXT_PUBLIC_CONVEX_URL is not set. Run validateRequiredEnv() at boot to surface this earlier.",
