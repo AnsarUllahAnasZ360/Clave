@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { inferStatusCategory } from "../../convex/lib/statusCategory";
+import {
+	STATUS_CATEGORY_LABELS,
+	STATUS_CATEGORY_ORDER,
+} from "../../src/lib/issue-config";
 
 describe("inferStatusCategory — key-pattern matches", () => {
 	it("classifies triage/inbox/new keys as backlog", () => {
@@ -113,5 +117,39 @@ describe("inferStatusCategory — precedence (key beats name)", () => {
 		expect(inferStatusCategory({ key: "in_progress", name: "Cancelled" })).toBe(
 			"started",
 		);
+	});
+});
+
+describe("STATUS_CATEGORY_ORDER / STATUS_CATEGORY_LABELS — list/board axis", () => {
+	// IssueListView's category branch always emits one group per entry in
+	// STATUS_CATEGORY_ORDER. If the order or label set drifts, the kanban
+	// columns and list buckets stop lining up — these tests pin the shape.
+	it("contains exactly the 5 canonical buckets in canonical order", () => {
+		expect(STATUS_CATEGORY_ORDER).toEqual([
+			"backlog",
+			"unstarted",
+			"started",
+			"completed",
+			"canceled",
+		]);
+	});
+
+	it("has a label for every entry in the order array", () => {
+		for (const cat of STATUS_CATEGORY_ORDER) {
+			expect(STATUS_CATEGORY_LABELS[cat]).toBeTruthy();
+		}
+	});
+
+	it("labels match the user-facing copy the UI ships with", () => {
+		// The screenshots that surfaced the bug expected exactly these
+		// strings. Renaming any of them requires a coordinated UI/docs
+		// pass — this test makes that intentional.
+		expect(STATUS_CATEGORY_LABELS).toEqual({
+			backlog: "Backlog",
+			unstarted: "Not started",
+			started: "In progress",
+			completed: "Done",
+			canceled: "Cancelled",
+		});
 	});
 });
