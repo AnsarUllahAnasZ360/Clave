@@ -710,8 +710,10 @@ export function IssueBoardView({
 				// status key. Translate it to a concrete status the issue's
 				// project recognizes — the project's first status in that
 				// category, per its display order. If the project has no status
-				// in that category we abort the cross-column move (silently
-				// dropping the change is better than writing a bogus status).
+				// in that category we abort the cross-column move with a toast
+				// that names the project + bucket and points at project settings
+				// (the only place to add or un-hide a status), so the user knows
+				// exactly what to do next.
 				let resolvedTargetStatus: string = targetStatus;
 				if (isCrossProject) {
 					const mapped = crossProject.resolveStatusForCategory(
@@ -719,8 +721,15 @@ export function IssueBoardView({
 						targetStatus as StatusCategory,
 					);
 					if (!mapped) {
+						const bucketLabel =
+							STATUS_CATEGORY_LABELS[targetStatus as StatusCategory];
+						const projectName =
+							(activeIssue.projectId &&
+								workspaceProjects?.find((p) => p._id === activeIssue.projectId)
+									?.name) ||
+							"this issue's project";
 						toast.error(
-							`This project has no "${STATUS_CATEGORY_LABELS[targetStatus as StatusCategory]}" status`,
+							`No "${bucketLabel}" status in ${projectName}. Add one in project settings → Statuses to drop here.`,
 						);
 						return;
 					}
@@ -834,6 +843,9 @@ export function IssueBoardView({
 			isCrossProject,
 			crossProject,
 			STATUS_COLUMNS,
+			// Read by the missing-category toast so the message can name the
+			// project the user dropped from.
+			workspaceProjects,
 			// Read by the bulk-drag-to-sidebar branch — without this dep
 			// the first bulk drop after building a selection saw a stale
 			// (empty) Set in the closure and only moved the active card.
