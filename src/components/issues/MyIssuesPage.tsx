@@ -1203,13 +1203,13 @@ export function MyIssuesPage() {
 		setShowEmptyGroups,
 		setSwimlaneSetting,
 		reset: resetDisplayOptions,
-		// Storage key bumped from "my-issues" → "my-issues-v2" so existing
-		// users pick up the new defaults (`groupBy: "category"` plus the
-		// project column) once. The previous key persisted `groupBy: "status"`
-		// for anyone who used My Issues before — keeping the same key would
-		// have left them stuck on a status-grouped list across projects, which
-		// is exactly the inconsistency this branch is meant to fix.
-	} = useDisplayOptions("my-issues-v2", {
+		// Storage key bumped to `my-issues-v3` so anyone whose saved options
+		// still pin `groupBy: "status"` picks up the new category-bucket
+		// default once. We've bumped this twice now (v1 → v2 → v3); the
+		// category axis is the only one that composes coherently across
+		// projects, and the screenshots show users were still landing on the
+		// raw-status grouping under v2.
+	} = useDisplayOptions("my-issues-v3", {
 		// Default cross-project view to category buckets (Backlog · Not started ·
 		// In progress · Done · Cancelled) — same axis as the kanban — so list
 		// and board grouping stay consistent. Status-key grouping doesn't

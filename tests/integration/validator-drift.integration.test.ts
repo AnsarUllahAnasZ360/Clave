@@ -133,7 +133,12 @@ async function seedMaximalFixture(
 			resources: [{ url: "https://example.com", label: "Spec" }],
 			typeLabel: "feature",
 			tags: ["alpha"],
-			customStatuses: [{ key: "k", name: "n", color: "#000000" }],
+			// `category` is the v0.6.0 addition to customStatusValidator — set
+			// it explicitly here so the validator-drift guard catches anyone
+			// who forgets to thread the field through a returns validator.
+			customStatuses: [
+				{ key: "k", name: "n", color: "#000000", category: "backlog" },
+			],
 			customStatusOrder: ["k"],
 			customTypes: [{ key: "t", name: "n", color: "#000000" }],
 			sortOrder: 0,

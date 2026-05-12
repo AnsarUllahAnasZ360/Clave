@@ -254,21 +254,21 @@ function groupIssues(
 			}
 		}
 	} else if (groupBy === "category") {
-		// Render the 5 categories in canonical order. Empty buckets are dropped
-		// here; `showEmptyGroups` is enforced by the caller after grouping.
+		// Always emit all 5 category buckets in canonical order so the list
+		// matches the kanban's column axis. Empty buckets are pruned by the
+		// caller's `showEmptyGroups` filter — dropping them here would
+		// suppress them even when the user has explicitly asked to see them.
 		for (const cat of STATUS_CATEGORY_ORDER) {
-			const items = groups.get(cat);
-			if (items) {
-				const cfg = STATUS_CATEGORY_COLUMN_CONFIG[cat];
-				const Icon = cfg.icon;
-				result.push({
-					key: cat,
-					label: STATUS_CATEGORY_LABELS[cat],
-					icon: <Icon className="h-4 w-4" style={{ color: cfg.colorHex }} />,
-					count: items.length,
-					issues: items,
-				});
-			}
+			const items = groups.get(cat) ?? [];
+			const cfg = STATUS_CATEGORY_COLUMN_CONFIG[cat];
+			const Icon = cfg.icon;
+			result.push({
+				key: cat,
+				label: STATUS_CATEGORY_LABELS[cat],
+				icon: <Icon className="h-4 w-4" style={{ color: cfg.colorHex }} />,
+				count: items.length,
+				issues: items,
+			});
 		}
 	} else if (groupBy === "priority") {
 		for (const pc of PRIORITY_CONFIG) {
