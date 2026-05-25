@@ -267,6 +267,16 @@ export type ProjectsEffectiveConfigs = {
 		category: StatusCategory,
 	) => string | null;
 	/**
+	 * Every status in `issue`'s own project that maps to `category`, in the
+	 * project's display order. Drag-drop uses this to decide whether to apply
+	 * `resolveStatusForCategory` blindly (length === 1) or prompt the user
+	 * with a picker (length > 1) since multiple statuses can share one bucket.
+	 */
+	getProjectStatusesInCategory: (
+		issue: IssueLike,
+		category: StatusCategory,
+	) => EffectivePickerItem[];
+	/**
 	 * Union of all status keys across the workspace + every included project's
 	 * customStatuses, deduped, ordered by workspace's natural order with any
 	 * project-only keys appended in first-seen order.
@@ -341,6 +351,14 @@ export function useProjectsEffectiveConfigs(
 			return match?.id ?? null;
 		};
 
+		const getProjectStatusesInCategory = (
+			issue: IssueLike,
+			category: StatusCategory,
+		): EffectivePickerItem[] => {
+			const cfg = getConfigForIssue(issue);
+			return cfg.statusItems.filter((s) => s.category === category);
+		};
+
 		const seen = new Set<string>();
 		const unionStatusItems: EffectivePickerItem[] = [];
 		for (const item of workspaceFallback.statusItems) {
@@ -366,6 +384,7 @@ export function useProjectsEffectiveConfigs(
 			getConfigForIssue,
 			getCategoryForIssue,
 			resolveStatusForCategory,
+			getProjectStatusesInCategory,
 			unionStatusItems,
 			unionStatusOrder,
 			isLoading: ws.isLoading,

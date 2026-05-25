@@ -133,11 +133,16 @@ async function seedMaximalFixture(
 			resources: [{ url: "https://example.com", label: "Spec" }],
 			typeLabel: "feature",
 			tags: ["alpha"],
-			// `category` is the v0.6.0 addition to customStatusValidator — set
-			// it explicitly here so the validator-drift guard catches anyone
-			// who forgets to thread the field through a returns validator.
+			// Two custom statuses sharing the `backlog` category — this also
+			// exercises the multi-status-per-bucket path the cross-project
+			// drop picker relies on (without multiple matches we'd never
+			// surface the picker UI). `category` is the v0.6.0 addition to
+			// customStatusValidator — set it explicitly so the validator-
+			// drift guard catches anyone who forgets to thread the field
+			// through a returns validator.
 			customStatuses: [
 				{ key: "k", name: "n", color: "#000000", category: "backlog" },
+				{ key: "k2", name: "n2", color: "#111111", category: "backlog" },
 			],
 			customStatusOrder: ["k"],
 			customTypes: [{ key: "t", name: "n", color: "#000000" }],

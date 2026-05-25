@@ -365,4 +365,55 @@ describe("category-aware resolution (cross-project kanban)", () => {
 		);
 		expect(firstCanceled).toBeUndefined();
 	});
+
+	it("getProjectStatusesInCategory equivalent — returns every status in the bucket, in order", () => {
+		// Cross-project drop disambiguation: when a bucket maps to more than
+		// one status the board shows a picker. The picker is fed from this
+		// list, so order + completeness matters.
+		const ws = makeWs({
+			statuses: [
+				{ key: "triage", name: "Triage", color: "#f97316" },
+				{ key: "backlog", name: "Backlog", color: "#6b7280" },
+				{ key: "todo", name: "Todo", color: "#a3a3a3" },
+				{ key: "done", name: "Done", color: "#10b981" },
+			],
+		});
+		const project = {
+			customStatuses: [
+				{
+					key: "icebox",
+					name: "Icebox",
+					color: "#94a3b8",
+					category: "backlog" as const,
+				},
+			],
+			// User ordered icebox before triage; the picker should respect that.
+			customStatusOrder: ["icebox", "triage", "backlog", "todo", "done"],
+		};
+		const cfg = buildEffectiveIssueConfig(ws, project);
+		const backlogStatuses = cfg.statusItems.filter(
+			(s) => s.category === "backlog",
+		);
+		expect(backlogStatuses.map((s) => s.id)).toEqual([
+			"icebox",
+			"triage",
+			"backlog",
+		]);
+	});
+
+	it("getProjectStatusesInCategory equivalent — single match still returns an array of length 1", () => {
+		// Single-match path: drop applies the status directly without showing
+		// the picker. The hook must still return an array (not the bare item)
+		// so the caller can branch on length.
+		const ws = makeWs({
+			statuses: [
+				{ key: "todo", name: "Todo", color: "#a3a3a3" },
+				{ key: "done", name: "Done", color: "#10b981" },
+			],
+		});
+		const project = { customStatuses: [] };
+		const cfg = buildEffectiveIssueConfig(ws, project);
+		const unstarted = cfg.statusItems.filter((s) => s.category === "unstarted");
+		expect(unstarted.map((s) => s.id)).toEqual(["todo"]);
+	});
 });

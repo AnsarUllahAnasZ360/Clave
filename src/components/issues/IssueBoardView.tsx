@@ -40,6 +40,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+	type EffectivePickerItem,
 	useEffectiveIssueConfig,
 	useProjectsEffectiveConfigs,
 } from "@/hooks/use-effective-issue-config";
@@ -331,6 +332,16 @@ export function IssueBoardView({
 	// Local state for optimistic updates
 	const [localIssues, setLocalIssues] = useState<IssueCardData[]>([]);
 	const [activeItem, setActiveItem] = useState<IssueCardData | null>(null);
+
+	// Picker shown after a cross-project drop when the issue's project has
+	// multiple statuses in the target bucket. `onPick(statusId)` resumes the
+	// drop sequence; closing without picking aborts the move.
+	const [pendingCategoryDrop, setPendingCategoryDrop] = useState<{
+		matches: EffectivePickerItem[];
+		targetCategory: StatusCategory;
+		position: { x: number; y: number };
+		onPick: (statusId: string) => void;
+	} | null>(null);
 
 	// Bulk select — same shape as the list view. Modifier-click on a card
 	// toggles selection; shift-click extends a range against `localIssues`
@@ -706,21 +717,122 @@ export function IssueBoardView({
 				const insertIndex = overIndex === -1 ? targetItems.length : overIndex;
 				const newSortOrder = computeSortOrder(targetItems, insertIndex);
 
+				// `applyMove` is the full post-resolve drop sequence: optimistic
+				// state update + status/reorder/swimlane mutations. It runs sync
+				// when the cross-project resolver picks a single status, and
+				// after the user clicks a choice in the disambiguation picker
+				// when multiple statuses in the project share the target bucket.
+				const applyMove = (resolvedTargetStatus: string) => {
+					const issuePatch: {
+						status: IssueStatus;
+						sortOrder: number;
+						assigneeId?: Id<"users">;
+						priority?: string;
+						sprintId?: Id<"sprints">;
+						milestoneId?: Id<"milestones">;
+					} = {
+						status: resolvedTargetStatus as IssueStatus,
+						sortOrder: newSortOrder,
+					};
+
+					let updatePayload: {
+						issueId: Id<"issues">;
+						assigneeId?: Id<"users">;
+						priority?: "urgent" | "high" | "medium" | "low" | "no_priority";
+						sprintId?: Id<"sprints">;
+						milestoneId?: Id<"milestones">;
+					} | null = null;
+
+					if (
+						swimlaneBy !== "none" &&
+						targetSwimlaneKey &&
+						targetSwimlaneKey !== sourceSwimlaneKey
+					) {
+						if (swimlaneBy === "assignee") {
+							const nextAssignee =
+								targetSwimlaneKey === "__unassigned__"
+									? undefined
+									: (targetSwimlaneKey as Id<"users">);
+							issuePatch.assigneeId = nextAssignee;
+							updatePayload = {
+								issueId: activeId as Id<"issues">,
+								assigneeId: nextAssignee,
+							};
+						}
+						if (swimlaneBy === "priority") {
+							const nextPriority = targetSwimlaneKey as
+								| "urgent"
+								| "high"
+								| "medium"
+								| "low"
+								| "no_priority";
+							issuePatch.priority = nextPriority;
+							updatePayload = {
+								issueId: activeId as Id<"issues">,
+								priority: nextPriority,
+							};
+						}
+						if (swimlaneBy === "sprint" || swimlaneBy === "milestone") {
+							const nextSprint =
+								targetSwimlaneKey === "__no_sprint__"
+									? undefined
+									: (targetSwimlaneKey as Id<"sprints">);
+							issuePatch.sprintId = nextSprint;
+							if (swimlaneBy === "milestone") {
+								issuePatch.milestoneId = undefined;
+							}
+							updatePayload = {
+								issueId: activeId as Id<"issues">,
+								sprintId: nextSprint,
+								milestoneId: undefined,
+							};
+						}
+					}
+
+					setLocalIssues((prev) =>
+						prev.map((item) =>
+							item._id === activeId ? { ...item, ...issuePatch } : item,
+						),
+					);
+
+					const operations: Promise<unknown>[] = [
+						reorderIssue({
+							issueId: activeId as Id<"issues">,
+							newSortOrder,
+						}),
+					];
+					if (resolvedTargetStatus !== sourceStatus) {
+						operations.push(
+							updateStatus({
+								issueId: activeId as Id<"issues">,
+								status: resolvedTargetStatus as IssueStatus,
+							}),
+						);
+					}
+					if (updatePayload) {
+						operations.push(updateIssue(updatePayload));
+					}
+
+					Promise.all(operations).catch(() =>
+						toast.error("Failed to move issue"),
+					);
+				};
+
 				// In category mode, `targetStatus` is a category string, not a
 				// status key. Translate it to a concrete status the issue's
-				// project recognizes — the project's first status in that
-				// category, per its display order. If the project has no status
-				// in that category we abort the cross-column move with a toast
-				// that names the project + bucket and points at project settings
-				// (the only place to add or un-hide a status), so the user knows
-				// exactly what to do next.
-				let resolvedTargetStatus: string = targetStatus;
+				// project recognizes. Three cases:
+				//   0 matches → toast + abort (project has no status in bucket).
+				//   1 match → drop directly with that status.
+				//   2+ matches → defer to a picker popover so the user chooses
+				//   which status within the bucket (e.g. Triage vs Backlog vs
+				//   Icebox). We can't just pick the first — that quietly demotes
+				//   the issue past whatever the user actually wanted.
 				if (isCrossProject) {
-					const mapped = crossProject.resolveStatusForCategory(
+					const matches = crossProject.getProjectStatusesInCategory(
 						activeIssue,
 						targetStatus as StatusCategory,
 					);
-					if (!mapped) {
+					if (matches.length === 0) {
 						const bucketLabel =
 							STATUS_CATEGORY_LABELS[targetStatus as StatusCategory];
 						const projectName =
@@ -733,102 +845,25 @@ export function IssueBoardView({
 						);
 						return;
 					}
-					resolvedTargetStatus = mapped;
-				}
-
-				const issuePatch: {
-					status: IssueStatus;
-					sortOrder: number;
-					assigneeId?: Id<"users">;
-					priority?: string;
-					sprintId?: Id<"sprints">;
-					milestoneId?: Id<"milestones">;
-				} = {
-					status: resolvedTargetStatus as IssueStatus,
-					sortOrder: newSortOrder,
-				};
-
-				let updatePayload: {
-					issueId: Id<"issues">;
-					assigneeId?: Id<"users">;
-					priority?: "urgent" | "high" | "medium" | "low" | "no_priority";
-					sprintId?: Id<"sprints">;
-					milestoneId?: Id<"milestones">;
-				} | null = null;
-
-				if (
-					swimlaneBy !== "none" &&
-					targetSwimlaneKey &&
-					targetSwimlaneKey !== sourceSwimlaneKey
-				) {
-					if (swimlaneBy === "assignee") {
-						const nextAssignee =
-							targetSwimlaneKey === "__unassigned__"
-								? undefined
-								: (targetSwimlaneKey as Id<"users">);
-						issuePatch.assigneeId = nextAssignee;
-						updatePayload = {
-							issueId: activeId as Id<"issues">,
-							assigneeId: nextAssignee,
-						};
+					if (matches.length > 1) {
+						// Position the picker at the drop pointer location:
+						// activatorEvent is the original PointerDown; delta is
+						// movement; their sum is the release point.
+						const activator = event.activatorEvent as PointerEvent | undefined;
+						const x = (activator?.clientX ?? 0) + event.delta.x;
+						const y = (activator?.clientY ?? 0) + event.delta.y;
+						setPendingCategoryDrop({
+							matches,
+							targetCategory: targetStatus as StatusCategory,
+							position: { x, y },
+							onPick: applyMove,
+						});
+						return;
 					}
-					if (swimlaneBy === "priority") {
-						const nextPriority = targetSwimlaneKey as
-							| "urgent"
-							| "high"
-							| "medium"
-							| "low"
-							| "no_priority";
-						issuePatch.priority = nextPriority;
-						updatePayload = {
-							issueId: activeId as Id<"issues">,
-							priority: nextPriority,
-						};
-					}
-					if (swimlaneBy === "sprint" || swimlaneBy === "milestone") {
-						const nextSprint =
-							targetSwimlaneKey === "__no_sprint__"
-								? undefined
-								: (targetSwimlaneKey as Id<"sprints">);
-						issuePatch.sprintId = nextSprint;
-						if (swimlaneBy === "milestone") {
-							issuePatch.milestoneId = undefined;
-						}
-						updatePayload = {
-							issueId: activeId as Id<"issues">,
-							sprintId: nextSprint,
-							milestoneId: undefined,
-						};
-					}
+					applyMove(matches[0].id);
+					return;
 				}
-
-				setLocalIssues((prev) =>
-					prev.map((item) =>
-						item._id === activeId ? { ...item, ...issuePatch } : item,
-					),
-				);
-
-				const operations: Promise<unknown>[] = [
-					reorderIssue({
-						issueId: activeId as Id<"issues">,
-						newSortOrder,
-					}),
-				];
-				if (targetStatus !== sourceStatus) {
-					operations.push(
-						updateStatus({
-							issueId: activeId as Id<"issues">,
-							status: resolvedTargetStatus as IssueStatus,
-						}),
-					);
-				}
-				if (updatePayload) {
-					operations.push(updateIssue(updatePayload));
-				}
-
-				Promise.all(operations).catch(() =>
-					toast.error("Failed to move issue"),
-				);
+				applyMove(targetStatus);
 			}
 		},
 		[
@@ -1483,6 +1518,102 @@ export function IssueBoardView({
 				sprintOptions={bulkSprintOptions}
 				projectId={projectId}
 			/>
+			{pendingCategoryDrop ? (
+				<CategoryDropPicker
+					pending={pendingCategoryDrop}
+					onCancel={() => setPendingCategoryDrop(null)}
+					onPick={(statusId) => {
+						pendingCategoryDrop.onPick(statusId);
+						setPendingCategoryDrop(null);
+					}}
+				/>
+			) : null}
+		</>
+	);
+}
+
+// ── Cross-project drop disambiguation picker ──────────────────────────────
+
+/**
+ * Floating menu shown after a cross-project drop into a category bucket
+ * when the issue's project has more than one status in that bucket. The
+ * menu is anchored at the drop pointer position. Picking writes that
+ * specific status; clicking outside (or Escape) cancels the move.
+ *
+ * The menu is positioned with `position: fixed` and `clamp`s to the
+ * viewport so it never renders off-screen when the user drops near an
+ * edge — common when dragging from one column to another adjacent one.
+ */
+function CategoryDropPicker({
+	pending,
+	onPick,
+	onCancel,
+}: {
+	pending: {
+		matches: EffectivePickerItem[];
+		targetCategory: StatusCategory;
+		position: { x: number; y: number };
+	};
+	onPick: (statusId: string) => void;
+	onCancel: () => void;
+}) {
+	useEffect(() => {
+		function onKey(e: KeyboardEvent) {
+			if (e.key === "Escape") onCancel();
+		}
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [onCancel]);
+
+	// Clamp to viewport so the menu always lands fully on-screen even when
+	// the drop point was near the right or bottom edge.
+	const menuWidth = 220;
+	const menuMaxHeight = 320;
+	const left =
+		typeof window === "undefined"
+			? pending.position.x
+			: Math.min(pending.position.x, window.innerWidth - menuWidth - 8);
+	const top =
+		typeof window === "undefined"
+			? pending.position.y
+			: Math.min(pending.position.y, window.innerHeight - menuMaxHeight - 8);
+
+	return (
+		<>
+			{/** biome-ignore lint/a11y/useKeyWithClickEvents: backdrop is a
+			    click target for cancel; Escape is wired via document listener. */}
+			<div
+				className="fixed inset-0 z-40"
+				onClick={onCancel}
+				role="presentation"
+			/>
+			<div
+				className="fixed z-50 rounded-md border border-border bg-popover shadow-md p-1 min-w-[180px] max-h-[320px] overflow-y-auto"
+				style={{ left, top, width: menuWidth }}
+				role="menu"
+				aria-label={`Pick a ${STATUS_CATEGORY_LABELS[pending.targetCategory]} status`}
+			>
+				<div className="px-2 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+					{STATUS_CATEGORY_LABELS[pending.targetCategory]}
+				</div>
+				{pending.matches.map((m) => {
+					const Icon = m.icon;
+					return (
+						<button
+							key={m.id}
+							type="button"
+							onClick={() => onPick(m.id)}
+							className="flex items-center gap-2 w-full px-2 py-1.5 text-sm rounded hover:bg-accent text-left cursor-pointer"
+						>
+							<Icon
+								className="h-4 w-4 shrink-0"
+								style={{ color: m.colorHex }}
+							/>
+							<span className="truncate">{m.label}</span>
+						</button>
+					);
+				})}
+			</div>
 		</>
 	);
 }
